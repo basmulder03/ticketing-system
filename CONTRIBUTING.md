@@ -51,9 +51,9 @@ pytest
 Type checking:
 
 ```bash
-docker-compose exec app mypy app
+docker-compose exec app mypy app tests
 # or locally
-mypy app
+mypy app tests
 ```
 
 ## Getting started
