@@ -17,6 +17,12 @@ venv/
 # Docker
 docker-compose.override.yml
 
+# Theme image uploads (local filesystem storage — see app.services.theme_images).
+# Normally lives outside the repo entirely (UPLOADS_DIR=/app/uploads, its own
+# docker volume), but ignored defensively in case UPLOADS_DIR is ever pointed
+# at a repo-relative path during local (non-docker) development.
+/uploads/
+
 # Editors/OS
 .DS_Store
 .idea/

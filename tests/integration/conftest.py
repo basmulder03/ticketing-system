@@ -31,10 +31,11 @@ from app.main import app
 from app.models.admin_user import AdminUser
 from app.models.agent_account import AgentAccount
 from app.models.audit_log import AuditLogEntry
-from app.models.enums import AdminRole, PaymentMethod, PublishStatus, SmtpEncryptionMode
+from app.models.enums import AdminRole, PaymentMethod, PublishStatus, SmtpEncryptionMode, ThemeFont
 from app.models.event import Event
 from app.models.event_config import EventConfig
 from app.models.show import Show
+from app.models.theme import Theme
 from app.models.ticket_type import TicketType
 
 DEFAULT_TEST_PASSWORD = "correct-horse-battery-staple"
@@ -340,5 +341,45 @@ async def make_event_config(db_session: AsyncSession) -> Callable[..., Awaitable
         await db_session.commit()
         await db_session.refresh(config)
         return config
+
+    return _make
+
+
+@pytest_asyncio.fixture
+async def make_theme(db_session: AsyncSession) -> Callable[..., Awaitable[Theme]]:
+    """Factory fixture: insert a ``Theme`` row directly for a given Event id
+    (bypassing ``PUT /api/v1/events/{event_id}/theme``), mirroring
+    ``make_event_config``'s "insert directly" convention. ``custom_css`` is
+    stored as given (NOT re-sanitized here) — tests that need "the real
+    save path sanitizes on write" should go through the route instead.
+    """
+
+    async def _make(
+        *,
+        event_id: uuid.UUID,
+        primary_color: str = "#1a1a1a",
+        secondary_color: str = "#ffffff",
+        accent_color: str = "#c9a227",
+        font_choice: ThemeFont = ThemeFont.SYSTEM_SANS,
+        custom_css: str | None = None,
+        logo_path: str | None = None,
+        background_image_path: str | None = None,
+        status: PublishStatus = PublishStatus.DRAFT,
+    ) -> Theme:
+        theme = Theme(
+            event_id=event_id,
+            primary_color=primary_color,
+            secondary_color=secondary_color,
+            accent_color=accent_color,
+            font_choice=font_choice,
+            custom_css=custom_css,
+            logo_path=logo_path,
+            background_image_path=background_image_path,
+            status=status,
+        )
+        db_session.add(theme)
+        await db_session.commit()
+        await db_session.refresh(theme)
+        return theme
 
     return _make

@@ -73,3 +73,32 @@ class SmtpEncryptionMode(str, enum.Enum):
     NONE = "none"
     SSL = "ssl"
     STARTTLS = "starttls"
+
+
+class ThemeFont(str, enum.Enum):
+    """A curated, fixed list of font choices for a Theme — deliberately NOT
+    free-text (the brief calls Theme's font choice "a fixed field"), so
+    every value here is guaranteed renderable without loading arbitrary
+    third-party font URLs (which would also reintroduce the exact
+    exfiltration/tracking-via-external-request risk the custom-CSS
+    sanitizer's ``url()`` rule exists to prevent).
+
+    Two system-stack options (no network request at all, instant render,
+    best privacy/perf) plus six well-known Google-Fonts-style faces chosen
+    for broad legibility across a sans/serif split. Actually self-hosting
+    the non-system font files (so the public site never calls out to
+    Google Fonts' CDN, keeping the same no-external-request posture as the
+    rest of this theming feature) is a `frontend-theming`/Milestone 2
+    concern — this enum only fixes the *choice list* and, via
+    ``app.services.theme_preview.FONT_STACKS``, the CSS ``font-family``
+    fallback stack for each choice.
+    """
+
+    SYSTEM_SANS = "system-sans"
+    SYSTEM_SERIF = "system-serif"
+    INTER = "inter"
+    ROBOTO = "roboto"
+    OPEN_SANS = "open-sans"
+    LORA = "lora"
+    MERRIWEATHER = "merriweather"
+    PLAYFAIR_DISPLAY = "playfair-display"

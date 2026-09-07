@@ -1,0 +1,63 @@
+{# HTMX swap target content — also included directly (not via HTTP) for the
+   theme editor page's initial render. See app/web/routes/themes.py. #}
+{% if error %}
+<p class="bo-form-error" role="alert">{{ error }}</p>
+{% else %}
+<div class="bo-preview-frame-wrap">
+  {# sandbox="" (no allow-* tokens) is deliberate defense in depth on top of
+     app.core.css_sanitizer's own escaping: scripts, forms, top-level
+     navigation, and popups are all blocked inside this document regardless
+     of what it contains, and the empty sandbox also denies allow-same-origin
+     so even injected content couldn't read this page's cookies/DOM. #}
+  <iframe class="bo-preview-frame" title="Live theme preview" sandbox="" srcdoc="{{ preview_doc }}"></iframe>
+</div>
+
+{% if preview.is_custom_css_active %}
+<p class="bo-hint bo-hint--small">This draft's custom CSS is included above (not yet saved).</p>
+{% endif %}
+
+<h3>Sanitized custom CSS</h3>
+<p class="bo-hint bo-hint--small">This is exactly what will be stored and rendered — anything you typed that isn't
+  shown here was stripped by the sanitizer.</p>
+{% if preview.sanitized_custom_css %}
+<pre class="bo-code-block">{{ preview.sanitized_custom_css }}</pre>
+{% else %}
+<p class="bo-hint bo-hint--small">No custom CSS is currently set (or everything typed was removed by sanitization).</p>
+{% endif %}
+
+<h3>Color contrast (WCAG 2.1 AA)</h3>
+<div class="bo-table-wrap">
+  <table class="bo-table bo-table--compact">
+    <thead>
+      <tr>
+        <th scope="col">Pair</th>
+        <th scope="col">Ratio</th>
+        <th scope="col">Normal text</th>
+        <th scope="col">Large text / UI</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for pair in preview.contrast_report.pairs %}
+      <tr>
+        <td data-label="Pair">{{ pair.label }}</td>
+        <td data-label="Ratio">{{ pair.ratio }}:1</td>
+        <td data-label="Normal text">
+          <span class="bo-badge bo-badge--{{ 'pass' if pair.passes_normal_text else 'fail' }}">
+            {{ 'Pass' if pair.passes_normal_text else 'Fail' }}
+          </span>
+        </td>
+        <td data-label="Large text / UI">
+          <span class="bo-badge bo-badge--{{ 'pass' if pair.passes_large_text else 'fail' }}">
+            {{ 'Pass' if pair.passes_large_text else 'Fail' }}
+          </span>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% if not preview.contrast_report.all_pass_normal_text %}
+<p class="bo-hint bo-hint--small" role="status">One or more color pairs fall below the WCAG AA normal-text
+  contrast ratio (4.5:1). Large text and UI elements only need 3:1.</p>
+{% endif %}
+{% endif %}

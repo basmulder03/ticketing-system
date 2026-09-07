@@ -7,7 +7,12 @@ Event/EventConfig/Show/TicketType backoffice-core routes. Public-site/
 checkout routes are added by ``backend-builder`` in subsequent milestones.
 """
 
-from fastapi import FastAPI
+from pathlib import Path
+from urllib.parse import quote
+
+from fastapi import FastAPI, Request
+from starlette.responses import RedirectResponse
+from starlette.staticfiles import StaticFiles
 
 from app.api.routes import (
     agent_accounts,
@@ -16,9 +21,14 @@ from app.api.routes import (
     event_configs,
     events,
     shows,
+    themes,
     ticket_types,
 )
 from app.core.config import get_settings
+from app.web.deps import WebAuthRequired
+from app.web.routes import auth as web_auth
+from app.web.routes import events as web_events
+from app.web.routes import themes as web_themes
 
 
 def create_app() -> FastAPI:
@@ -38,6 +48,35 @@ def create_app() -> FastAPI:
     app.include_router(event_configs.router)
     app.include_router(shows.router)
     app.include_router(ticket_types.router)
+    app.include_router(themes.router)
+
+    # Server-rendered backoffice HTML pages (Jinja2 + HTMX), added in
+    # Milestone 1.5 by `frontend-theming` — see app/web/. Distinct from the
+    # JSON API routers above: these render templates and proxy in-process
+    # to the JSON API (app.web.api_client) rather than duplicating its
+    # business logic.
+    app.include_router(web_auth.router)
+    app.include_router(web_events.router)
+    app.include_router(web_themes.router)
+
+    @app.exception_handler(WebAuthRequired)
+    async def _redirect_to_login(request: Request, exc: WebAuthRequired) -> RedirectResponse:
+        """Backoffice pages redirect an unauthenticated visitor to the login
+        form instead of returning a JSON 401 (see app.web.deps)."""
+        return RedirectResponse(url=f"/login?next={quote(exc.next_path)}", status_code=303)
+
+    # Serves uploaded Theme logo/background images back out (see
+    # app.services.theme_images) — local filesystem storage, mounted as its
+    # own docker volume in docker-compose.yml so it survives rebuilds.
+    # Created eagerly here (not lazily on first upload) since StaticFiles
+    # requires the directory to exist at mount time.
+    uploads_dir = Path(settings.uploads_dir)
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+    app.mount("/uploads", StaticFiles(directory=str(uploads_dir)), name="uploads")
+
+    # Backoffice static assets (CSS, vendored htmx.min.js — see app/static/).
+    static_dir = Path(__file__).resolve().parent / "static"
+    app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
     @app.get("/healthz", tags=["ops"])
     async def healthz() -> dict[str, str]:

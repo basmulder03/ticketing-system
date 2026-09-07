@@ -1,0 +1,30 @@
+{% extends "backoffice/base.html" %}
+{% block title %}Events — Beacon Backoffice{% endblock %}
+{% block content %}
+<h1>Events</h1>
+<p class="bo-hint">Select an event to edit its theme (colors, logo, background image, font, and an optional
+  advanced custom CSS override for its public landing page).</p>
+
+<div class="bo-table-wrap">
+  <table class="bo-table">
+    <thead>
+      <tr>
+        <th scope="col">Name</th>
+        <th scope="col">Status</th>
+        <th scope="col"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for event in events %}
+      <tr>
+        <td data-label="Name">{{ event.name }}</td>
+        <td data-label="Status"><span class="bo-badge bo-badge--{{ event.status }}">{{ event.status }}</span></td>
+        <td data-label="Theme"><a class="bo-button bo-button--small" href="/events/{{ event.id }}/theme">Edit theme</a></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="3">No events yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

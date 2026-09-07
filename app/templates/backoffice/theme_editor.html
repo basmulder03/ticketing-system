@@ -1,0 +1,169 @@
+{% extends "backoffice/base.html" %}
+{% block title %}Theme — {{ event.name }} — Beacon Backoffice{% endblock %}
+{% block content %}
+<p class="bo-breadcrumb"><a href="/events">Events</a> / {{ event.name }}</p>
+<h1>Theme: {{ event.name }}</h1>
+<p class="bo-hint">
+  Colors, logo, background, and font apply everywhere this event is themed: the public landing page,
+  ticket PDFs, invoice PDFs, and the branding of outgoing emails. The optional custom CSS below applies
+  <strong>only</strong> to the public landing page — ticket/invoice PDFs and emails always use the fixed
+  colors above, never custom CSS, so they stay guaranteed AA-compliant.
+</p>
+
+{% if theme and theme.is_custom_css_active %}
+<div class="bo-banner bo-banner--info" role="status">
+  <strong>Custom CSS is active</strong> for this event's public landing page. Automated contrast checks
+  below only cover the primary/secondary/accent colors — custom CSS can't be reliably auto-audited, so
+  please review it manually for contrast and legibility before publishing.
+</div>
+{% endif %}
+
+<div class="bo-theme-layout">
+  <div class="bo-theme-layout__form">
+
+    <section class="bo-panel">
+      <h2>Duplicate theme from another event</h2>
+      {% if other_events %}
+      <form method="post" action="/events/{{ event.id }}/theme/copy-from" class="bo-inline-form bo-inline-form--wrap">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label for="source_event_id" class="bo-visually-hidden">Source event</label>
+        <select id="source_event_id" name="source_event_id" required>
+          {% for other in other_events %}
+          <option value="{{ other.id }}">{{ other.name }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit" class="bo-button">Copy theme here</button>
+      </form>
+      <p class="bo-hint bo-hint--small">Copies colors, font, custom CSS, and status from the selected event.
+        Logo/background images are not copied — upload them separately below.</p>
+      {% else %}
+      <p class="bo-hint bo-hint--small">No other events exist yet to copy a theme from.</p>
+      {% endif %}
+    </section>
+
+    <form id="theme-fields-form" method="post" action="/events/{{ event.id }}/theme"
+          hx-post="/events/{{ event.id }}/theme/preview-fragment"
+          hx-trigger="input changed delay:500ms, change changed delay:200ms"
+          hx-target="#theme-preview-pane" hx-swap="innerHTML">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+      <section class="bo-panel">
+        <h2>Fixed theme fields</h2>
+
+        <div class="bo-color-fields">
+          <div class="bo-field bo-color-field">
+            <label for="primary_color">Primary color</label>
+            <input type="color" id="primary_color" name="primary_color"
+                   value="{{ theme.primary_color if theme else '#1a1a1a' }}">
+            <output class="bo-color-field__value" for="primary_color">{{ theme.primary_color if theme else '#1a1a1a' }}</output>
+          </div>
+          <div class="bo-field bo-color-field">
+            <label for="secondary_color">Secondary color</label>
+            <input type="color" id="secondary_color" name="secondary_color"
+                   value="{{ theme.secondary_color if theme else '#ffffff' }}">
+            <output class="bo-color-field__value" for="secondary_color">{{ theme.secondary_color if theme else '#ffffff' }}</output>
+          </div>
+          <div class="bo-field bo-color-field">
+            <label for="accent_color">Accent color</label>
+            <input type="color" id="accent_color" name="accent_color"
+                   value="{{ theme.accent_color if theme else '#c9a227' }}">
+            <output class="bo-color-field__value" for="accent_color">{{ theme.accent_color if theme else '#c9a227' }}</output>
+          </div>
+        </div>
+
+        <div class="bo-field">
+          <label for="font_choice">Font</label>
+          <select id="font_choice" name="font_choice">
+            {% for value, label in font_choices %}
+            <option value="{{ value }}"
+              {% if (theme and theme.font_choice == value) or (not theme and value == 'system-sans') %}selected{% endif %}>
+              {{ label }}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="bo-field">
+          <label for="status">Status</label>
+          <select id="status" name="status">
+            {% for value, label in status_choices %}
+            <option value="{{ value }}"
+              {% if (theme and theme.status == value) or (not theme and value == 'draft') %}selected{% endif %}>
+              {{ label }}
+            </option>
+            {% endfor %}
+          </select>
+          <p class="bo-hint bo-hint--small">A draft theme is only reachable via the event's unguessable preview
+            link once that's wired up; publishing the event itself is a separate, explicit action.</p>
+        </div>
+      </section>
+
+      <section class="bo-panel bo-panel--advanced">
+        <details {% if theme and theme.custom_css %}open{% endif %}>
+          <summary>Advanced: custom CSS override (optional)</summary>
+          <p class="bo-hint bo-hint--small">
+            Scoped to the public landing page only — never applied to ticket/invoice PDFs or emails.
+            Submitted CSS is sanitized on save: <code>@import</code>, external <code>url()</code>
+            references, fixed/sticky positioning, and any selector reaching outside the page's content
+            area are stripped automatically. Use the live preview to see exactly what survives.
+          </p>
+          <div class="bo-field">
+            <label for="custom_css">Custom CSS</label>
+            <textarea id="custom_css" name="custom_css" rows="10"
+                      spellcheck="false">{{ theme.custom_css if theme and theme.custom_css else '' }}</textarea>
+          </div>
+        </details>
+      </section>
+
+      <button type="submit" class="bo-button bo-button--primary">Save theme</button>
+    </form>
+
+    <section class="bo-panel">
+      <h2>Logo</h2>
+      {% if theme and theme.logo_url %}
+      <img src="{{ theme.logo_url }}" alt="Current event logo" class="bo-image-preview">
+      <form method="post" action="/events/{{ event.id }}/theme/logo/delete" class="bo-inline-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" class="bo-button bo-button--danger bo-button--small">Remove logo</button>
+      </form>
+      {% else %}
+      <p class="bo-hint bo-hint--small">No logo uploaded yet.</p>
+      {% endif %}
+      <form method="post" action="/events/{{ event.id }}/theme/logo" enctype="multipart/form-data" class="bo-inline-form bo-inline-form--wrap">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label for="logo_file">Logo image (PNG, JPEG, or WEBP, up to 5&nbsp;MB)</label>
+        <input type="file" id="logo_file" name="file" accept="image/png,image/jpeg,image/webp" required>
+        <button type="submit" class="bo-button bo-button--small">Upload logo</button>
+      </form>
+    </section>
+
+    <section class="bo-panel">
+      <h2>Background / hero image</h2>
+      {% if theme and theme.background_image_url %}
+      <img src="{{ theme.background_image_url }}" alt="Current event background image" class="bo-image-preview">
+      <form method="post" action="/events/{{ event.id }}/theme/background/delete" class="bo-inline-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" class="bo-button bo-button--danger bo-button--small">Remove background</button>
+      </form>
+      {% else %}
+      <p class="bo-hint bo-hint--small">No background image uploaded yet.</p>
+      {% endif %}
+      <form method="post" action="/events/{{ event.id }}/theme/background" enctype="multipart/form-data" class="bo-inline-form bo-inline-form--wrap">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label for="background_file">Background image (PNG, JPEG, or WEBP, up to 5&nbsp;MB)</label>
+        <input type="file" id="background_file" name="file" accept="image/png,image/jpeg,image/webp" required>
+        <button type="submit" class="bo-button bo-button--small">Upload background</button>
+      </form>
+    </section>
+  </div>
+
+  <aside class="bo-theme-layout__preview">
+    <h2>Live preview</h2>
+    <p class="bo-hint bo-hint--small">Updates automatically as you edit the fields above (after a short pause) —
+      this reflects the sanitized result, not necessarily exactly what you typed.</p>
+    <div id="theme-preview-pane">
+      {% include "backoffice/_theme_preview_fragment.html" %}
+    </div>
+  </aside>
+</div>
+{% endblock %}

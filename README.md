@@ -14,11 +14,16 @@ requirements, build order, and contributor-agent responsibilities — lives
 in [`PROJECT_BRIEF.md`](./PROJECT_BRIEF.md). Read that first for context on
 what's in scope and why.
 
-> **Status:** Milestone 0 (Foundations) — project skeleton, local dev
-> stack, CI, encrypted-secrets primitive, admin session auth, agent
-> API-key auth with scope enforcement, and the audit log are in place.
-> No Event/Show/TicketType/public-site business logic exists yet; see
-> `PROJECT_BRIEF.md`'s "Build order" section for what's next.
+> **Status:** Through Milestone 1.5 (Event Theming). Foundations
+> (Milestone 0: project skeleton, local dev stack, CI, encrypted-secrets
+> primitive, admin session auth, agent API-key auth with scope
+> enforcement, audit log), Backoffice core (Milestone 1: Event/EventConfig/
+> Show/TicketType CRUD, connection-test actions), and Event Theming
+> (Milestone 1.5: Theme CRUD, sanitized custom-CSS override, AA contrast
+> checking, logo/background image uploads, live-preview endpoint) are in
+> place, all API-only so far — no backoffice UI or public-site templates
+> exist yet (`frontend-theming`'s next scope). See `PROJECT_BRIEF.md`'s
+> "Build order" section for what's next.
 
 ## Stack
 
@@ -85,6 +90,35 @@ demo seed data is added in Milestone 1+.
 - Both auth endpoints are rate-limited per client IP (in-memory, see
   `app/core/rate_limit.py` — single-process only, adequate for this app's
   single-small-VPS target; not shared across multiple workers/replicas).
+
+### Theming
+
+Each Event has one Theme (`/api/v1/events/{event_id}/theme`, both admin and
+agent principals can read/write it — same access as Event/Show/TicketType):
+
+- Fixed fields: `primary_color`/`secondary_color`/`accent_color` (hex),
+  `font_choice` (a curated enum, not free text — see
+  `app.models.enums.ThemeFont`), `status` (draft/published).
+- Logo/background images: `PUT .../theme/logo` / `PUT .../theme/background`
+  (multipart upload, PNG/JPEG/WEBP only, size-capped by
+  `THEME_UPLOAD_MAX_BYTES`) — stored on local disk under `UPLOADS_DIR`
+  (its own docker volume, see `docker-compose.yml`) and served back out at
+  `/uploads/...`; `DELETE` clears either slot.
+- Optional advanced `custom_css`: sanitized server-side before storage —
+  see `app.core.css_sanitizer.sanitize_custom_css` for exactly what's
+  stripped (`@import`, external `url()` references, `position: fixed`/
+  `sticky`, anything not scoped under the `.event-content` container) and
+  why. Every Theme response includes `is_custom_css_active` (custom CSS
+  can't be reliably auto-audited for contrast, so the backoffice UI should
+  show a warning banner whenever this is true) and a computed
+  `contrast_report` (WCAG 2.1 AA ratios for the three fixed colors).
+- `POST .../theme/copy-from/{source_event_id}` duplicates another event's
+  theme (fixed fields + custom CSS; images are not copied — re-upload per
+  event).
+- `POST .../theme/preview` renders arbitrary, not-yet-saved theme values
+  (including custom CSS, sanitized through the exact same code path as the
+  real save) into a small sample HTML block + CSS, for a live preview pane
+  — nothing is persisted.
 
 ### Where to view sent emails
 
@@ -176,12 +210,18 @@ app/                  FastAPI application package
   core/crypto.py       Fernet encryption primitive + EncryptedString column type
   core/security.py     Password hashing, agent API-key gen, session token signing
   core/rate_limit.py   In-memory per-IP rate limiter
+  core/css_sanitizer.py Sanitizer for Theme custom CSS (default-deny, tinycss2-based)
   db/                  SQLAlchemy engine/session, declarative Base, shared mixins
-  models/               AdminUser, AgentAccount, AuditLogEntry
+  models/               AdminUser, AgentAccount, AuditLogEntry, Event, EventConfig,
+                         Show, TicketType, Theme
   schemas/               Pydantic request/response models
   services/audit.py     Reusable audit-log writer
+  services/contrast.py  WCAG 2.1 AA contrast-ratio checker (Theme fixed colors)
+  services/theme_images.py   Local-filesystem storage for logo/background uploads
+  services/theme_preview.py  Builds the Theme live-preview response
   api/deps.py           Auth dependencies + agent-scoping enforcement (require_admin)
-  api/routes/            auth, agent_accounts, audit_log routers
+  api/routes/            auth, agent_accounts, audit_log, events, event_configs,
+                          shows, ticket_types, themes routers
   templates/, static/  Jinja2 templates / static assets (empty — Milestone 2+)
   i18n/                EN/NL key-based translation dictionaries
 alembic/               DB migrations
