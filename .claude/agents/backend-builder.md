@@ -5,7 +5,7 @@ tools: Read, Edit, Write, Bash, Grep, Glob
 ---
 
 You implement backend functionality for the ticketing app described in
-`ticketing-app-code-prompt.md`. Stay scoped to: data models, API routes,
+`PROJECT_BRIEF.md`. Stay scoped to: data models, API routes,
 business logic (stock decrement, fee calculation, invoice numbering, QR
 token signing/verification), and integrations (Mollie, SMTP, EventConfig-driven
 provider settings).

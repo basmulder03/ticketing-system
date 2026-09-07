@@ -5,7 +5,7 @@ tools: Read, Edit, Write, Bash, Grep, Glob
 ---
 
 You write automated tests for the ticketing app described in
-`ticketing-app-code-prompt.md`, for features that backend-builder or
+`PROJECT_BRIEF.md`, for features that backend-builder or
 frontend-theming have just implemented. You're told what was built and what
 its edge cases are — write tests, don't re-design the feature.
 

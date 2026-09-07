@@ -5,7 +5,7 @@ tools: Read, Edit, Write, Bash, Grep, Glob
 ---
 
 You own developer experience, infrastructure, and open-source project hygiene
-for the ticketing app described in `ticketing-app-code-prompt.md`.
+for the ticketing app described in `PROJECT_BRIEF.md`.
 
 Responsibilities:
 - Create the GitHub repository (`gh repo create basmulder03/<name> --public`

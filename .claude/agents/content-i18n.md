@@ -5,7 +5,7 @@ tools: Read, Edit, Write, Grep, Glob
 ---
 
 You own all user-facing copy for the ticketing app described in
-`ticketing-app-code-prompt.md`, in both English and Dutch.
+`PROJECT_BRIEF.md`, in both English and Dutch.
 
 Rules:
 - Every new user-facing string goes through the translation layer (gettext/.po
