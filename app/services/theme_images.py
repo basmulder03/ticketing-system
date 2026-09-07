@@ -79,7 +79,7 @@ async def save_theme_image(
     declared_ext = _ALLOWED_CONTENT_TYPES.get((upload.content_type or "").lower())
     if declared_ext is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Unsupported image type. Allowed: PNG, JPEG, WEBP.",
         )
 
@@ -87,16 +87,16 @@ async def save_theme_image(
     data = await upload.read(max_bytes + 1)
     if len(data) > max_bytes:
         raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
             detail=f"Image exceeds the maximum allowed size of {max_bytes} bytes.",
         )
     if not data:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Uploaded file is empty.")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Uploaded file is empty.")
 
     sniffed_ext = _sniff_format(data)
     if sniffed_ext is None or sniffed_ext != declared_ext:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="File content does not match its declared image type.",
         )
 
