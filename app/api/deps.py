@@ -115,3 +115,26 @@ async def require_admin(principal: Principal = Depends(get_current_principal)) -
     if principal.actor_type != ActorType.HUMAN or principal.role != AdminRole.ADMIN:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required.")
     return principal
+
+
+async def require_admin_or_agent(principal: Principal = Depends(get_current_principal)) -> Principal:
+    """Dependency for content-type routes both human admins AND agent keys may reach.
+
+    Per PROJECT_BRIEF.md's AI/Agent Access section, agent keys are scoped to
+    "content-type data (events, shows, ticket types, theme fields, email
+    template content)" — this is the concrete gate for that content surface,
+    the mirror image of :func:`require_admin`. It deliberately does NOT
+    admit a ``scanner``-role human: scanner accounts are scoped to the
+    door-scanning endpoint only (see ``AdminRole`` docstring), so content
+    management stays limited to a real ``admin``-role human or any active
+    agent principal — never a scanner.
+
+    Routes that touch EventConfig (SMTP/Mollie credentials, financial data)
+    must NOT use this dependency — they stay on :func:`require_admin` only,
+    per the brief's explicit agent exclusion for payment/SMTP credentials.
+    """
+    if principal.actor_type == ActorType.AI_AGENT:
+        return principal
+    if principal.actor_type == ActorType.HUMAN and principal.role == AdminRole.ADMIN:
+        return principal
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin or agent access required.")

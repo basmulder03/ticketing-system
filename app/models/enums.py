@@ -29,3 +29,47 @@ class ActorType(str, enum.Enum):
 
     HUMAN = "human"
     AI_AGENT = "ai_agent"
+
+
+class PublishStatus(str, enum.Enum):
+    """Shared draft/published status, per PROJECT_BRIEF.md's Draft & Preview
+    section: "Every Event, Show, and Theme has a draft/published status".
+
+    One enum reused by ``Event`` and ``Show`` (and, in Milestone 1.5,
+    ``Theme``) rather than a separate near-identical enum per model (DRY) —
+    the semantics are identical: a draft is only reachable via an unguessable
+    preview link, a published record is publicly listed/indexed. The
+    shareable-preview-link mechanics themselves are Milestone 2 scope; this
+    milestone only builds the status field they'll key off.
+    """
+
+    DRAFT = "draft"
+    PUBLISHED = "published"
+
+
+class PaymentMethod(str, enum.Enum):
+    """A payment method an Event can enable for its shows' checkout flow.
+
+    Stored as a list on ``EventConfig.enabled_payment_methods`` (an event may
+    enable one or both). Full payment-flow integration lands in later
+    milestones (Mollie: Milestone 3, door: Milestone 6) — this milestone only
+    builds the per-event on/off configuration.
+    """
+
+    MOLLIE = "mollie"
+    DOOR = "door"
+
+
+class SmtpEncryptionMode(str, enum.Enum):
+    """Transport encryption mode for an EventConfig's SMTP settings.
+
+    Mirrors the options ``aiosmtplib`` actually needs to distinguish:
+    implicit TLS on connect (``ssl``, e.g. one.com port 465), STARTTLS after
+    a plaintext connect (``starttls``, e.g. one.com port 587), or no
+    encryption at all (``none`` — used for the local Mailpit dev sink, which
+    doesn't speak TLS).
+    """
+
+    NONE = "none"
+    SSL = "ssl"
+    STARTTLS = "starttls"

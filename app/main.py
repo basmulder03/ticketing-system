@@ -2,14 +2,22 @@
 
 Milestone 0 scope: app instance boots, exposes a health-check route, wires
 up settings/i18n scaffolding, and mounts the auth/agent-account/audit-log
-routes added for the "Foundations" auth & audit work. Business-domain
-routes (Event/Show/TicketType CRUD, checkout, etc.) are added by
-``backend-builder`` in subsequent milestones.
+routes added for the "Foundations" auth & audit work. Milestone 1 adds the
+Event/EventConfig/Show/TicketType backoffice-core routes. Public-site/
+checkout routes are added by ``backend-builder`` in subsequent milestones.
 """
 
 from fastapi import FastAPI
 
-from app.api.routes import agent_accounts, audit_log, auth
+from app.api.routes import (
+    agent_accounts,
+    audit_log,
+    auth,
+    event_configs,
+    events,
+    shows,
+    ticket_types,
+)
 from app.core.config import get_settings
 
 
@@ -26,6 +34,10 @@ def create_app() -> FastAPI:
     app.include_router(auth.router)
     app.include_router(agent_accounts.router)
     app.include_router(audit_log.router)
+    app.include_router(events.router)
+    app.include_router(event_configs.router)
+    app.include_router(shows.router)
+    app.include_router(ticket_types.router)
 
     @app.get("/healthz", tags=["ops"])
     async def healthz() -> dict[str, str]:
