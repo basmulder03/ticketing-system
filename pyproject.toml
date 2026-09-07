@@ -23,6 +23,7 @@ dependencies = [
     "argon2-cffi>=23.1,<24.0",
     "httpx>=0.27,<1.0",
     "itsdangerous>=2.2,<3.0",
+    "cryptography>=42.0,<44.0",
 ]
 
 [project.optional-dependencies]
@@ -46,6 +47,14 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+
+[tool.ruff.lint]
+# B008 (function-call-in-default-argument) is a false positive for
+# FastAPI's `Depends(...)`/`Query(...)` pattern, which is the documented,
+# idiomatic way to declare dependencies — used throughout every route in
+# this codebase, not just auth. Ignored project-wide rather than
+# `# noqa`-ing every route parameter.
+ignore = ["B008"]
 
 [build-system]
 requires = ["setuptools>=68"]

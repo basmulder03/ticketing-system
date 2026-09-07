@@ -13,6 +13,7 @@ from alembic import context
 from sqlalchemy import Connection
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+import app.models  # noqa: F401 - registers all model tables on Base.metadata for autogenerate
 from app.core.config import get_settings
 from app.db.base import Base
 from app.db.session import engine

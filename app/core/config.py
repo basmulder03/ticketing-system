@@ -13,6 +13,19 @@ from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+_INSECURE_SECRET_KEY = "dev-insecure-secret-key-change-me"
+_INSECURE_ENCRYPTION_KEY = "dev-insecure-encryption-key-change-me-32b"
+
+
+class InsecureDefaultSecretError(RuntimeError):
+    """Raised when a non-development environment boots with a dev-default secret.
+
+    Booting staging/production with ``secret_key`` or ``encryption_key`` left at
+    their hardcoded dev defaults would let anyone who has read this public repo
+    forge session cookies or decrypt EventConfig credentials (SMTP passwords,
+    Mollie keys) at rest.
+    """
+
 
 class Settings(BaseSettings):
     """Global application settings sourced from the environment."""
@@ -25,15 +38,34 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://beacon:beacon@localhost:5432/beacon"
     """SQLAlchemy async connection string for PostgreSQL."""
 
-    secret_key: str = "dev-insecure-secret-key-change-me"
-    """Used for session signing/CSRF once auth lands in a later milestone."""
+    secret_key: str = _INSECURE_SECRET_KEY
+    """Used for session signing/CSRF. Must be overridden outside development —
+    see ``model_post_init`` below, which refuses to boot on the dev default."""
 
-    encryption_key: str = "dev-insecure-encryption-key-change-me-32b"
+    encryption_key: str = _INSECURE_ENCRYPTION_KEY
     """Key used to encrypt EventConfig secrets (SMTP/Mollie credentials) at
     rest. Must be overridden with a real generated secret in staging/prod —
-    see README "Environments" section."""
+    see README "Environments" section. Must be overridden outside development —
+    see ``model_post_init`` below, which refuses to boot on the dev default."""
 
     default_locale: str = "en"
+
+    session_timeout_minutes: int = 30
+    """Admin session timeout. A session cookie whose embedded issue
+    timestamp is older than this is rejected even if its signature is
+    still valid — see ``app.core.security.verify_session_token``."""
+
+    login_rate_limit_per_minute: int = 10
+    """Max ``/api/v1/auth/login`` attempts per client IP per rolling minute."""
+
+    agent_auth_rate_limit_per_minute: int = 30
+    """Max agent-API-key-authenticated requests per client IP per rolling minute."""
+
+    # Seed-only defaults for the demo AdminUser (local dev login). Never
+    # used for real deployments — change/rotate before going anywhere near
+    # production.
+    seed_admin_email: str = "admin@beacon.local"
+    seed_admin_password: str = "dev-only-change-me-123"
 
     # Seed-only defaults for the demo Event's EventConfig (local dev SMTP
     # sink + Mollie test key placeholder). Never used for real events.
@@ -45,6 +77,21 @@ class Settings(BaseSettings):
     seed_smtp_sender_name: str = "Beacon Demo Event"
     seed_smtp_sender_email: str = "demo@beacon.local"
     seed_mollie_test_api_key: str = "test_placeholder_replace_with_real_mollie_test_key"
+
+    def model_post_init(self, __context: object, /) -> None:
+        """Refuse to boot outside development with a hardcoded dev-default secret."""
+        if self.app_env == "development":
+            return
+        if self.secret_key == _INSECURE_SECRET_KEY:
+            raise InsecureDefaultSecretError(
+                f"SECRET_KEY is still the insecure development default while "
+                f"APP_ENV={self.app_env!r}. Set a real generated secret."
+            )
+        if self.encryption_key == _INSECURE_ENCRYPTION_KEY:
+            raise InsecureDefaultSecretError(
+                f"ENCRYPTION_KEY is still the insecure development default while "
+                f"APP_ENV={self.app_env!r}. Set a real generated secret."
+            )
 
 
 @lru_cache

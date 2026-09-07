@@ -1,23 +1,14 @@
 """Seed the local dev database with demo data.
 
-Entrypoint stub for Milestone 0 — ``backend-builder`` should implement this
-once Event/Show/TicketType/EventConfig models exist (Milestone 1), so that
-`docker-compose up` (or `./scripts/dev-up.sh`) leaves the app immediately
-explorable per the brief's Developer Experience requirements:
+Milestone 0 scope: seeds a single demo ``AdminUser`` (admin role) from the
+``SEED_ADMIN_EMAIL``/``SEED_ADMIN_PASSWORD`` settings, so the auth flow can
+be exercised immediately after ``docker-compose up`` without a manual
+signup step (no signup route exists — admin accounts are provisioned out
+of band). Idempotent: safe to re-run against an already-seeded DB (upserts
+by email), so ``./scripts/dev-reseed.sh`` works.
 
-    "One-command local bootstrap: a single script or `docker-compose up`
-    that starts the app, DB, and Mailpit together, runs migrations, and
-    seeds at least one demo Event/Show/TicketType..."
-
-Expected shape once implemented:
-    - Create one demo Event (draft or published) with an EventConfig
-      pointing SMTP at the local Mailpit sink and Mollie at the test-key
-      placeholder (see ``Settings.seed_*`` in ``app/core/config.py`` for
-      the values to use).
-    - Create at least one Show under that Event.
-    - Create at least one TicketType under that Show.
-    - Be idempotent — safe to re-run against an already-seeded DB (e.g.
-      upsert by a stable slug/name) so ``./scripts/dev-reseed.sh`` works.
+Event/Show/TicketType/EventConfig demo data is added by ``backend-builder``
+starting Milestone 1, once those models exist.
 
 Run via: `docker-compose exec app python scripts/seed.py`
 (also wired into `./scripts/dev-up.sh` / `./scripts/dev-reseed.sh`).
@@ -25,14 +16,39 @@ Run via: `docker-compose exec app python scripts/seed.py`
 
 import asyncio
 
+from sqlalchemy import select
+
+from app.core.config import get_settings
+from app.core.security import hash_password
+from app.db.session import async_session_factory
+from app.models.admin_user import AdminUser
+from app.models.enums import AdminRole
+
 
 async def seed() -> None:
-    """Populate demo data. No-op until models exist (Milestone 1+)."""
-    print(
-        "[seed] No models defined yet (Milestone 0 skeleton only) — "
-        "nothing to seed. backend-builder: implement demo Event/Show/"
-        "TicketType creation here starting Milestone 1."
-    )
+    """Populate demo data: currently just the one local-dev AdminUser."""
+    settings = get_settings()
+    async with async_session_factory() as session:
+        result = await session.execute(
+            select(AdminUser).where(AdminUser.email == settings.seed_admin_email.lower())
+        )
+        admin = result.scalar_one_or_none()
+        if admin is not None:
+            print(f"[seed] AdminUser {settings.seed_admin_email!r} already exists, skipping.")
+            return
+
+        admin = AdminUser(
+            email=settings.seed_admin_email.lower(),
+            hashed_password=hash_password(settings.seed_admin_password),
+            role=AdminRole.ADMIN,
+            is_active=True,
+        )
+        session.add(admin)
+        await session.commit()
+        print(
+            f"[seed] Created demo AdminUser {settings.seed_admin_email!r} "
+            f"(password from SEED_ADMIN_PASSWORD — local dev only, never use in production)."
+        )
 
 
 if __name__ == "__main__":
