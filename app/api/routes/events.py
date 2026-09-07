@@ -29,6 +29,7 @@ def _to_out(event: Event) -> EventOut:
         description=event.description,
         status=event.status,
         sales_paused=event.sales_paused,
+        preview_token=event.preview_token,
         created_at=event.created_at,
         updated_at=event.updated_at,
     )

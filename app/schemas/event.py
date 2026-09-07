@@ -34,7 +34,16 @@ class EventUpdateRequest(BaseModel):
 
 
 class EventOut(BaseModel):
-    """Response shape for a single Event."""
+    """Response shape for a single Event.
+
+    ``preview_token`` is included so the backoffice can actually display/
+    copy the event's unguessable preview link (PROJECT_BRIEF.md's Sharing
+    section requires a "backoffice: share this preview/draft" copy-link
+    button) — it is not a secret in the SMTP-password/Mollie-key sense,
+    it's a capability URL scoped to viewing/exercising checkout on this
+    one event, and both admin and agent principals already have full
+    read/write access to everything else about the event.
+    """
 
     id: str
     name: str
@@ -42,5 +51,6 @@ class EventOut(BaseModel):
     description: str | None
     status: PublishStatus
     sales_paused: bool
+    preview_token: str
     created_at: datetime
     updated_at: datetime

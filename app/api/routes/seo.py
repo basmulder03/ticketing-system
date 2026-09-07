@@ -23,16 +23,18 @@ router = APIRouter(tags=["seo"])
 async def sitemap(session: AsyncSession = Depends(get_session)) -> Response:
     """List every published Event's public landing-page URL.
 
-    Assumes the public landing page lives at ``/events/{slug}`` (the same
-    slug the public read API keys off, see ``app.api.routes.public``) —
-    `frontend-theming` should flag/update this route if the actual page URL
-    scheme it wires up differs.
+    The public landing page lives at ``/e/{slug}`` (see
+    ``app.web.routes.public_site.public_landing_page``) — this was
+    originally written assuming ``/events/{slug}`` before that route
+    existed; updated by `frontend-theming` to match the real scheme once
+    the public pages were built (see that module's own docstring for why
+    ``/e/`` was chosen: short, semantic, not query-string routing).
     """
     settings = get_settings()
     result = await session.execute(select(Event.slug).where(Event.status == PublishStatus.PUBLISHED))
     slugs = result.scalars().all()
     base_url = settings.public_base_url.rstrip("/")
-    urls = "".join(f"<url><loc>{base_url}/events/{slug}</loc></url>" for slug in slugs)
+    urls = "".join(f"<url><loc>{base_url}/e/{slug}</loc></url>" for slug in slugs)
     xml = (
         '<?xml version="1.0" encoding="UTF-8"?>'
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' + urls + "</urlset>"
@@ -44,9 +46,16 @@ async def sitemap(session: AsyncSession = Depends(get_session)) -> Response:
 async def robots_txt() -> Response:
     """Allow crawling of the public site, but explicitly disallow the
     unguessable ``/preview/`` paths (defense in depth on top of them simply
-    never being linked/listed anywhere) and point crawlers at the sitemap.
+    never being linked/listed anywhere) and the buyer-private
+    ``/order-confirmation/`` pages (never meant to be indexed — see
+    ``app.web.routes.public_site.order_confirmation``'s own per-page
+    ``noindex`` meta tag, this is a second layer, not the only one), and
+    point crawlers at the sitemap.
     """
     settings = get_settings()
     base_url = settings.public_base_url.rstrip("/")
-    body = "User-agent: *\nAllow: /\nDisallow: /preview/\n" f"Sitemap: {base_url}/sitemap.xml\n"
+    body = (
+        "User-agent: *\nAllow: /\nDisallow: /preview/\nDisallow: /order-confirmation/\n"
+        f"Sitemap: {base_url}/sitemap.xml\n"
+    )
     return PlainTextResponse(content=body)

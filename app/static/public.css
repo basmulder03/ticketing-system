@@ -1,0 +1,444 @@
+/* Public site base CSS (Milestone 2).
+
+   Mobile-first: unprefixed rules target the smallest breakpoint the brief
+   names (~375px), then progressively enhanced at ~768px / ~1024px /
+   ~1440px. This file styles the site's fixed "chrome" (header, footer,
+   notices, buttons, form controls, tables, countdown, share bar) with a
+   deliberately neutral, guaranteed-AA-contrast palette that is NEVER
+   overridden by a Theme — only content inside `.event-content` picks up
+   the active Event's --beacon-color-* custom properties (set inline per
+   page by app.web.public_context.build_public_theme_css) and any of that
+   Theme's sanitized custom CSS. This keeps the one hard rule from
+   PROJECT_BRIEF.md's Event & Theming section intact: custom CSS can only
+   ever affect `.event-content`, never this site-wide chrome.
+*/
+
+* {
+  box-sizing: border-box;
+}
+
+:root {
+  --pub-chrome-fg: #1a1a1a;
+  --pub-chrome-bg: #ffffff;
+  --pub-chrome-border: #d0d0d0;
+  --pub-focus-ring: #0b5fff;
+  --pub-error-fg: #7a0d0d;
+  --pub-error-bg: #fdecec;
+  --pub-warning-fg: #6b4700;
+  --pub-warning-bg: #fff6e0;
+  --pub-info-fg: #0b3d66;
+  --pub-info-bg: #e8f2fb;
+}
+
+html {
+  font-size: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: var(--pub-chrome-fg);
+  background: var(--pub-chrome-bg);
+  line-height: 1.5;
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+a {
+  color: var(--pub-focus-ring);
+}
+
+:focus-visible {
+  outline: 3px solid var(--pub-focus-ring);
+  outline-offset: 2px;
+}
+
+.pub-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.pub-skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  background: var(--pub-chrome-bg);
+  color: var(--pub-chrome-fg);
+  padding: 0.75rem 1rem;
+  z-index: 100;
+  border: 2px solid var(--pub-focus-ring);
+}
+
+.pub-skip-link:focus {
+  left: 0.5rem;
+  top: 0.5rem;
+}
+
+/* ---- Chrome: header / footer / banners ---- */
+
+.pub-chrome-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--pub-chrome-border);
+}
+
+.pub-chrome-header__brand {
+  font-weight: 700;
+  text-decoration: none;
+  color: var(--pub-chrome-fg);
+}
+
+.pub-lang-switcher a {
+  margin-left: 0.75rem;
+  text-decoration: underline;
+}
+
+.pub-lang-switcher a[aria-current="true"] {
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.pub-chrome-footer {
+  padding: 1.5rem 1rem;
+  text-align: center;
+  color: #555;
+  border-top: 1px solid var(--pub-chrome-border);
+  margin-top: 2rem;
+}
+
+.pub-preview-banner {
+  background: #222;
+  color: #fff;
+  text-align: center;
+  padding: 0.5rem 1rem;
+  font-weight: 600;
+}
+
+.pub-main {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.pub-plain-section {
+  padding: 1rem 0;
+}
+
+/* ---- Notices ---- */
+
+.pub-notice {
+  padding: 0.75rem 1rem;
+  border-radius: 4px;
+  margin: 1rem 0;
+  border: 1px solid transparent;
+}
+
+.pub-notice--error {
+  color: var(--pub-error-fg);
+  background: var(--pub-error-bg);
+  border-color: var(--pub-error-fg);
+}
+
+.pub-notice--warning {
+  color: var(--pub-warning-fg);
+  background: var(--pub-warning-bg);
+  border-color: var(--pub-warning-fg);
+}
+
+.pub-notice--info {
+  color: var(--pub-info-fg);
+  background: var(--pub-info-bg);
+  border-color: var(--pub-info-fg);
+}
+
+/* ---- Buttons ---- */
+
+.pub-button {
+  display: inline-block;
+  font: inherit;
+  padding: 0.6rem 1.1rem;
+  border-radius: 4px;
+  border: 2px solid var(--pub-chrome-fg);
+  background: var(--pub-chrome-fg);
+  color: #fff;
+  cursor: pointer;
+}
+
+.pub-button--ghost {
+  background: transparent;
+  color: var(--pub-chrome-fg);
+}
+
+.pub-button--small {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.85rem;
+}
+
+.pub-button--primary {
+  background: var(--pub-chrome-fg);
+  font-size: 1.1rem;
+  padding: 0.85rem 1.5rem;
+}
+
+.pub-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* ---- Hero / share ---- */
+
+.pub-hero {
+  padding: 1.5rem 1rem;
+  border-radius: 8px;
+}
+
+.pub-hero__logo {
+  max-height: 96px;
+  margin-bottom: 0.75rem;
+}
+
+.pub-hero__title {
+  margin: 0 0 0.5rem;
+  font-size: 1.75rem;
+}
+
+.pub-share {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  margin-top: 1rem;
+}
+
+.pub-share__link {
+  font-weight: 600;
+}
+
+/* ---- Countdown ---- */
+
+.pub-countdown-section {
+  margin: 1.5rem 0;
+}
+
+.pub-countdown {
+  text-align: center;
+  padding: 1.5rem 1rem;
+  border: 1px solid var(--pub-chrome-border);
+  border-radius: 8px;
+}
+
+.pub-countdown__label {
+  margin: 0 0 0.5rem;
+  font-weight: 600;
+}
+
+.pub-countdown__value {
+  font-size: 1.75rem;
+  font-variant-numeric: tabular-nums;
+  margin: 0;
+}
+
+/* ---- Show picker / panels ---- */
+
+.pub-show-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  border: 1px solid var(--pub-chrome-border);
+  border-radius: 6px;
+  padding: 0.75rem 1rem 1rem;
+  margin: 0 0 1.5rem;
+}
+
+.pub-show-picker legend {
+  font-weight: 700;
+  padding: 0 0.25rem;
+}
+
+.pub-show-picker__option {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.pub-show-panel {
+  margin-bottom: 2rem;
+}
+
+.pub-venue-map {
+  margin: 0.75rem 0 0.5rem;
+}
+
+.pub-venue-map__frame {
+  width: 100%;
+  height: 280px;
+  border: 1px solid var(--pub-chrome-border);
+}
+
+/* ---- Ticket table ---- */
+
+.pub-ticket-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0;
+}
+
+.pub-ticket-table th,
+.pub-ticket-table td {
+  text-align: left;
+  padding: 0.6rem 0.5rem;
+  border-bottom: 1px solid var(--pub-chrome-border);
+  vertical-align: middle;
+}
+
+.pub-highlight {
+  outline: 3px solid var(--pub-focus-ring);
+  outline-offset: -2px;
+}
+
+.pub-badge {
+  display: inline-block;
+  margin-left: 0.5rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.pub-badge--sold-out {
+  background: var(--pub-error-bg);
+  color: var(--pub-error-fg);
+}
+
+.pub-qty-input {
+  width: 4.5rem;
+  font: inherit;
+  padding: 0.3rem;
+}
+
+.pub-remaining {
+  margin-left: 0.5rem;
+  font-size: 0.85rem;
+  color: #555;
+}
+
+/* ---- Checkout form ---- */
+
+.pub-field {
+  margin: 0 0 1rem;
+}
+
+.pub-field label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+.pub-field input,
+.pub-field textarea {
+  width: 100%;
+  max-width: 32rem;
+  font: inherit;
+  padding: 0.5rem;
+  border: 1px solid var(--pub-chrome-border);
+  border-radius: 4px;
+}
+
+.pub-payment-methods {
+  border: 1px solid var(--pub-chrome-border);
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  margin: 0 0 1rem;
+}
+
+.pub-payment-methods__option {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.25rem 0;
+}
+
+.pub-order-total {
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+/* ---- Order confirmation ---- */
+
+.pub-summary-list {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.25rem 1rem;
+}
+
+.pub-summary-list dt {
+  font-weight: 700;
+}
+
+.pub-summary-list dd {
+  margin: 0 0 0.75rem;
+}
+
+/* ---- Breakpoints (mobile-first: ~375 base, then 768 / 1024 / 1440) ---- */
+
+@media (min-width: 768px) {
+  .pub-main {
+    padding: 1.5rem 2rem;
+  }
+
+  .pub-hero__title {
+    font-size: 2.25rem;
+  }
+
+  .pub-summary-list {
+    grid-template-columns: 12rem 1fr;
+  }
+
+  .pub-summary-list dt {
+    grid-column: 1;
+  }
+
+  .pub-summary-list dd {
+    grid-column: 2;
+  }
+}
+
+@media (min-width: 1024px) {
+  .pub-main {
+    max-width: 1080px;
+    padding: 2rem 2.5rem;
+  }
+
+  .pub-ticket-table th,
+  .pub-ticket-table td {
+    padding: 0.75rem 0.75rem;
+  }
+
+  .pub-venue-map__frame {
+    height: 340px;
+  }
+}
+
+@media (min-width: 1440px) {
+  .pub-main {
+    max-width: 1200px;
+  }
+
+  .pub-hero__title {
+    font-size: 2.75rem;
+  }
+}

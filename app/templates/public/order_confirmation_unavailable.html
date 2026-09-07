@@ -1,0 +1,8 @@
+{% extends "public/base.html" %}
+{% block title %}{{ translate('public.order_confirmation.unavailable_title', locale) }}{% endblock %}
+{% block content %}
+<section class="pub-plain-section">
+  <h1>{{ translate('public.order_confirmation.unavailable_title', locale) }}</h1>
+  <p>{{ translate('public.order_confirmation.unavailable_body', locale) }}</p>
+</section>
+{% endblock %}

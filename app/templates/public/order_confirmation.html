@@ -1,0 +1,73 @@
+{% extends "public/base.html" %}
+
+{% block title %}{{ translate('public.order_confirmation.title', locale) }} — {{ translate('app.name', locale) }}{% endblock %}
+
+{% block extra_head %}
+{# A buyer's own order is private — never indexed, regardless of preview
+   mode (see PROJECT_BRIEF.md's Sharing section: order/ticket links must
+   never be made shareable the way the event page is). #}
+<meta name="robots" content="noindex, nofollow">
+{% endblock %}
+
+{% block content %}
+<section class="pub-plain-section">
+  {% if is_preview %}
+  <p class="pub-preview-banner" role="status">{{ translate('public.chrome.preview_banner', locale) }}</p>
+  {% endif %}
+
+  <h1>{{ translate('public.order_confirmation.title', locale) }}</h1>
+  <p>{{ translate('public.order_confirmation.intro', locale) }} {{ order.event_name }}.</p>
+  <p class="pub-notice pub-notice--info" role="status">
+    {{ translate('public.order_confirmation.pending_notice', locale) }}
+  </p>
+
+  <dl class="pub-summary-list">
+    <dt>{{ translate('public.order_confirmation.order_id_label', locale) }}</dt>
+    <dd>{{ order.id }}</dd>
+
+    <dt>{{ translate('public.checkout.buyer_name_label', locale) }}</dt>
+    <dd>{{ order.buyer_name }}</dd>
+
+    <dt>{{ translate('public.checkout.buyer_email_label', locale) }}</dt>
+    <dd>{{ order.buyer_email }}</dd>
+
+    <dt>{{ translate('public.checkout.buyer_address_label', locale) }}</dt>
+    <dd>{{ order.buyer_address }}</dd>
+
+    <dt>{{ translate('public.order_confirmation.payment_method_label', locale) }}</dt>
+    <dd>
+      {% if order.payment_method == 'door' %}
+        {{ translate('public.checkout.payment_method_door', locale) }}
+      {% else %}
+        {{ translate('public.checkout.payment_method_mollie', locale) }}
+      {% endif %}
+    </dd>
+
+    <dt>{{ translate('public.order_confirmation.total_label', locale) }}</dt>
+    <dd>{{ order.total }}</dd>
+  </dl>
+
+  <h2>{{ translate('public.order_confirmation.tickets_heading', locale) }}</h2>
+  <table class="pub-ticket-table">
+    <caption class="pub-visually-hidden">{{ translate('public.order_confirmation.tickets_heading', locale) }}</caption>
+    <thead>
+      <tr>
+        <th scope="col">{{ translate('public.landing.ticket_type_column', locale) }}</th>
+        <th scope="col">{{ translate('public.landing.price_column', locale) }}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for ticket in order.tickets %}
+      <tr>
+        <td>{{ ticket.ticket_type_name }}</td>
+        <td>{{ ticket.price }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% if order.event_slug %}
+  <p><a href="/e/{{ order.event_slug }}">{{ translate('public.order_confirmation.back_to_event_link', locale) }}</a></p>
+  {% endif %}
+</section>
+{% endblock %}
