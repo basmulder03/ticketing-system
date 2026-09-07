@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  {# Backoffice pages are never public content — no SEO/indexing concern. #}
+  <meta name="robots" content="noindex, nofollow">
+  <title>{% block title %}Beacon Backoffice{% endblock %}</title>
+  <link rel="stylesheet" href="/static/backoffice.css">
+  <script src="/static/vendor/htmx.min.js" defer></script>
+</head>
+<body>
+  <a class="bo-skip-link" href="#bo-main">Skip to main content</a>
+
+  {% if principal %}
+  <header class="bo-header">
+    <div class="bo-header__brand"><a href="/events">Beacon Backoffice</a></div>
+    <nav class="bo-header__nav" aria-label="Primary">
+      <a href="/events">Events</a>
+    </nav>
+    <div class="bo-header__account">
+      <span class="bo-header__account-name">{{ principal.name }}</span>
+      <form method="post" action="/logout" class="bo-inline-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" class="bo-button bo-button--ghost bo-button--small">Log out</button>
+      </form>
+    </div>
+  </header>
+  {% endif %}
+
+  <main id="bo-main" class="bo-main">
+    {% if flash %}
+    <div class="bo-flash bo-flash--{{ flash_kind or 'success' }}" role="status">{{ flash }}</div>
+    {% endif %}
+    {% block content %}{% endblock %}
+  </main>
+
+  <script>
+    // Keeps each color swatch's visible hex readout in sync with its
+    // <input type="color">. Deliberately not HTMX's job (no server round
+    // trip needed for this) and not a framework — a few lines of vanilla
+    // JS, consistent with the brief's "no SPA framework" constraint.
+    document.addEventListener("input", function (event) {
+      if (!event.target.matches('input[type="color"]')) return;
+      var field = event.target.closest(".bo-color-field");
+      var output = field && field.querySelector(".bo-color-field__value");
+      if (output) output.textContent = event.target.value;
+    });
+  </script>
+</body>
+</html>

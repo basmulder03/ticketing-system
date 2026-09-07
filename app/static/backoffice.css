@@ -1,0 +1,516 @@
+/*
+ * Beacon backoffice chrome.
+ *
+ * Scope: the backoffice admin tool only (event/theme management etc.) —
+ * NOT the themed public site, ticket/invoice PDFs, or emails, all of which
+ * pull their colors/fonts from the active Event's Theme instead (see
+ * PROJECT_BRIEF.md's Event & Theming section). This stylesheet is
+ * deliberately plain/functional (KISS) rather than a design system.
+ *
+ * Mobile-first: base rules target ~375px phones; min-width media queries
+ * progressively enhance the layout at ~768px (tablet), ~1024px (laptop),
+ * and ~1440px (desktop/large display), per PROJECT_BRIEF.md's Responsive &
+ * Multi-Device Display section.
+ */
+
+:root {
+  --bo-color-bg: #f5f5f4;
+  --bo-color-surface: #ffffff;
+  --bo-color-border: #d9d9d6;
+  --bo-color-text: #1f2320;
+  --bo-color-muted: #5b615c;
+  --bo-color-primary: #1a1a1a;
+  --bo-color-primary-contrast: #ffffff;
+  --bo-color-accent: #0b6e4f;
+  --bo-color-danger: #a3242c;
+  --bo-color-danger-bg: #fbeaea;
+  --bo-color-success-bg: #e7f5ec;
+  --bo-color-success-text: #14532d;
+  --bo-color-info-bg: #eaf2fb;
+  --bo-color-info-text: #143a63;
+  --bo-radius: 6px;
+  --bo-spacing-1: 0.25rem;
+  --bo-spacing-2: 0.5rem;
+  --bo-spacing-3: 0.75rem;
+  --bo-spacing-4: 1rem;
+  --bo-spacing-6: 1.5rem;
+  --bo-max-width: 1120px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: var(--bo-color-text);
+  background: var(--bo-color-bg);
+  line-height: 1.5;
+}
+
+h1, h2, h3 {
+  line-height: 1.25;
+  margin-top: 0;
+}
+
+h1 { font-size: 1.5rem; }
+h2 { font-size: 1.15rem; margin-bottom: var(--bo-spacing-2); }
+h3 { font-size: 1rem; margin-bottom: var(--bo-spacing-2); }
+
+a {
+  color: var(--bo-color-accent);
+}
+
+code {
+  background: rgba(0, 0, 0, 0.06);
+  padding: 0.1em 0.3em;
+  border-radius: 3px;
+  font-size: 0.9em;
+}
+
+/* Visible keyboard focus everywhere — never suppressed without a
+   replacement (WCAG 2.4.7). */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible {
+  outline: 3px solid #1a6ed8;
+  outline-offset: 2px;
+}
+
+.bo-skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  background: var(--bo-color-surface);
+  color: var(--bo-color-text);
+  padding: var(--bo-spacing-2) var(--bo-spacing-4);
+  z-index: 100;
+}
+
+.bo-skip-link:focus {
+  left: var(--bo-spacing-2);
+  top: var(--bo-spacing-2);
+}
+
+.bo-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Header / nav */
+
+.bo-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--bo-spacing-3);
+  padding: var(--bo-spacing-3) var(--bo-spacing-4);
+  background: var(--bo-color-primary);
+  color: var(--bo-color-primary-contrast);
+}
+
+.bo-header a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.bo-header__brand a {
+  font-weight: 700;
+}
+
+.bo-header__nav {
+  display: flex;
+  gap: var(--bo-spacing-4);
+}
+
+.bo-header__account {
+  display: flex;
+  align-items: center;
+  gap: var(--bo-spacing-3);
+  margin-left: auto;
+}
+
+.bo-header__account-name {
+  font-size: 0.875rem;
+  opacity: 0.85;
+}
+
+/* Layout */
+
+.bo-main {
+  max-width: var(--bo-max-width);
+  margin: 0 auto;
+  padding: var(--bo-spacing-4);
+}
+
+@media (min-width: 768px) {
+  .bo-main {
+    padding: var(--bo-spacing-6);
+  }
+}
+
+@media (min-width: 1440px) {
+  :root {
+    --bo-max-width: 1320px;
+  }
+}
+
+.bo-breadcrumb {
+  font-size: 0.875rem;
+  color: var(--bo-color-muted);
+}
+
+.bo-hint {
+  color: var(--bo-color-muted);
+  max-width: 70ch;
+}
+
+.bo-hint--small {
+  font-size: 0.875rem;
+}
+
+/* Flash messages / banners */
+
+.bo-flash,
+.bo-banner {
+  padding: var(--bo-spacing-3) var(--bo-spacing-4);
+  border-radius: var(--bo-radius);
+  margin-bottom: var(--bo-spacing-4);
+  border: 1px solid transparent;
+}
+
+.bo-flash--success,
+.bo-banner--success {
+  background: var(--bo-color-success-bg);
+  color: var(--bo-color-success-text);
+  border-color: #bfe3cc;
+}
+
+.bo-flash--error {
+  background: var(--bo-color-danger-bg);
+  color: var(--bo-color-danger);
+  border-color: #f1c0c3;
+}
+
+.bo-banner--info {
+  background: var(--bo-color-info-bg);
+  color: var(--bo-color-info-text);
+  border-color: #c3d9f0;
+}
+
+.bo-form-error {
+  color: var(--bo-color-danger);
+  font-weight: 600;
+}
+
+/* Panels */
+
+.bo-panel {
+  background: var(--bo-color-surface);
+  border: 1px solid var(--bo-color-border);
+  border-radius: var(--bo-radius);
+  padding: var(--bo-spacing-4);
+  margin-bottom: var(--bo-spacing-4);
+}
+
+.bo-panel--advanced {
+  background: #fafaf8;
+}
+
+.bo-panel--advanced summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.bo-panel--advanced summary + p {
+  margin-top: var(--bo-spacing-3);
+}
+
+/* Forms */
+
+.bo-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--bo-spacing-1);
+  margin-bottom: var(--bo-spacing-4);
+  max-width: 32rem;
+}
+
+.bo-field label {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.bo-field input[type="text"],
+.bo-field input[type="email"],
+.bo-field input[type="password"],
+.bo-field input[type="file"],
+.bo-field select,
+.bo-field textarea {
+  border: 1px solid var(--bo-color-border);
+  border-radius: var(--bo-radius);
+  padding: var(--bo-spacing-2) var(--bo-spacing-3);
+  font: inherit;
+  background: var(--bo-color-surface);
+  color: var(--bo-color-text);
+}
+
+.bo-field textarea {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85rem;
+  resize: vertical;
+}
+
+.bo-color-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--bo-spacing-4);
+  margin-bottom: var(--bo-spacing-2);
+}
+
+.bo-color-field {
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  max-width: none;
+}
+
+.bo-color-field label {
+  width: 100%;
+}
+
+.bo-color-field input[type="color"] {
+  width: 3rem;
+  height: 2.25rem;
+  padding: 0;
+  border: 1px solid var(--bo-color-border);
+  border-radius: var(--bo-radius);
+  background: none;
+}
+
+.bo-color-field__value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85rem;
+  color: var(--bo-color-muted);
+}
+
+.bo-inline-form {
+  display: flex;
+  align-items: center;
+  gap: var(--bo-spacing-2);
+  margin: var(--bo-spacing-2) 0;
+}
+
+.bo-inline-form--wrap {
+  flex-wrap: wrap;
+}
+
+.bo-inline-form label {
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+/* Buttons */
+
+.bo-button {
+  display: inline-block;
+  border: 1px solid var(--bo-color-primary);
+  border-radius: var(--bo-radius);
+  background: var(--bo-color-surface);
+  color: var(--bo-color-primary);
+  padding: var(--bo-spacing-2) var(--bo-spacing-4);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.bo-button--primary {
+  background: var(--bo-color-primary);
+  color: var(--bo-color-primary-contrast);
+}
+
+.bo-button--ghost {
+  border-color: rgba(255, 255, 255, 0.5);
+  background: transparent;
+  color: inherit;
+}
+
+.bo-button--danger {
+  border-color: var(--bo-color-danger);
+  color: var(--bo-color-danger);
+  background: var(--bo-color-surface);
+}
+
+.bo-button--small {
+  padding: var(--bo-spacing-1) var(--bo-spacing-3);
+  min-height: 36px;
+  font-size: 0.875rem;
+}
+
+/* Tables */
+
+.bo-table-wrap {
+  overflow-x: auto;
+}
+
+.bo-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.bo-table th,
+.bo-table td {
+  text-align: left;
+  padding: var(--bo-spacing-2) var(--bo-spacing-3);
+  border-bottom: 1px solid var(--bo-color-border);
+}
+
+.bo-table--compact th,
+.bo-table--compact td {
+  padding: var(--bo-spacing-1) var(--bo-spacing-2);
+  font-size: 0.875rem;
+}
+
+/* Badges */
+
+.bo-badge {
+  display: inline-block;
+  padding: 0.15em 0.6em;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.bo-badge--draft {
+  background: #f1eadb;
+  color: #6b5a1a;
+}
+
+.bo-badge--published {
+  background: var(--bo-color-success-bg);
+  color: var(--bo-color-success-text);
+}
+
+.bo-badge--pass {
+  background: var(--bo-color-success-bg);
+  color: var(--bo-color-success-text);
+}
+
+.bo-badge--pass::before {
+  content: "\2713 "; /* checkmark: pass/fail is never conveyed by color alone */
+}
+
+.bo-badge--fail {
+  background: var(--bo-color-danger-bg);
+  color: var(--bo-color-danger);
+}
+
+.bo-badge--fail::before {
+  content: "\2717 "; /* cross */
+}
+
+/* Images */
+
+.bo-image-preview {
+  max-width: 100%;
+  height: auto;
+  max-height: 10rem;
+  display: block;
+  border: 1px solid var(--bo-color-border);
+  border-radius: var(--bo-radius);
+  margin-bottom: var(--bo-spacing-2);
+  background:
+    linear-gradient(45deg, #eee 25%, transparent 25%, transparent 75%, #eee 75%, #eee),
+    linear-gradient(45deg, #eee 25%, white 25%, white 75%, #eee 75%, #eee);
+  background-size: 16px 16px;
+  background-position: 0 0, 8px 8px;
+}
+
+/* Login card */
+
+.bo-auth-card {
+  max-width: 24rem;
+  margin: 3rem auto;
+  background: var(--bo-color-surface);
+  border: 1px solid var(--bo-color-border);
+  border-radius: var(--bo-radius);
+  padding: var(--bo-spacing-6);
+}
+
+/* Theme editor layout: single column on mobile, two-column with a sticky
+   preview pane from tablet width up. */
+
+.bo-theme-layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--bo-spacing-6);
+}
+
+@media (min-width: 768px) {
+  .bo-theme-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 380px);
+    align-items: start;
+  }
+
+  .bo-theme-layout__preview {
+    position: sticky;
+    top: var(--bo-spacing-4);
+  }
+}
+
+@media (min-width: 1024px) {
+  .bo-theme-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
+    gap: 2rem;
+  }
+}
+
+.bo-preview-frame-wrap {
+  border: 1px solid var(--bo-color-border);
+  border-radius: var(--bo-radius);
+  overflow: hidden;
+  background: #fff;
+}
+
+.bo-preview-frame {
+  width: 100%;
+  height: 220px;
+  border: 0;
+  display: block;
+}
+
+@media (min-width: 1024px) {
+  .bo-preview-frame {
+    height: 280px;
+  }
+}
+
+.bo-code-block {
+  background: #1f2320;
+  color: #e6e6e2;
+  padding: var(--bo-spacing-3);
+  border-radius: var(--bo-radius);
+  overflow-x: auto;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
