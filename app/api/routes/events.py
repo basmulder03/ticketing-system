@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import Principal, require_admin_or_agent
-from app.api.routes._utils import apply_partial_update, parse_uuid_or_404
+from app.api.routes._utils import apply_partial_update, commit_or_conflict, parse_uuid_or_404
 from app.db.session import get_session
 from app.models.event import Event
 from app.schemas.event import EventCreateRequest, EventOut, EventUpdateRequest
@@ -127,11 +127,17 @@ async def delete_event(
     principal: Principal = Depends(require_admin_or_agent),
     session: AsyncSession = Depends(get_session),
 ) -> None:
-    """Delete an Event and everything under it (EventConfig, Shows, TicketTypes cascade)."""
+    """Delete an Event and everything under it (EventConfig, Shows, TicketTypes cascade).
+
+    Fails with a 409 (not a 500) if any of its TicketTypes still have
+    purchased Tickets attached — see ``app.api.routes._utils.commit_or_conflict``.
+    """
     event = await _get_event_or_404(session, event_id)
     await record_audit_entry(
         session, principal, action="event.delete", target_type="Event", target_id=str(event.id),
         detail={"name": event.name, "slug": event.slug},
     )
     await session.delete(event)
-    await session.commit()
+    await commit_or_conflict(
+        session, detail="Cannot delete: this event has ticket types with existing orders."
+    )

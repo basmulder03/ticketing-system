@@ -9,17 +9,23 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import Principal, require_admin_or_agent
-from app.api.routes._utils import apply_partial_update, parse_uuid_or_404
+from app.api.routes._utils import apply_partial_update, commit_or_conflict, parse_uuid_or_404
 from app.db.session import get_session
 from app.models.show import Show
 from app.models.ticket_type import TicketType
 from app.schemas.ticket_type import TicketTypeCreateRequest, TicketTypeOut, TicketTypeUpdateRequest
 from app.services.audit import record_audit_entry
+from app.services.stock import attach_remaining
 
 router = APIRouter(prefix="/api/v1/shows/{show_id}/ticket-types", tags=["ticket-types"])
 
 
-def _to_out(ticket_type: TicketType) -> TicketTypeOut:
+async def _to_out(session: AsyncSession, ticket_type: TicketType) -> TicketTypeOut:
+    """Build the response shape, first attaching the live sold count so
+    ``remaining`` reflects real stock (Milestone 2) rather than always
+    equalling ``quantity_available`` — see ``app.services.stock.attach_remaining``.
+    """
+    await attach_remaining(session, [ticket_type])
     return TicketTypeOut(
         id=str(ticket_type.id),
         show_id=str(ticket_type.show_id),
@@ -77,7 +83,7 @@ async def create_ticket_type(
         detail={"show_id": str(show.id), "name": ticket_type.name, "price": str(ticket_type.price)},
     )
     await session.commit()
-    return _to_out(ticket_type)
+    return await _to_out(session, ticket_type)
 
 
 @router.get("")
@@ -91,7 +97,22 @@ async def list_ticket_types(
     result = await session.execute(
         select(TicketType).where(TicketType.show_id == show.id).order_by(TicketType.created_at)
     )
-    return [_to_out(ticket_type) for ticket_type in result.scalars().all()]
+    ticket_types = list(result.scalars().all())
+    await attach_remaining(session, ticket_types)
+    return [
+        TicketTypeOut(
+            id=str(tt.id),
+            show_id=str(tt.show_id),
+            name=tt.name,
+            price=tt.price,
+            service_fee_included=tt.service_fee_included,
+            quantity_available=tt.quantity_available,
+            remaining=tt.remaining,
+            created_at=tt.created_at,
+            updated_at=tt.updated_at,
+        )
+        for tt in ticket_types
+    ]
 
 
 @router.get("/{ticket_type_id}")
@@ -104,7 +125,7 @@ async def get_ticket_type(
     """Fetch a single TicketType by id, scoped to its parent Show."""
     show = await _get_show_or_404(session, show_id)
     ticket_type = await _get_ticket_type_or_404(session, show, ticket_type_id)
-    return _to_out(ticket_type)
+    return await _to_out(session, ticket_type)
 
 
 @router.patch("/{ticket_type_id}")
@@ -130,7 +151,7 @@ async def update_ticket_type(
     )
     await session.commit()
     await session.refresh(ticket_type)
-    return _to_out(ticket_type)
+    return await _to_out(session, ticket_type)
 
 
 @router.delete("/{ticket_type_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -140,7 +161,11 @@ async def delete_ticket_type(
     principal: Principal = Depends(require_admin_or_agent),
     session: AsyncSession = Depends(get_session),
 ) -> None:
-    """Delete a TicketType."""
+    """Delete a TicketType.
+
+    Fails with a 409 (not a 500) if it still has purchased Tickets attached
+    — see ``app.api.routes._utils.commit_or_conflict``.
+    """
     show = await _get_show_or_404(session, show_id)
     ticket_type = await _get_ticket_type_or_404(session, show, ticket_type_id)
     await record_audit_entry(
@@ -152,4 +177,4 @@ async def delete_ticket_type(
         detail={"show_id": str(show.id), "name": ticket_type.name},
     )
     await session.delete(ticket_type)
-    await session.commit()
+    await commit_or_conflict(session, detail="Cannot delete: this ticket type has existing orders.")

@@ -1,5 +1,6 @@
 """``Event``: the top-level container for a single ticketed production."""
 
+import secrets
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, String, Text
@@ -45,6 +46,27 @@ class Event(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     ``theme`` is the Milestone 1.5 Theme relationship (1:1, mirrors
     ``config``'s cascade-on-delete pattern) — see ``app.models.theme.Theme``.
+
+    ``preview_token`` (Milestone 2) is the unguessable, high-entropy token
+    that makes a draft Event (and everything nested under it: its Shows and
+    Theme) viewable via ``/preview/{token}/...`` even while ``status`` is
+    still ``draft`` — per PROJECT_BRIEF.md's Draft & Preview section. It is
+    generated once at row creation and never rotates automatically (an
+    explicit "regenerate preview link" action, if ever needed, is a future
+    addition, not required by the brief). Every Event gets one regardless
+    of its status (not lazily created only once a draft exists) so the
+    column can stay non-nullable — simpler than tracking whether a token
+    has been generated yet. It remains valid even after the Event
+    publishes (harmless: the published content is public anyway at that
+    point).
+
+    Design decision: ``Show`` does NOT get its own separate preview token
+    column — a draft Show is reached for preview purposes via its parent
+    Event's ``preview_token`` (see ``app.models.show.Show`` docstring). One
+    event-wide token is enough to let a stakeholder review every show under
+    a draft event from a single shared link, and the brief doesn't call for
+    per-show preview-link granularity — a second token column per Show
+    would be speculative complexity (KISS).
     """
 
     __tablename__ = "events"
@@ -58,6 +80,9 @@ class Event(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         default=PublishStatus.DRAFT,
     )
     sales_paused: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    preview_token: Mapped[str] = mapped_column(
+        String(64), unique=True, index=True, nullable=False, default=lambda: secrets.token_urlsafe(32)
+    )
 
     config: Mapped["EventConfig | None"] = relationship(
         back_populates="event", uselist=False, cascade="all, delete-orphan"

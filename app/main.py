@@ -3,8 +3,9 @@
 Milestone 0 scope: app instance boots, exposes a health-check route, wires
 up settings/i18n scaffolding, and mounts the auth/agent-account/audit-log
 routes added for the "Foundations" auth & audit work. Milestone 1 adds the
-Event/EventConfig/Show/TicketType backoffice-core routes. Public-site/
-checkout routes are added by ``backend-builder`` in subsequent milestones.
+Event/EventConfig/Show/TicketType backoffice-core routes. Milestone 2 adds
+the public read/checkout routes (``app.api.routes.public``) and the
+``/sitemap.xml``/``/robots.txt`` SEO routes (``app.api.routes.seo``).
 """
 
 from pathlib import Path
@@ -20,6 +21,8 @@ from app.api.routes import (
     auth,
     event_configs,
     events,
+    public,
+    seo,
     shows,
     themes,
     ticket_types,
@@ -49,6 +52,8 @@ def create_app() -> FastAPI:
     app.include_router(shows.router)
     app.include_router(ticket_types.router)
     app.include_router(themes.router)
+    app.include_router(public.router)
+    app.include_router(seo.router)
 
     # Server-rendered backoffice HTML pages (Jinja2 + HTMX), added in
     # Milestone 1.5 by `frontend-theming` — see app/web/. Distinct from the

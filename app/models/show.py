@@ -36,6 +36,12 @@ class Show(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     Content-type data per the brief's AI/Agent Access section ("events,
     shows, ticket types" are agent-scoped) — routes here use
     ``require_admin_or_agent``, not ``require_admin``.
+
+    A draft Show has no preview-token column of its own: preview access is
+    via its parent ``Event.preview_token`` (see that model's docstring for
+    the rationale) — the preview route returns every Show under the Event
+    regardless of the Show's own ``status``, so a stakeholder reviewing a
+    draft event sees every show, published or not.
     """
 
     __tablename__ = "shows"

@@ -8,6 +8,8 @@ from typing import Any
 
 from fastapi import HTTPException, status
 from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 def parse_uuid_or_404(raw: str, *, detail: str) -> uuid.UUID:
@@ -37,3 +39,24 @@ def apply_partial_update(instance: Any, body: BaseModel) -> dict[str, Any]:
     for field, value in changes.items():
         setattr(instance, field, value)
     return changes
+
+
+async def commit_or_conflict(session: AsyncSession, *, detail: str) -> None:
+    """Commit the current transaction, translating a DB-level integrity
+    violation into a clear 409 instead of an unhandled 500.
+
+    Added for Milestone 2: deleting an Event/Show/TicketType that still has
+    Orders/Tickets attached can now fail a real DB constraint (``Ticket.
+    ticket_type_id`` uses ``ON DELETE RESTRICT`` specifically so purchased
+    tickets are never silently orphaned — see ``app.models.ticket.Ticket``
+    docstring). Every delete route in this module that can reach such a
+    constraint should call this instead of ``session.commit()`` directly.
+    """
+    try:
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=detail,
+        ) from None

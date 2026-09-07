@@ -60,6 +60,35 @@ class PaymentMethod(str, enum.Enum):
     DOOR = "door"
 
 
+class OrderStatus(str, enum.Enum):
+    """Lifecycle status of an ``Order`` (Milestone 2).
+
+    - ``PENDING``: created at checkout, no payment settled yet.
+    - ``PAID``: payment confirmed (Mollie webhook success — Milestone 3 —
+      or manual mark-as-paid — Milestone 6). Tickets/invoice may be issued.
+    - ``CANCELLED``: buyer/staff cancelled before payment; releases its
+      reserved stock (see ``app.services.stock``).
+    - ``EXPIRED``: the payment window lapsed without completion (e.g. a
+      Mollie payment expired) — also releases its reserved stock.
+    - ``PENDING_DOOR``: reserved now for Milestone 6 ("Pay at the Door" —
+      an order whose buyer chose to pay in person at the door). Modeled
+      here already (rather than as a later ``ALTER TYPE ... ADD VALUE``
+      migration) so this milestone's schema doesn't need to churn again
+      when Milestone 6 lands; no code path sets this status yet.
+
+    Stock accounting (see ``app.services.stock``) treats every status
+    except ``CANCELLED``/``EXPIRED`` as "still holding its ticket stock" —
+    i.e. a ``Ticket`` row belonging to a ``PENDING``, ``PENDING_DOOR``, or
+    ``PAID`` order counts against its ``TicketType``'s remaining stock.
+    """
+
+    PENDING = "pending"
+    PAID = "paid"
+    CANCELLED = "cancelled"
+    EXPIRED = "expired"
+    PENDING_DOOR = "pending_door"
+
+
 class SmtpEncryptionMode(str, enum.Enum):
     """Transport encryption mode for an EventConfig's SMTP settings.
 
