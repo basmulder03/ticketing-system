@@ -8,6 +8,9 @@ renders the HTML form and forwards the ``Set-Cookie``/``Set-Cookie``-clearing
 headers from that JSON response onto the browser-facing redirect.
 """
 
+import re
+from urllib.parse import urlsplit
+
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import RedirectResponse
 from starlette.responses import Response
@@ -18,14 +21,34 @@ from app.web.csrf import attach_csrf_cookie, read_or_generate_csrf_token, verify
 
 router = APIRouter(tags=["backoffice-auth"])
 
+_CONTROL_OR_BACKSLASH = re.compile(r"[\\\t\r\n]")
+"""Matches a backslash or an embedded TAB/CR/LF. Browsers normalize
+backslashes to forward slashes and strip embedded TAB/CR/LF while parsing a
+URL (per the WHATWG URL spec) BEFORE evaluating its scheme/authority — so
+``/\\evil.com`` or ``/\\t/evil.com`` become ``//evil.com`` (a protocol-
+relative absolute URL) by the time a browser follows the redirect, even
+though a same-site-looking prefix check on the raw string would not catch
+either. Reject outright rather than trying to "fix up" the value."""
+
 
 def _safe_next(candidate: str) -> str:
-    """Only allow same-site relative redirect targets (never an
-    attacker-supplied absolute/protocol-relative URL — open-redirect
-    guard)."""
-    if candidate.startswith("/") and not candidate.startswith("//"):
-        return candidate
-    return "/events"
+    """Only allow same-site relative redirect targets — never an
+    attacker-supplied absolute/protocol-relative URL, and never a value a
+    browser could reinterpret into one after its own normalization (see
+    :data:`_CONTROL_OR_BACKSLASH`) — open-redirect guard.
+
+    Belt-and-suspenders: a plain prefix check catches the obvious
+    ``http://`` / ``//`` cases, and :func:`urlsplit` independently confirms
+    the parsed result carries no scheme or network location of its own.
+    """
+    if _CONTROL_OR_BACKSLASH.search(candidate):
+        return "/events"
+    if not candidate.startswith("/") or candidate.startswith("//"):
+        return "/events"
+    parsed = urlsplit(candidate)
+    if parsed.scheme or parsed.netloc:
+        return "/events"
+    return candidate
 
 
 @router.get("/login", response_model=None)

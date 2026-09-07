@@ -208,3 +208,55 @@ def test_empty_string_returns_empty_string() -> None:
 
 def test_whitespace_only_input_returns_empty_string() -> None:
     assert sanitize_custom_css("   \n\t  ") == ""
+
+
+# --- Sibling-combinator scoping bypass (security-reviewer finding, Milestone 1.5) ---
+#
+# A branch prefixed with ".event-content" but containing a later sibling
+# combinator (~ or +) can still target an element OUTSIDE the container's
+# subtree — the earlier scoping check only looked at the first two tokens
+# and left everything after "unrestricted". Only descendant (whitespace)
+# and child (>) combinators keep every matched element inside the subtree.
+
+
+def test_general_sibling_combinator_after_scope_prefix_is_dropped() -> None:
+    assert sanitize_custom_css(".event-content ~ footer { color: red; }") == ""
+
+
+def test_adjacent_sibling_combinator_after_scope_prefix_is_dropped() -> None:
+    assert sanitize_custom_css('.event-content + footer::after { content: "INJECTED"; }') == ""
+
+
+def test_general_sibling_with_universal_selector_is_dropped() -> None:
+    assert sanitize_custom_css(".event-content ~ * { background: yellow; }") == ""
+
+
+def test_child_combinator_after_scope_prefix_still_survives() -> None:
+    assert sanitize_custom_css(".event-content > h1 { color: red; }") == ".event-content > h1 { color: red; }"
+
+
+# --- </style> breakout via declaration string values (security-reviewer
+# finding, Milestone 1.5) ---
+#
+# Nothing else in this module inspects the CONTENT of a string-valued
+# declaration (e.g. `content: "..."` is not a url()/expression()/position
+# value), so a literal "</style>" inside a string sailed through every
+# other check unchanged. Both today's live-preview iframe and the eventual
+# public event page embed this function's output directly inside a literal
+# <style> block, where the browser's HTML tokenizer ends that block at the
+# first "</style" byte sequence regardless of CSS validity — so the
+# sanitizer itself must guarantee its output can never contain that
+# sequence, not rely on every embedding call site to escape correctly.
+
+
+def test_style_tag_breakout_via_content_string_is_neutralized() -> None:
+    payload = '.event-content::after { content: "</style><script>alert(1)</script>"; }'
+    result = sanitize_custom_css(payload)
+    assert "</style" not in result.lower()
+    assert "<script" not in result.lower()
+
+
+def test_bare_less_than_in_content_string_is_escaped() -> None:
+    result = sanitize_custom_css('.event-content::after { content: "<b>hi"; }')
+    assert "<" not in result
+    assert "\\3C " in result

@@ -4,7 +4,12 @@
 <p class="bo-form-error" role="alert">{{ error }}</p>
 {% else %}
 <div class="bo-preview-frame-wrap">
-  <iframe class="bo-preview-frame" title="Live theme preview" srcdoc="{{ preview_doc }}"></iframe>
+  {# sandbox="" (no allow-* tokens) is deliberate defense in depth on top of
+     app.core.css_sanitizer's own escaping: scripts, forms, top-level
+     navigation, and popups are all blocked inside this document regardless
+     of what it contains, and the empty sandbox also denies allow-same-origin
+     so even injected content couldn't read this page's cookies/DOM. #}
+  <iframe class="bo-preview-frame" title="Live theme preview" sandbox="" srcdoc="{{ preview_doc }}"></iframe>
 </div>
 
 {% if preview.is_custom_css_active %}

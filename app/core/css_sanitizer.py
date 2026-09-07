@@ -80,12 +80,24 @@ anything that is NOT same-origin-relative. A bare path (``/img/x.png``,
 ``img/x.png``, ``../x.png``, ``#fragment``) does not match and is allowed."""
 
 
+_DISALLOWED_COMBINATORS = frozenset({"~", "+"})
+"""General-sibling (``~``) and adjacent-sibling (``+``) combinators. A rule
+like ``.event-content ~ footer`` or ``.event-content + footer::after`` is
+still nominally "scoped under .event-content" by prefix, but the combinator
+lets it target an element that is NOT a descendant of the content container
+at all — the exact "anything targeting elements outside the event's content
+container" case the brief requires stripping. Only descendant (whitespace)
+and child (``>``) combinators keep every matched element inside the
+container's subtree, so those are the only ones permitted."""
+
+
 def _selector_branch_is_scoped(branch_tokens: list[object]) -> bool:
     """Return True if a single (comma-split) selector branch is scoped under
     :data:`EVENT_CONTENT_CLASS`, i.e. its first significant tokens are the
-    class selector ``.event-content`` (optionally followed by further
-    simple selectors, combinators, or descendants — anything after the
-    required prefix is unrestricted).
+    class selector ``.event-content`` (optionally followed by further simple
+    selectors or descendant/child combinators — but NEVER a sibling
+    combinator, see :data:`_DISALLOWED_COMBINATORS`, since that would let
+    the rule escape the container's subtree entirely).
     """
     significant = [t for t in branch_tokens if not isinstance(t, css_ast.WhitespaceToken)]
     if len(significant) < 2:
@@ -93,7 +105,11 @@ def _selector_branch_is_scoped(branch_tokens: list[object]) -> bool:
     first, second = significant[0], significant[1]
     is_dot = isinstance(first, css_ast.LiteralToken) and first.value == "."
     is_class_name = isinstance(second, css_ast.IdentToken) and second.value == EVENT_CONTENT_CLASS
-    return is_dot and is_class_name
+    if not (is_dot and is_class_name):
+        return False
+    return not any(
+        isinstance(t, css_ast.LiteralToken) and t.value in _DISALLOWED_COMBINATORS for t in significant[2:]
+    )
 
 
 def _split_top_level_commas(tokens: list[object]) -> list[list[object]]:
@@ -199,6 +215,33 @@ def _sanitize_rule_list(rules: list[object], depth: int) -> str:
     return "\n".join(output_parts)
 
 
+def _escape_angle_brackets_for_style_embedding(css_text: str) -> str:
+    """Neutralize every literal ``<`` so the returned CSS can never contain a
+    ``</style`` (or any other tag-opening) sequence.
+
+    Declaration VALUES are not otherwise restricted to "things that look
+    like CSS" — e.g. ``content: "..."`` accepts an arbitrary quoted string,
+    which none of this module's other checks (url()/expression()/position/
+    selector-scope) touch, since a string literal is not a URL, function
+    call, or selector. Without this, a payload like
+    ``content: "</style><script>...</script>"`` would sail through every
+    other check unchanged, and — because both today's live-preview iframe
+    (``app.web.routes.themes._build_preview_doc``) and, eventually, the
+    public event page (Milestone 2) embed this exact output directly inside
+    a literal ``<style>...</style>`` block — the browser's HTML tokenizer
+    would end that block at the first ``</style`` byte sequence it sees,
+    regardless of CSS syntax validity, letting the rest run as page HTML/JS.
+    CSS's own escape syntax (``\\XXXXXX `` = the character at that Unicode
+    code point, valid both inside and outside quoted strings) renders
+    identically to the reader while making the raw byte sequence impossible
+    to reconstruct from this function's output. This is the sanitizer's
+    output contract, not caller-side escaping, so every current and future
+    embedding site is safe by construction rather than by remembering to
+    escape correctly at each call site.
+    """
+    return css_text.replace("<", "\\3C ")
+
+
 def sanitize_custom_css(raw_css: str) -> str:
     """Sanitize ``raw_css`` per this module's rules and return safe CSS text.
 
@@ -208,9 +251,16 @@ def sanitize_custom_css(raw_css: str) -> str:
     context. Both the real Theme save path and the preview endpoint call
     this exact function (never a "preview-only" relaxed variant).
 
+    The returned text is guaranteed safe to embed directly inside a literal
+    ``<style>...</style>`` block (see
+    :func:`_escape_angle_brackets_for_style_embedding`) — callers do not
+    need to (and should not need to) apply any further escaping for that
+    purpose.
+
     An empty or whitespace-only input returns ``""``.
     """
     if not raw_css.strip():
         return ""
     rules = tinycss2.parse_stylesheet(raw_css, skip_comments=True, skip_whitespace=True)
-    return _sanitize_rule_list(rules, depth=0)
+    sanitized = _sanitize_rule_list(rules, depth=0)
+    return _escape_angle_brackets_for_style_embedding(sanitized)
