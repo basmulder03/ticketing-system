@@ -15,9 +15,10 @@ in [`PROJECT_BRIEF.md`](./PROJECT_BRIEF.md). Read that first for context on
 what's in scope and why.
 
 > **Status:** Milestone 0 (Foundations) — project skeleton, local dev
-> stack, and CI are in place. No business logic (auth, models, routes)
-> exists yet; see `PROJECT_BRIEF.md`'s "Build order" section for what's
-> next.
+> stack, CI, encrypted-secrets primitive, admin session auth, agent
+> API-key auth with scope enforcement, and the audit log are in place.
+> No Event/Show/TicketType/public-site business logic exists yet; see
+> `PROJECT_BRIEF.md`'s "Build order" section for what's next.
 
 ## Stack
 
@@ -55,9 +56,35 @@ On startup, the `app` container automatically waits for Postgres and runs
 `alembic upgrade head` before starting the server — no separate migration
 step needed.
 
-Once models/seed data exist (Milestone 1+), the stack will also leave at
-least one demo Event/Show/TicketType ready to click through immediately.
-Until then, `/healthz` is the only route.
+`scripts/seed.py` runs automatically as part of `dev-up.sh`/`dev-reseed.sh`
+and creates one demo `AdminUser` (see "Auth" below). Event/Show/TicketType
+demo seed data is added in Milestone 1+.
+
+### Auth
+
+- **Admin login:** `POST /api/v1/auth/login` with `{"email", "password"}`
+  sets a signed, `httponly` session cookie (`beacon_admin_session`),
+  timed out after `SESSION_TIMEOUT_MINUTES` (default 30). A demo admin is
+  seeded from `SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD` (defaults:
+  `admin@beacon.local` / `dev-only-change-me-123` — local dev only).
+  `POST /api/v1/auth/logout` clears it; `GET /api/v1/auth/me` returns the
+  current principal (admin or agent).
+- **Agent (AI) auth:** a separate API-key path — send the raw key on the
+  `X-Agent-Api-Key` header. Keys are created via
+  `POST /api/v1/admin/agent-accounts` (admin-only; the raw key is shown
+  exactly once) and revoked via
+  `POST /api/v1/admin/agent-accounts/{id}/revoke`. Agent keys can never
+  reach admin-only routes (agent-account management, the audit log, and —
+  in later milestones — payment/SMTP credentials, admin user management,
+  financial data) — enforced by the `require_admin` dependency in
+  `app/api/deps.py`, not just documented.
+- **Audit log:** every login and every agent-account create/revoke is
+  recorded with an explicit actor type (`human` or `ai_agent`) and actor
+  name — never a generic "system" actor. View recent entries via
+  `GET /api/v1/admin/audit-log` (admin-only).
+- Both auth endpoints are rate-limited per client IP (in-memory, see
+  `app/core/rate_limit.py` — single-process only, adequate for this app's
+  single-small-VPS target; not shared across multiple workers/replicas).
 
 ### Where to view sent emails
 
@@ -116,9 +143,14 @@ Mailpit/test-key defaults — they are not read by the running app for real
 events.
 
 `ENCRYPTION_KEY` (in `.env`) is the key used to encrypt `EventConfig`
-secrets (SMTP passwords, Mollie keys) at rest — generate a real one for
-staging/production (`openssl rand -hex 32`), never reuse the dev
-placeholder outside local dev.
+secrets (SMTP passwords, Mollie keys) at rest via `app/core/crypto.py`'s
+`EncryptedString` column type (Fernet, keyed off a SHA-256 derivation of
+this value) — generate a real one for staging/production
+(`openssl rand -hex 32`), never reuse the dev placeholder outside local
+dev. `SECRET_KEY` similarly signs admin session cookies — rotate it for
+staging/production too (rotating either key invalidates existing sessions
+/ encrypted values, so treat both as real secrets even though this repo's
+defaults are dev placeholders).
 
 ## Deployment (production)
 
@@ -141,13 +173,20 @@ replaces real SMTP, neither of which are safe for prod as-is.
 ```
 app/                  FastAPI application package
   core/config.py       Settings (env-driven)
-  db/                  SQLAlchemy engine/session, declarative Base
-  api/                 Routers (empty — Milestone 1+)
+  core/crypto.py       Fernet encryption primitive + EncryptedString column type
+  core/security.py     Password hashing, agent API-key gen, session token signing
+  core/rate_limit.py   In-memory per-IP rate limiter
+  db/                  SQLAlchemy engine/session, declarative Base, shared mixins
+  models/               AdminUser, AgentAccount, AuditLogEntry
+  schemas/               Pydantic request/response models
+  services/audit.py     Reusable audit-log writer
+  api/deps.py           Auth dependencies + agent-scoping enforcement (require_admin)
+  api/routes/            auth, agent_accounts, audit_log routers
   templates/, static/  Jinja2 templates / static assets (empty — Milestone 2+)
   i18n/                EN/NL key-based translation dictionaries
-alembic/               DB migrations (empty initial revision so far)
+alembic/               DB migrations
 scripts/
-  seed.py               Demo data seed script (stub — Milestone 1+)
+  seed.py               Demo data seed script (seeds one AdminUser so far)
   dev-up.sh, dev-down.sh, dev-reseed.sh, dev-reset-db.sh
 tests/                 pytest suite
 docker/entrypoint.sh   Waits for DB, runs migrations, then execs uvicorn

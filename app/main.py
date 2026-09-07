@@ -1,12 +1,15 @@
 """Beacon ASGI application factory.
 
-Milestone 0 scope only: app instance boots, exposes a health-check route,
-and wires up settings/i18n scaffolding. Routes/models/business logic are
-added by ``backend-builder`` in subsequent milestones.
+Milestone 0 scope: app instance boots, exposes a health-check route, wires
+up settings/i18n scaffolding, and mounts the auth/agent-account/audit-log
+routes added for the "Foundations" auth & audit work. Business-domain
+routes (Event/Show/TicketType CRUD, checkout, etc.) are added by
+``backend-builder`` in subsequent milestones.
 """
 
 from fastapi import FastAPI
 
+from app.api.routes import agent_accounts, audit_log, auth
 from app.core.config import get_settings
 
 
@@ -19,6 +22,10 @@ def create_app() -> FastAPI:
         description="Self-hosted, generic event ticketing platform.",
         version="0.1.0",
     )
+
+    app.include_router(auth.router)
+    app.include_router(agent_accounts.router)
+    app.include_router(audit_log.router)
 
     @app.get("/healthz", tags=["ops"])
     async def healthz() -> dict[str, str]:

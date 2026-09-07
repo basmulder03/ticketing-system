@@ -35,6 +35,23 @@ class Settings(BaseSettings):
 
     default_locale: str = "en"
 
+    session_timeout_minutes: int = 30
+    """Admin session timeout. A session cookie whose embedded issue
+    timestamp is older than this is rejected even if its signature is
+    still valid — see ``app.core.security.verify_session_token``."""
+
+    login_rate_limit_per_minute: int = 10
+    """Max ``/api/v1/auth/login`` attempts per client IP per rolling minute."""
+
+    agent_auth_rate_limit_per_minute: int = 30
+    """Max agent-API-key-authenticated requests per client IP per rolling minute."""
+
+    # Seed-only defaults for the demo AdminUser (local dev login). Never
+    # used for real deployments — change/rotate before going anywhere near
+    # production.
+    seed_admin_email: str = "admin@beacon.local"
+    seed_admin_password: str = "dev-only-change-me-123"
+
     # Seed-only defaults for the demo Event's EventConfig (local dev SMTP
     # sink + Mollie test key placeholder). Never used for real events.
     seed_smtp_host: str = "mailpit"
