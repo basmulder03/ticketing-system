@@ -123,8 +123,18 @@ async def update_show(
     show = await _get_show_or_404(session, event, show_id)
 
     changes = apply_partial_update(show, body)
+    # Stringify every value (not just the non-JSON-native ones like `date`/
+    # `time`) before writing to the audit log's JSON column — same
+    # convention as ticket_types.py's update route. Passing `changes` as-is
+    # would crash on `date`/`time` fields (json.dumps has no default
+    # encoder for either), turning a routine PATCH into a 500.
     await record_audit_entry(
-        session, principal, action="show.update", target_type="Show", target_id=str(show.id), detail=changes
+        session,
+        principal,
+        action="show.update",
+        target_type="Show",
+        target_id=str(show.id),
+        detail={k: str(v) for k, v in changes.items()},
     )
     await session.commit()
     await session.refresh(show)

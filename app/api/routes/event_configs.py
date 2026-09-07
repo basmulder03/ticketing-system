@@ -137,9 +137,15 @@ async def upsert_event_config(
     if changes.get("enabled_payment_methods") is None and "enabled_payment_methods" in changes:
         config.enabled_payment_methods = []
         changes["enabled_payment_methods"] = []
-    # Never write secret plaintext into the audit log.
+    # Never write secret plaintext into the audit log. Every non-secret
+    # value is stringified too (not just passed through as-is) — same
+    # convention as ticket_types.py's update route — since `changes` can
+    # contain a `datetime` (``sales_live_at``), which the audit log's JSON
+    # column has no default encoder for; passing it through unstringified
+    # would crash this request with a 500 on the very first sales-live
+    # datetime ever set.
     redacted_changes = {
-        k: ("<redacted>" if k in ("smtp_password", "mollie_test_api_key", "mollie_live_api_key") else v)
+        k: ("<redacted>" if k in ("smtp_password", "mollie_test_api_key", "mollie_live_api_key") else str(v))
         for k, v in changes.items()
     }
     await session.flush()

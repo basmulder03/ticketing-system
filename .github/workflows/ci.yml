@@ -23,10 +23,25 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      # SMTP sink for the EventConfig connection-test integration test
+      # (tests/integration/test_event_configs_routes.py) — a real send
+      # against Mailpit, not a mock, same as local dev's docker-compose
+      # stack. This job runs directly on the runner (not in a container),
+      # so the service is reachable at localhost via the mapped port below,
+      # not by its service name — see SEED_SMTP_HOST override.
+      mailpit:
+        image: axllent/mailpit:latest
+        ports:
+          - 1025:1025
     env:
       DATABASE_URL: postgresql+asyncpg://beacon:beacon@localhost:5432/beacon
       SECRET_KEY: ci-secret-key
       ENCRYPTION_KEY: ci-encryption-key-not-for-real-use
+      # Matches the Mailpit service above — overrides the "mailpit" hostname
+      # default (which only resolves inside docker-compose's local dev
+      # network, see app/core/config.py's seed_smtp_host).
+      SEED_SMTP_HOST: localhost
+      SEED_SMTP_PORT: 1025
     steps:
       - uses: actions/checkout@v4
 
