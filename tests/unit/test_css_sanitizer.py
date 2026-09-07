@@ -235,6 +235,16 @@ def test_child_combinator_after_scope_prefix_still_survives() -> None:
     assert sanitize_custom_css(".event-content > h1 { color: red; }") == ".event-content > h1 { color: red; }"
 
 
+def test_css_escaped_sibling_combinator_is_also_dropped() -> None:
+    # \7E is the CSS hex-escape for "~", tokenized as an IdentToken (not a
+    # LiteralToken) — a second-pass security-reviewer finding on top of the
+    # original sibling-combinator fix. Not independently exploitable (an
+    # escaped delimiter loses its syntactic role and would just match an
+    # inert, nonexistent "~"-named type selector), but the combinator check
+    # should catch this token shape too, not only the literal one.
+    assert sanitize_custom_css(".event-content \\7E  footer { color: red; }") == ""
+
+
 # --- </style> breakout via declaration string values (security-reviewer
 # finding, Milestone 1.5) ---
 #

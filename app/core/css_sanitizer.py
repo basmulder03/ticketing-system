@@ -107,9 +107,23 @@ def _selector_branch_is_scoped(branch_tokens: list[object]) -> bool:
     is_class_name = isinstance(second, css_ast.IdentToken) and second.value == EVENT_CONTENT_CLASS
     if not (is_dot and is_class_name):
         return False
-    return not any(
-        isinstance(t, css_ast.LiteralToken) and t.value in _DISALLOWED_COMBINATORS for t in significant[2:]
-    )
+    return not any(_token_is_disallowed_combinator(t) for t in significant[2:])
+
+
+def _token_is_disallowed_combinator(token: object) -> bool:
+    """A combinator is normally a ``LiteralToken`` (``~``/``+``), but a
+    CSS-escaped form (e.g. ``\\7E `` for ``~``) tokenizes as an
+    ``IdentToken`` with that same literal value instead. Per spec, an
+    escaped delimiter loses its syntactic role as a combinator — it would
+    parse as an inert type-selector match (no real HTML tag is named
+    ``~``), so this isn't a working bypass — but checking both token forms
+    keeps the invariant this function's docstring claims actually true,
+    rather than relying on that parse behavior as the only defense."""
+    if isinstance(token, css_ast.LiteralToken):
+        return token.value in _DISALLOWED_COMBINATORS
+    if isinstance(token, css_ast.IdentToken):
+        return token.value in _DISALLOWED_COMBINATORS
+    return False
 
 
 def _split_top_level_commas(tokens: list[object]) -> list[list[object]]:
