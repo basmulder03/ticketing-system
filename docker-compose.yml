@@ -1,0 +1,55 @@
+version: "3.9"
+
+# Local dev stack only: app + Postgres + Mailpit (SMTP sink). Never used
+# for production — see README "Deployment" for the existing Hetzner VPS
+# setup this app gets added to instead.
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://beacon:beacon@db:5432/beacon
+    volumes:
+      - .:/app
+    depends_on:
+      db:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: beacon
+      POSTGRES_PASSWORD: beacon
+      POSTGRES_DB: beacon
+    ports:
+      # Host port 5433 (not 5432) to avoid clashing with a Postgres
+      # instance you might already have running locally. The app itself
+      # talks to `db:5432` inside the compose network regardless.
+      - "5433:5432"
+    volumes:
+      - beacon_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U beacon -d beacon"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    # Modest, non-production-tuned config — small Hetzner VPS target per
+    # PROJECT_BRIEF.md, no need for high-traffic tuning.
+    command: postgres -c shared_buffers=32MB -c max_connections=50
+    restart: unless-stopped
+
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "8025:8025" # web UI — view sent emails here
+      - "1025:1025" # SMTP sink — app's dev SMTP config points here
+    restart: unless-stopped
+
+volumes:
+  beacon_pgdata:
