@@ -68,3 +68,10 @@ agent_auth_rate_limiter = InMemoryRateLimiter(
     limit=_settings.agent_auth_rate_limit_per_minute, window_seconds=60.0
 )
 """Applied to every agent-API-key-authenticated request — limits key-guessing attempts per IP."""
+
+checkout_rate_limiter = InMemoryRateLimiter(limit=_settings.checkout_rate_limit_per_minute, window_seconds=60.0)
+"""Applied to ``POST /api/v1/public/checkout`` (Milestone 2) — per
+PROJECT_BRIEF.md's Security & Ops section ("rate limiting on checkout and
+scan endpoints"), limits how many checkout attempts a single client IP can
+make per rolling minute, independent of the row-locked stock check (which
+guards correctness, not abuse/load)."""

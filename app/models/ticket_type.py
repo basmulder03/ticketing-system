@@ -35,6 +35,14 @@ class TicketType(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     __tablename__ = "ticket_types"
 
+    # Lets `_sold_count` below be a plain (non-`Mapped[...]`) annotated
+    # attribute without SQLAlchemy's declarative mapper trying to interpret
+    # it as a mapped column — see that attribute's comment. `ClassVar[...]`
+    # would achieve the same for SQLAlchemy but mypy then forbids assigning
+    # to it via `self.` (as `attach_sold_count` below does), so this is the
+    # documented SQLAlchemy escape hatch instead.
+    __allow_unmapped__ = True
+
     show_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), nullable=False, index=True
     )
@@ -45,18 +53,43 @@ class TicketType(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     show: Mapped["Show"] = relationship(back_populates="ticket_types")
 
+    # Transient (non-persisted) per-instance state — deliberately a plain
+    # class attribute, NOT a `Mapped[...]`/`mapped_column`, so SQLAlchemy's
+    # declarative mapper never treats it as a DB column. Holds the live
+    # count of non-cancelled/non-expired Ticket rows for this TicketType,
+    # attached by `attach_sold_count` (see `app.services.stock`) after a
+    # fetch — see `remaining`'s docstring for why this two-step shape
+    # exists instead of a synchronous DB query inside the property.
+    _sold_count: int | None = None
+
     @property
     def remaining(self) -> int:
-        """Tickets still available for purchase.
+        """Tickets still available for purchase: ``quantity_available``
+        minus the live count of Ticket rows (across all non-cancelled,
+        non-expired Orders) referencing this TicketType — see
+        ``app.services.stock`` for the real query and
+        ``app.models.enums.OrderStatus`` for which statuses "release"
+        stock.
 
-        Currently always equals ``quantity_available``: the ``Order``/
-        ``Ticket`` models that would let us subtract sold/reserved stock
-        don't exist until Milestone 3+. Written as a real computed property
-        (not a TODO stub) specifically so wiring in the real stock math
-        later is a one-line change to this property's body, not a new
-        call-site to hunt down across the codebase — every caller (API
-        responses, the public stock display in Milestone 2) should already
-        be reading ``remaining``, never ``quantity_available``, wherever
-        "how many can still be bought" is the actual question.
+        This is a plain synchronous property, so it CANNOT itself run the
+        async DB query needed to count sold tickets — callers must call
+        ``attach_sold_count`` (typically via
+        ``app.services.stock.attach_remaining``) on this instance first.
+        If never attached, this conservatively falls back to
+        ``quantity_available`` (as if nothing has sold yet) rather than
+        raising, so a caller that forgets to attach a count fails safe
+        (shows full stock) rather than crashing — every read path that
+        needs a *correct* live number (backoffice TicketType routes, the
+        public landing-page routes) calls ``attach_remaining`` before
+        building its response; the checkout flow's actual stock check
+        does its own row-locked count directly (see
+        ``app.services.stock.reserve_stock``) and never relies on this
+        property at all.
         """
-        return self.quantity_available
+        sold = self._sold_count if self._sold_count is not None else 0
+        return max(self.quantity_available - sold, 0)
+
+    def attach_sold_count(self, sold_count: int) -> None:
+        """Attach the live sold count so subsequent reads of ``remaining``
+        reflect it. See ``remaining``'s docstring."""
+        self._sold_count = sold_count

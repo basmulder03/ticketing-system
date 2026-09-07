@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import Principal, require_admin_or_agent
-from app.api.routes._utils import apply_partial_update, parse_uuid_or_404
+from app.api.routes._utils import apply_partial_update, commit_or_conflict, parse_uuid_or_404
 from app.db.session import get_session
 from app.models.event import Event
 from app.models.show import Show
@@ -148,7 +148,11 @@ async def delete_show(
     principal: Principal = Depends(require_admin_or_agent),
     session: AsyncSession = Depends(get_session),
 ) -> None:
-    """Delete a Show and its TicketTypes (cascade)."""
+    """Delete a Show and its TicketTypes (cascade).
+
+    Fails with a 409 (not a 500) if any of its TicketTypes still have
+    purchased Tickets attached — see ``app.api.routes._utils.commit_or_conflict``.
+    """
     event = await _get_event_or_404(session, event_id)
     show = await _get_show_or_404(session, event, show_id)
     await record_audit_entry(
@@ -156,4 +160,4 @@ async def delete_show(
         detail={"event_id": str(event.id), "date": str(show.date)},
     )
     await session.delete(show)
-    await session.commit()
+    await commit_or_conflict(session, detail="Cannot delete: this show has ticket types with existing orders.")

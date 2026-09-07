@@ -12,6 +12,7 @@ from app.models.audit_log import AuditLogEntry
 from app.models.enums import (
     ActorType,
     AdminRole,
+    OrderStatus,
     PaymentMethod,
     PublishStatus,
     SmtpEncryptionMode,
@@ -19,8 +20,10 @@ from app.models.enums import (
 )
 from app.models.event import Event
 from app.models.event_config import EventConfig
+from app.models.order import Order
 from app.models.show import Show
 from app.models.theme import Theme
+from app.models.ticket import Ticket
 from app.models.ticket_type import TicketType
 
 __all__ = [
@@ -31,11 +34,14 @@ __all__ = [
     "AuditLogEntry",
     "Event",
     "EventConfig",
+    "Order",
+    "OrderStatus",
     "PaymentMethod",
     "PublishStatus",
     "Show",
     "SmtpEncryptionMode",
     "Theme",
     "ThemeFont",
+    "Ticket",
     "TicketType",
 ]

@@ -61,6 +61,18 @@ class Settings(BaseSettings):
     agent_auth_rate_limit_per_minute: int = 30
     """Max agent-API-key-authenticated requests per client IP per rolling minute."""
 
+    checkout_rate_limit_per_minute: int = 10
+    """Max ``POST /api/v1/public/checkout`` attempts per client IP per rolling
+    minute (Milestone 2) — see ``app.core.rate_limit.checkout_rate_limiter``."""
+
+    public_base_url: str = "http://localhost:8000"
+    """Canonical public base URL used to build absolute links in
+    ``sitemap.xml``/``robots.txt`` (Milestone 2) and, in later milestones,
+    email/PDF content. A genuinely global, infra-level setting (not
+    per-event) since this app is deployed on one domain per
+    PROJECT_BRIEF.md's single-VPS deployment target — deliberately NOT
+    scoped in ``EventConfig``."""
+
     uploads_dir: str = "/app/uploads"
     """Local filesystem directory theme images (logo/background) are written
     to and served from. No object storage per PROJECT_BRIEF.md's "avoid
