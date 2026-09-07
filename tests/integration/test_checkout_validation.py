@@ -316,6 +316,63 @@ async def test_wrong_preview_token_does_not_bypass_draft_gate(
         )
 
 
+async def test_valid_preview_token_does_not_bypass_sales_paused_once_published(
+    db_session: AsyncSession,
+    make_event: Callable[..., Awaitable[Event]],
+    make_show: Callable[..., Awaitable[Show]],
+    make_ticket_type: Callable[..., Awaitable[TicketType]],
+    make_event_config: Callable[..., Awaitable[EventConfig]],
+) -> None:
+    """Security-reviewer finding (Milestone 2): a preview link is meant for
+    pre-launch review, not a standing bypass of the manual sales
+    kill-switch after the event goes live. Once BOTH the Event and Show are
+    published, even a genuine preview_token must not bypass sales_paused.
+    """
+    event = await make_event(status=PublishStatus.PUBLISHED, sales_paused=True)
+    show = await make_show(event_id=event.id, status=PublishStatus.PUBLISHED)
+    ticket_type = await make_ticket_type(show_id=show.id, quantity_available=1)
+    await make_event_config(event_id=event.id, sales_live_at=_PAST, enabled_payment_methods=[PaymentMethod.DOOR])
+
+    with pytest.raises(SalesPausedCheckoutError):
+        await perform_checkout(
+            db_session,
+            items=[CheckoutItemInput(ticket_type_id=ticket_type.id, quantity=1)],
+            buyer_name="Buyer",
+            buyer_email="buyer@example.test",
+            buyer_address="1 Test Street",
+            language="en",
+            payment_method=PaymentMethod.DOOR,
+            preview_token=event.preview_token,
+        )
+
+
+async def test_valid_preview_token_does_not_bypass_sales_not_live_once_published(
+    db_session: AsyncSession,
+    make_event: Callable[..., Awaitable[Event]],
+    make_show: Callable[..., Awaitable[Show]],
+    make_ticket_type: Callable[..., Awaitable[TicketType]],
+    make_event_config: Callable[..., Awaitable[EventConfig]],
+) -> None:
+    """Same guarantee as above, for the sales-embargo (sales_live_at in the
+    future) gate rather than the manual pause."""
+    event = await make_event(status=PublishStatus.PUBLISHED)
+    show = await make_show(event_id=event.id, status=PublishStatus.PUBLISHED)
+    ticket_type = await make_ticket_type(show_id=show.id, quantity_available=1)
+    await make_event_config(event_id=event.id, sales_live_at=_FUTURE, enabled_payment_methods=[PaymentMethod.DOOR])
+
+    with pytest.raises(SalesNotLiveCheckoutError):
+        await perform_checkout(
+            db_session,
+            items=[CheckoutItemInput(ticket_type_id=ticket_type.id, quantity=1)],
+            buyer_name="Buyer",
+            buyer_email="buyer@example.test",
+            buyer_address="1 Test Street",
+            language="en",
+            payment_method=PaymentMethod.DOOR,
+            preview_token=event.preview_token,
+        )
+
+
 async def test_sales_not_live_yet_is_rejected(
     db_session: AsyncSession,
     make_event: Callable[..., Awaitable[Event]],
@@ -548,3 +605,44 @@ async def test_checkout_route_409s_on_insufficient_stock(
     )
     assert response.status_code == 409
     assert "1" in response.json()["detail"]
+
+
+async def test_checkout_route_422s_when_total_quantity_across_items_exceeds_cap(
+    client: AsyncClient,
+    make_event: Callable[..., Awaitable[Event]],
+    make_show: Callable[..., Awaitable[Show]],
+    make_ticket_type: Callable[..., Awaitable[TicketType]],
+    make_event_config: Callable[..., Awaitable[EventConfig]],
+) -> None:
+    """Security-reviewer finding: each CheckoutItem.quantity is individually
+    capped at 50, but nothing previously capped the SUM across items — a
+    single request could ask for up to 20 x 50 tickets in one call."""
+    _event, show, _ticket_type = await _live_setup(make_event, make_show, make_ticket_type, make_event_config)
+    ticket_type_a = await make_ticket_type(show_id=show.id, quantity_available=1000)
+    ticket_type_b = await make_ticket_type(show_id=show.id, quantity_available=1000)
+
+    payload = _payload([ticket_type_a.id, ticket_type_b.id])
+    payload["items"] = [
+        {"ticket_type_id": str(ticket_type_a.id), "quantity": 30},
+        {"ticket_type_id": str(ticket_type_b.id), "quantity": 30},
+    ]
+    response = await client.post("/api/v1/public/checkout", json=payload)
+    assert response.status_code == 422
+
+
+async def test_checkout_route_422s_when_buyer_address_exceeds_max_length(
+    client: AsyncClient,
+    make_event: Callable[..., Awaitable[Event]],
+    make_show: Callable[..., Awaitable[Show]],
+    make_ticket_type: Callable[..., Awaitable[TicketType]],
+    make_event_config: Callable[..., Awaitable[EventConfig]],
+) -> None:
+    """Security-reviewer finding: buyer_address had no max_length, unlike
+    buyer_name/buyer_email — an unbounded field on an unauthenticated,
+    rate-limited-but-not-size-limited public endpoint."""
+    _, _, ticket_type = await _live_setup(make_event, make_show, make_ticket_type, make_event_config)
+
+    payload = _payload([ticket_type.id])
+    payload["buyer_address"] = "x" * 1001
+    response = await client.post("/api/v1/public/checkout", json=payload)
+    assert response.status_code == 422

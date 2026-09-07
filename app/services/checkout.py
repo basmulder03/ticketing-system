@@ -5,6 +5,7 @@ all inside one DB transaction. See ``app.services.stock`` for the row-
 locking mechanics that make this race-safe under concurrent buyers.
 """
 
+import hmac
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -134,10 +135,18 @@ async def perform_checkout(
     ``app.services.stock.reserve_stock``.
 
     Preview-mode note: a valid ``preview_token`` (matching the target
-    Event's ``Event.preview_token``) bypasses the draft/sales-live/
-    sales-paused gates per PROJECT_BRIEF.md's Draft & Preview section ("the
-    full buyer journey can be reviewed before production credentials
-    exist") — but does NOT bypass the payment-method-enabled or
+    Event's ``Event.preview_token``) bypasses the draft-publish gate per
+    PROJECT_BRIEF.md's Draft & Preview section ("the full buyer journey can
+    be reviewed before production credentials exist") — but ONLY while the
+    Event or Show is actually still draft. Once BOTH are published, the
+    token has no gating effect at all: ``sales_paused``/``sales_live_at``
+    are unconditionally enforced regardless of any token presented. Without
+    this restriction, a preview link handed to stakeholders pre-launch
+    (explicitly meant to be shareable, per the brief) would remain a
+    standing credential that permanently bypasses the manual "pause all
+    sales now" incident kill-switch and the sales-embargo gate forever
+    after the event goes live — defeating both, not just draft-gating.
+    The token never bypasses the payment-method-enabled or
     stock-availability checks, since those are basic input validity, not
     publish-timing gates.
 
@@ -166,10 +175,17 @@ async def perform_checkout(
     event = show.event
     config = event.config
 
-    is_preview = bool(preview_token) and preview_token == event.preview_token
-    if not is_preview:
-        if event.status != PublishStatus.PUBLISHED or show.status != PublishStatus.PUBLISHED:
+    is_draft = event.status != PublishStatus.PUBLISHED or show.status != PublishStatus.PUBLISHED
+    has_valid_preview_token = preview_token is not None and hmac.compare_digest(preview_token, event.preview_token)
+    if is_draft:
+        if not has_valid_preview_token:
             raise EventNotAvailableCheckoutError()
+        # Draft + valid token: reviewable pre-launch, per the brief — sales
+        # timing gates below don't apply to something that isn't live yet.
+    else:
+        # Fully published: sales_paused/sales_live_at are unconditionally
+        # enforced. A preview token (even a correct one) grants no bypass
+        # here — see this function's docstring for why.
         if event.sales_paused:
             raise SalesPausedCheckoutError()
         sales_live_at = config.sales_live_at if config is not None else None
