@@ -9,10 +9,18 @@ a side effect of being imported here.
 from app.models.admin_user import AdminUser
 from app.models.agent_account import AgentAccount
 from app.models.audit_log import AuditLogEntry
-from app.models.enums import ActorType, AdminRole, PaymentMethod, PublishStatus, SmtpEncryptionMode
+from app.models.enums import (
+    ActorType,
+    AdminRole,
+    PaymentMethod,
+    PublishStatus,
+    SmtpEncryptionMode,
+    ThemeFont,
+)
 from app.models.event import Event
 from app.models.event_config import EventConfig
 from app.models.show import Show
+from app.models.theme import Theme
 from app.models.ticket_type import TicketType
 
 __all__ = [
@@ -27,5 +35,7 @@ __all__ = [
     "PublishStatus",
     "Show",
     "SmtpEncryptionMode",
+    "Theme",
+    "ThemeFont",
     "TicketType",
 ]

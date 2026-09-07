@@ -14,6 +14,13 @@ services:
       DATABASE_URL: postgresql+asyncpg://beacon:beacon@db:5432/beacon
     volumes:
       - .:/app
+      # Named volume for Theme logo/background uploads (see
+      # app.services.theme_images / app.core.config.Settings.uploads_dir).
+      # Mounted at the same path the bind mount above already covers, so it
+      # takes precedence for this one subdirectory — uploads persist across
+      # container rebuilds independently of the app source/image, and never
+      # land inside the git working tree.
+      - beacon_uploads:/app/uploads
     depends_on:
       db:
         condition: service_healthy
@@ -53,3 +60,4 @@ services:
 
 volumes:
   beacon_pgdata:
+  beacon_uploads:

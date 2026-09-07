@@ -7,7 +7,10 @@ Event/EventConfig/Show/TicketType backoffice-core routes. Public-site/
 checkout routes are added by ``backend-builder`` in subsequent milestones.
 """
 
+from pathlib import Path
+
 from fastapi import FastAPI
+from starlette.staticfiles import StaticFiles
 
 from app.api.routes import (
     agent_accounts,
@@ -16,6 +19,7 @@ from app.api.routes import (
     event_configs,
     events,
     shows,
+    themes,
     ticket_types,
 )
 from app.core.config import get_settings
@@ -38,6 +42,16 @@ def create_app() -> FastAPI:
     app.include_router(event_configs.router)
     app.include_router(shows.router)
     app.include_router(ticket_types.router)
+    app.include_router(themes.router)
+
+    # Serves uploaded Theme logo/background images back out (see
+    # app.services.theme_images) — local filesystem storage, mounted as its
+    # own docker volume in docker-compose.yml so it survives rebuilds.
+    # Created eagerly here (not lazily on first upload) since StaticFiles
+    # requires the directory to exist at mount time.
+    uploads_dir = Path(settings.uploads_dir)
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+    app.mount("/uploads", StaticFiles(directory=str(uploads_dir)), name="uploads")
 
     @app.get("/healthz", tags=["ops"])
     async def healthz() -> dict[str, str]:

@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     # only needed so mypy can resolve the string forward-refs below.
     from app.models.event_config import EventConfig
     from app.models.show import Show
+    from app.models.theme import Theme
 
 
 class Event(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -42,12 +43,8 @@ class Event(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     all sales for this event right now," not "let me remember to toggle
     every show individually."
 
-    Theme (colors, logo, custom CSS) is explicitly deferred to Milestone 1.5
-    per the brief's Build order — no ``theme_id`` column exists yet.
-    Backfilling a nullable FK to a ``themes`` table in a later migration is a
-    one-line addition; adding a placeholder UUID column now with no table to
-    reference it would only invite an untyped, unenforced "foreign key in
-    name only," so it's left out entirely until the Theme model exists.
+    ``theme`` is the Milestone 1.5 Theme relationship (1:1, mirrors
+    ``config``'s cascade-on-delete pattern) — see ``app.models.theme.Theme``.
     """
 
     __tablename__ = "events"
@@ -63,6 +60,9 @@ class Event(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     sales_paused: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     config: Mapped["EventConfig | None"] = relationship(
+        back_populates="event", uselist=False, cascade="all, delete-orphan"
+    )
+    theme: Mapped["Theme | None"] = relationship(
         back_populates="event", uselist=False, cascade="all, delete-orphan"
     )
     shows: Mapped[list["Show"]] = relationship(

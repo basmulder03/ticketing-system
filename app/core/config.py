@@ -61,6 +61,20 @@ class Settings(BaseSettings):
     agent_auth_rate_limit_per_minute: int = 30
     """Max agent-API-key-authenticated requests per client IP per rolling minute."""
 
+    uploads_dir: str = "/app/uploads"
+    """Local filesystem directory theme images (logo/background) are written
+    to and served from. No object storage per PROJECT_BRIEF.md's "avoid
+    adding services unless a requirement actually needs one" — this is a
+    small self-hosted VPS deployment. Mounted as a dedicated docker volume
+    (see ``docker-compose.yml``) so uploads survive container
+    rebuilds/redeploys independently of the app image."""
+
+    theme_upload_max_bytes: int = 5 * 1024 * 1024
+    """Max accepted size (bytes) for a single theme logo/background image
+    upload — see ``app.services.theme_images``. 5 MB comfortably covers a
+    web-optimized logo/hero image without risking memory pressure on the
+    small Hetzner VPS target."""
+
     # Seed-only defaults for the demo AdminUser (local dev login). Never
     # used for real deployments — change/rotate before going anywhere near
     # production.
