@@ -30,6 +30,7 @@ __all__ = [
     "hash_api_key",
     "hash_password",
     "verify_password",
+    "verify_password_or_dummy",
     "verify_session_token",
 ]
 
@@ -38,6 +39,14 @@ _password_hasher = PasswordHasher()
 ADMIN_SESSION_COOKIE_NAME = "beacon_admin_session"
 _SESSION_SALT = "beacon-admin-session"
 AGENT_API_KEY_PREFIX = "bcag_"
+
+# A real argon2 hash of an unguessable value, used only to keep the login
+# route's response time constant when no account exists. Without this, a
+# nonexistent-email request returns fast (no hash to check) while a
+# wrong-password request pays argon2's deliberate cost, letting an attacker
+# distinguish "no such user" from "wrong password" via timing even though
+# both return the same generic 401 body.
+_DUMMY_PASSWORD_HASH = _password_hasher.hash(secrets.token_urlsafe(32))
 
 
 def hash_password(plain_password: str) -> str:
@@ -57,6 +66,17 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
         return _password_hasher.verify(hashed_password, plain_password)
     except (VerifyMismatchError, InvalidHash):
         return False
+
+
+def verify_password_or_dummy(plain_password: str, hashed_password: str | None) -> bool:
+    """Like :func:`verify_password`, but always pays argon2's cost even if
+    ``hashed_password`` is ``None`` (account doesn't exist / is inactive).
+
+    Callers should use this instead of an ``account is None or not
+    verify_password(...)`` short-circuit for any auth check whose failure
+    response must not leak, via timing, whether the account exists.
+    """
+    return verify_password(plain_password, hashed_password if hashed_password is not None else _DUMMY_PASSWORD_HASH)
 
 
 def _session_serializer() -> URLSafeTimedSerializer:

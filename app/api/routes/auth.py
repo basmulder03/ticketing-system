@@ -15,7 +15,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import Principal, get_current_principal
 from app.core.config import get_settings
 from app.core.rate_limit import login_rate_limiter, rate_limit_dependency
-from app.core.security import ADMIN_SESSION_COOKIE_NAME, create_session_token, verify_password
+from app.core.security import (
+    ADMIN_SESSION_COOKIE_NAME,
+    create_session_token,
+    verify_password_or_dummy,
+)
 from app.db.session import get_session
 from app.models.admin_user import AdminUser
 from app.models.enums import ActorType
@@ -41,12 +45,18 @@ async def login(
     """Authenticate an admin user by email/password and set a signed session cookie.
 
     Returns a generic 401 for both "no such user" and "wrong password" so
-    the response can't be used to enumerate registered admin emails.
+    the response can't be used to enumerate registered admin emails — the
+    password hash check runs unconditionally (against a dummy hash when the
+    account doesn't exist/isn't active) so the response also can't be
+    distinguished by timing.
     Rate-limited per client IP (see ``app.core.rate_limit``).
     """
     result = await session.execute(select(AdminUser).where(AdminUser.email == body.email.lower()))
     admin = result.scalar_one_or_none()
-    if admin is None or not admin.is_active or not verify_password(body.password, admin.hashed_password):
+    password_ok = verify_password_or_dummy(
+        body.password, admin.hashed_password if admin is not None else None
+    )
+    if admin is None or not admin.is_active or not password_ok:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password.")
 
     admin.last_login_at = datetime.now(UTC)
