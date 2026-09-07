@@ -215,6 +215,8 @@ def _translate_checkout_error(status_code: int, detail: str, locale: str) -> str
         return translate("public.checkout.error_sales_not_live", locale)
     if status_code == 409:
         return translate("public.checkout.error_sold_out", locale)
+    if status_code == 422 and "payment method" in detail.lower():
+        return translate("public.checkout.error_payment_method_not_enabled", locale)
     return translate("public.checkout.error_generic", locale)
 
 

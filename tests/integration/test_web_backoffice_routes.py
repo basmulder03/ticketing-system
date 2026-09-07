@@ -541,3 +541,20 @@ async def test_copy_from_form_happy_path(
     assert response.status_code == 303
     saved = await client.get(f"/api/v1/events/{target_event_id}/theme")
     assert saved.json()["primary_color"] == "#222222"
+
+
+# --- Events list: copy-preview-link button (Milestone 2) ------------------
+
+
+async def test_events_list_renders_copy_preview_link_button_with_correct_url(
+    client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]]
+) -> None:
+    await _api_login(client, await make_admin_user())
+    event_id = await _create_event(client, slug="preview-link-test")
+    event = (await client.get(f"/api/v1/events/{event_id}")).json()
+
+    response = await client.get("/events")
+
+    assert response.status_code == 200
+    assert "Copy preview link" in response.text
+    assert f'data-copy-value="http://localhost:8000/preview/{event["preview_token"]}"' in response.text

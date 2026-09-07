@@ -51,6 +51,7 @@
   "public.checkout.error_sales_paused": "Sales are currently paused for this event. Please check back later.",
   "public.checkout.error_sales_not_live": "Tickets are not on sale yet for this event.",
   "public.checkout.error_sold_out": "Sorry, not enough tickets remain for one of the ticket types you selected.",
+  "public.checkout.error_payment_method_not_enabled": "That payment method isn't available for this event. Please choose another.",
   "public.checkout.error_no_items": "Please select at least one ticket before continuing.",
   "public.checkout.error_generic": "We couldn't process your order. Please check your details and try again.",
 
