@@ -17,6 +17,7 @@ routes beyond this yet (full order management/mark-as-paid is Milestone
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -29,6 +30,7 @@ from app.models.event import Event
 from app.models.order import Order
 from app.models.ticket import Ticket
 from app.schemas.order import OrderOut, TicketOut
+from app.services.invoice_pdf import render_invoice_pdf
 from app.services.ticket_delivery import send_order_confirmation_email
 
 router = APIRouter(prefix="/api/v1/orders", tags=["orders"])
@@ -126,3 +128,53 @@ async def resend_confirmation_email(
         session, order_id=order.id, principal=principal, trigger="manual_resend"
     )
     return {"sent": sent}
+
+
+@router.get("/{order_id}/invoice.pdf")
+async def download_invoice_pdf(
+    order_id: str,
+    principal: Principal = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> Response:
+    """Direct backoffice PDF download/re-download of an already-issued
+    Invoice — the "re-download" half of PROJECT_BRIEF.md's Invoicing
+    section ("resend/re-download action in backoffice"), distinct from the
+    resend-email action above (which re-sends the SAME email containing
+    this same PDF as an attachment, per ``app.services.ticket_delivery``).
+
+    Admin-only (financial data, not agent-key content-management scope).
+    404s if the Order doesn't exist or has no Invoice yet (i.e. it isn't
+    ``paid`` — an Invoice is only ever created by
+    ``app.services.invoicing.issue_invoice_for_order`` at payment
+    confirmation, never speculatively). Re-renders fresh from the Invoice's
+    stored snapshot data on every call (same "render on demand, don't
+    persist PDF bytes" pattern as ``app.services.ticket_pdf``) — always
+    byte-for-byte reproducible since nothing an Invoice snapshots can
+    change after issuance (see ``app.models.invoice.Invoice`` docstring).
+    """
+    parsed_id = parse_uuid_or_404(order_id, detail="Order not found.")
+    result = await session.execute(
+        select(Order)
+        .where(Order.id == parsed_id)
+        .options(selectinload(Order.invoice), selectinload(Order.event).selectinload(Event.theme))
+    )
+    order = result.scalar_one_or_none()
+    if order is None or order.event is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found.")
+    if order.invoice is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="No invoice has been issued for this order yet."
+        )
+
+    pdf_bytes = render_invoice_pdf(
+        invoice=order.invoice,
+        order=order,
+        event=order.event,
+        theme=order.event.theme,
+        locale=order.language,
+    )
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="invoice-{order.id}.pdf"'},
+    )

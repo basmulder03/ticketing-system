@@ -110,6 +110,30 @@ async def reserve_stock(
     on more than one ``TicketType`` always attempt to acquire locks in the
     same order, avoiding a lock-ordering deadlock.
 
+    ``execution_options(populate_existing=True)`` is load-bearing, not a
+    stylistic default — the same SQLAlchemy identity-map staleness bug
+    found and fixed in ``app.services.order_payment._lock_order`` and
+    ``app.services.invoicing._allocate_invoice_number`` also applies here,
+    independently found and reproduced by security-reviewer:
+    ``app.services.checkout.perform_checkout`` already reads these same
+    ``TicketType`` rows via a PLAIN (non-locking) query earlier in the SAME
+    session (to resolve Show/Event/EventConfig for sales-timing checks)
+    before calling this function. Without ``populate_existing``, the
+    identity map would return those already-loaded objects as-is once this
+    query's ``WHERE`` clause matches the same primary keys — the
+    ``SELECT ... FOR UPDATE`` still genuinely locks the rows at the DB
+    level, but ``locked[id].price``/``.quantity_available`` would be the
+    STALE pre-lock values, not the fresh, correctly-serialized ones a
+    blocked transaction is entitled to see after acquiring the lock.
+    Reproduced directly: a concurrent admin price/capacity edit committed
+    while a checkout was blocked on this row lock was invisible to the
+    checkout even after it acquired the lock, without this fix.
+    ``sold_counts_for_ticket_types`` below was already safe on its own (a
+    fresh aggregate query, not a cached counter attribute) — this fix
+    covers the two attributes read directly off the locked ORM objects
+    instead (``quantity_available`` here, ``price`` in
+    ``app.services.checkout``).
+
     Raises :class:`TicketTypeNotFoundError` if any id doesn't exist, or
     :class:`InsufficientStockError` (naming the first short type found) if
     any requested quantity exceeds what's actually left.
@@ -118,7 +142,11 @@ async def reserve_stock(
         return {}
     ticket_type_ids = sorted(quantities_by_ticket_type_id.keys())
     result = await session.execute(
-        select(TicketType).where(TicketType.id.in_(ticket_type_ids)).order_by(TicketType.id).with_for_update()
+        select(TicketType)
+        .where(TicketType.id.in_(ticket_type_ids))
+        .order_by(TicketType.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
     locked = {tt.id: tt for tt in result.scalars().all()}
     missing = [tid for tid in ticket_type_ids if tid not in locked]

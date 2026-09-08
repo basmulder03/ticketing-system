@@ -509,6 +509,7 @@ async def test_confirmation_email_lands_in_mailpit_with_adversarial_content_sani
     )
     assert response.status_code == 201, response.text
     assert response.json()["status"] == "paid"
+    order_id = response.json()["id"]
 
     message = await fetch_latest_mailpit_message_to(buyer_email)
 
@@ -532,12 +533,20 @@ async def test_confirmation_email_lands_in_mailpit_with_adversarial_content_sani
     # showing the literal placeholder text, never a crash or silent drop.
     assert "{{unknown_placeholder}}" in text_body
 
+    # Milestone 5: the invoice PDF is a second attachment on this same
+    # email/attachment set (per the brief's "emailed alongside the ticket"),
+    # not a second email — see app/services/ticket_delivery.py.
     attachments = message["Attachments"]
-    assert len(attachments) == 1
-    assert attachments[0]["ContentType"] == "application/pdf"
+    assert len(attachments) == 2
+    assert {a["ContentType"] for a in attachments} == {"application/pdf"}
 
-    pdf_bytes = await fetch_mailpit_attachment(message["ID"], attachments[0]["PartID"])
-    assert pdf_bytes.startswith(b"%PDF")
+    attachments_by_name = {a["FileName"]: a for a in attachments}
+    ticket_attachment = attachments_by_name[f"tickets-{order_id}.pdf"]
+    invoice_attachment = attachments_by_name[f"invoice-{order_id}.pdf"]
+
+    for attachment in (ticket_attachment, invoice_attachment):
+        pdf_bytes = await fetch_mailpit_attachment(message["ID"], attachment["PartID"])
+        assert pdf_bytes.startswith(b"%PDF")
 
     order_result = await db_session.execute(select(Order).where(Order.buyer_email == buyer_email))
     order = order_result.scalar_one()

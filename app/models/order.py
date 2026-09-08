@@ -18,6 +18,7 @@ from app.models.enums import MollieMode, OrderStatus, PaymentMethod
 
 if TYPE_CHECKING:
     from app.models.event import Event
+    from app.models.invoice import Invoice
     from app.models.ticket import Ticket
 
 
@@ -128,3 +129,9 @@ class Order(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     event: Mapped["Event"] = relationship()
     tickets: Mapped[list["Ticket"]] = relationship(back_populates="order", cascade="all, delete-orphan")
+    invoice: Mapped["Invoice | None"] = relationship(
+        back_populates="order", uselist=False, cascade="all, delete-orphan"
+    )
+    """The Order's single Invoice (Milestone 5), ``None`` until
+    ``app.services.invoicing.issue_invoice_for_order`` creates one on
+    payment confirmation — see ``app.models.invoice.Invoice`` docstring."""

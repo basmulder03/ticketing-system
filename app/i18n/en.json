@@ -79,5 +79,20 @@
   "email.order_confirmation.qr_alt": "QR code for your {ticket_type} ticket — present this or the attached PDF at the door.",
   "email.order_confirmation.attachment_note": "Your ticket(s) are also attached to this email as a PDF, ready to print.",
   "email.order_confirmation.logo_alt": "{event_name} logo",
-  "email.order_confirmation.footer": "{event_name} — sent via Beacon"
+  "email.order_confirmation.footer": "{event_name} — sent via Beacon",
+
+  "pdf.ticket.show_label": "Show",
+  "pdf.ticket.venue_label": "Venue",
+  "pdf.ticket.ticket_type_label": "Ticket type",
+  "pdf.ticket.ticket_holder_label": "Ticket holder",
+
+  "pdf.invoice.title_label": "Invoice",
+  "pdf.invoice.date_label": "Date",
+  "pdf.invoice.from_label": "From",
+  "pdf.invoice.bill_to_label": "Bill to",
+  "pdf.invoice.item_column": "Item",
+  "pdf.invoice.qty_column": "Qty",
+  "pdf.invoice.unit_price_column": "Unit price",
+  "pdf.invoice.line_total_column": "Line total",
+  "pdf.invoice.total_label": "Total"
 }

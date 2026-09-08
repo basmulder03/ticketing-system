@@ -25,6 +25,7 @@ from app.models.order import Order
 from app.models.show import Show
 from app.models.ticket import Ticket
 from app.models.ticket_type import TicketType
+from app.services.invoicing import issue_invoice_for_order
 from app.services.mollie import MollieApiError, create_mollie_payment, resolve_mollie_api_key
 from app.services.order_payment import SYSTEM_PRINCIPAL, mark_order_paid
 from app.services.stock import InsufficientStockError, TicketTypeNotFoundError, reserve_stock
@@ -325,7 +326,9 @@ async def _initiate_mollie_payment(
        the automated ``SYSTEM_PRINCIPAL`` with a reason that makes the
        simulated nature explicit in the audit log, and sign its Tickets'
        QR tokens (``app.services.ticket_delivery.sign_order_tickets`` —
-       Milestone 4) inside this same transaction. This is this project's
+       Milestone 4) and issue its Invoice (``app.services.invoicing.
+       issue_invoice_for_order`` — Milestone 5) inside this same
+       transaction. This is this project's
        chosen mechanism for PROJECT_BRIEF.md's "clearly-labeled 'test
        checkout'" requirement — no real charge, no external call at all.
        Returns ``(None, True)`` (nothing to redirect to; the caller/route
@@ -362,6 +365,10 @@ async def _initiate_mollie_payment(
             ),
         )
         await sign_order_tickets(session, order=order)
+        # Milestone 5: issue the Invoice inside this same transaction too,
+        # exactly like the Mollie webhook's equivalent fresh-payment branch
+        # — see app.services.invoicing module docstring.
+        await issue_invoice_for_order(session, order=order, principal=SYSTEM_PRINCIPAL)
         return None, True
 
     settings = get_settings()

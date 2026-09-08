@@ -44,11 +44,15 @@ class EventConfig(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     phrasing) and adding a third method later (if ever) is a value addition
     to the enum, not a schema change.
 
-    Sequential invoice numbering (the actual counter) is deferred to
-    Milestone 5 alongside the ``Invoice`` model — only the configurable
-    ``invoice_number_prefix`` (a Milestone 1 field per the brief) lives here
-    for now; the running sequence itself needs an atomic per-event counter
-    and belongs next to where invoices are actually issued.
+    ``next_invoice_number`` (Milestone 5) is the atomic per-event running
+    counter backing sequential invoice numbering — see
+    ``app.services.invoicing._allocate_invoice_number`` for the row-locked
+    (``SELECT ... FOR UPDATE``) allocation discipline, mirroring
+    ``app.services.stock.reserve_stock``'s locking pattern. It holds the
+    NEXT number to be assigned (starts at 1, so the first invoice issued for
+    an event is number 1), not the last one used — this ordering avoids an
+    off-by-one at the very first allocation and matches how a fresh
+    EventConfig with no invoices yet still has a well-defined "next" value.
     """
 
     __tablename__ = "event_configs"
@@ -92,6 +96,7 @@ class EventConfig(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     invoice_company_address: Mapped[str | None] = mapped_column(Text, nullable=True)
     invoice_company_vat_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
     invoice_number_prefix: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    next_invoice_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
     # --- Sales timing & payment methods ---
     sales_live_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

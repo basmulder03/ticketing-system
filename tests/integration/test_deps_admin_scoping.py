@@ -16,6 +16,10 @@ Covers every route currently declared with ``Depends(require_admin)``:
     ``require_admin_or_agent``)
   - GET    /api/v1/events/{event_id}/orders (Milestone 4: same reasoning —
     listing Orders is financial/buyer-PII data, admin-only)
+  - GET    /api/v1/orders/{order_id}/invoice.pdf (Milestone 5: same
+    reasoning again — an Invoice is financial data, admin-only, not agent
+    content-management scope — see ``app.api.routes.orders`` module
+    docstring)
 
 If a future route adds ``Depends(require_admin)``, add it to
 ``ADMIN_GATED_ROUTES`` below so this test keeps covering the full set.
@@ -54,6 +58,12 @@ ADMIN_GATED_ROUTES: list[tuple[str, str, str, dict[str, str] | None]] = [
         "list_event_orders",
         "GET",
         f"/api/v1/events/{_PLACEHOLDER_EVENT_ID}/orders",
+        None,
+    ),
+    (
+        "download_invoice_pdf",
+        "GET",
+        f"/api/v1/orders/{_PLACEHOLDER_ORDER_ID}/invoice.pdf",
         None,
     ),
 ]
