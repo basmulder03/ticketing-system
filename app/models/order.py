@@ -13,7 +13,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 from app.db.mixins import TimestampMixin, UUIDPrimaryKeyMixin
-from app.models.enums import OrderStatus, PaymentMethod
+from app.models.enums import MollieMode, OrderStatus, PaymentMethod
 
 if TYPE_CHECKING:
     from app.models.event import Event
@@ -77,6 +77,37 @@ class Order(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     total: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     language: Mapped[str] = mapped_column(String(10), nullable=False)
+    mollie_payment_id: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True, index=True)
+    """The Mollie payment id (``tr_xxx``) returned by Mollie's Create
+    Payment API (Milestone 3, see ``app.services.mollie.create_mollie_payment``),
+    set only for ``payment_method=mollie`` orders that actually went through
+    a real Mollie call (never set for ``door`` orders, and never set for the
+    preview-mode simulated-checkout path — see
+    ``app.services.checkout._initiate_mollie_payment`` — since neither ever
+    calls Mollie's API at all). This is the lookup key the webhook handler
+    uses to find which ``Order`` a Mollie webhook's payment id refers to
+    (see ``app.api.routes.public.mollie_webhook``). Unique (Mollie payment
+    ids are globally unique) and indexed for that lookup; nullable since
+    most orders (door, or the simulated sandbox path) never get one.
+    """
+    mollie_mode: Mapped[MollieMode | None] = mapped_column(
+        SAEnum(MollieMode, name="mollie_mode", native_enum=True, values_callable=lambda e: [m.value for m in e]),
+        nullable=True,
+    )
+    """A snapshot of ``EventConfig.mollie_mode`` at the moment this Order's
+    Mollie payment was created (only set alongside ``mollie_payment_id`` —
+    same null-for-door/simulated-orders rule). Deliberately NOT re-read
+    from the live ``EventConfig`` at webhook time: security-reviewer's
+    Milestone 3 pass found that reconciling against the CURRENT
+    ``mollie_mode`` meant an admin flipping test/live while an Order was
+    still ``pending`` would make the webhook fetch with the wrong-
+    environment key, Mollie would reject it, and the Order would get stuck
+    (never resolving to paid or released) until the admin reverted the
+    setting or staff manually intervened. Pinning the mode used at payment-
+    creation time makes reconciliation immune to a mid-flight config
+    change, matching how ``total``/``price`` are also snapshotted at
+    checkout rather than re-derived later.
+    """
 
     event: Mapped["Event"] = relationship()
     tickets: Mapped[list["Ticket"]] = relationship(back_populates="order", cascade="all, delete-orphan")

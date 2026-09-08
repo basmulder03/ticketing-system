@@ -17,7 +17,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.crypto import EncryptedString
 from app.db.base import Base
 from app.db.mixins import TimestampMixin, UUIDPrimaryKeyMixin
-from app.models.enums import PaymentMethod, SmtpEncryptionMode
+from app.models.enums import MollieMode, PaymentMethod, SmtpEncryptionMode
 
 if TYPE_CHECKING:
     from app.models.event import Event
@@ -78,6 +78,14 @@ class EventConfig(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # --- Mollie ---
     mollie_test_api_key: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)
     mollie_live_api_key: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)
+    mollie_mode: Mapped[MollieMode] = mapped_column(
+        SAEnum(MollieMode, name="mollie_mode", native_enum=True, values_callable=lambda e: [m.value for m in e]),
+        nullable=False,
+        default=MollieMode.TEST,
+    )
+    """Which of the two Mollie keys above is actually used at checkout
+    (Milestone 3, see ``app.services.mollie.resolve_mollie_api_key``) — an
+    explicit per-event admin toggle, never inferred from publish status."""
 
     # --- Invoice / company details ---
     invoice_company_name: Mapped[str | None] = mapped_column(String(255), nullable=True)

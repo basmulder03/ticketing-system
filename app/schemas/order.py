@@ -96,9 +96,20 @@ class TicketOut(BaseModel):
 
 class OrderOut(BaseModel):
     """Response of a successful checkout — enough for `frontend-theming` to
-    render an order-confirmation page (Milestone 2 scope; payment status is
-    always ``pending``/``pending_door`` at this point, since Milestone 3
-    adds actual payment processing)."""
+    render an order-confirmation page, and (Milestone 3) to know where to
+    send the buyer next.
+
+    ``mollie_checkout_url`` is only set when this checkout just created a
+    real Mollie payment (see ``app.services.checkout``) — the web layer
+    (``app.web.routes.public_site``) must redirect the buyer there instead
+    of straight to the order-confirmation page when it's present. It is
+    ``None`` for ``door`` orders and for the preview-mode simulated-payment
+    path (see that module's docstring), both of which go straight to
+    order-confirmation. ``status`` may already be ``paid`` at this point for
+    the simulated-preview path (no real Mollie payment involved) — it is
+    NOT reliably ``paid`` yet for a real Mollie order, since payment
+    confirmation there only ever arrives later via the webhook.
+    """
 
     id: str
     event_id: str
@@ -111,3 +122,4 @@ class OrderOut(BaseModel):
     total: Decimal
     tickets: list[TicketOut]
     created_at: datetime
+    mollie_checkout_url: str | None = None

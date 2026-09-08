@@ -1,8 +1,9 @@
 """Checkout: validates a public buyer's order request against the
 Event/Show/TicketType's draft & sales-timing state, then performs the
-row-locked stock reservation and creates the ``Order`` + ``Ticket`` rows —
-all inside one DB transaction. See ``app.services.stock`` for the row-
-locking mechanics that make this race-safe under concurrent buyers.
+row-locked stock reservation and creates the ``Order`` + ``Ticket`` rows,
+and (Milestone 3) initiates payment for a ``mollie``-method order — all
+inside one DB transaction. See ``app.services.stock`` for the row-locking
+mechanics that make stock reservation race-safe under concurrent buyers.
 """
 
 import hmac
@@ -16,12 +17,16 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from app.core.config import get_settings
 from app.models.enums import OrderStatus, PaymentMethod, PublishStatus
 from app.models.event import Event
+from app.models.event_config import EventConfig
 from app.models.order import Order
 from app.models.show import Show
 from app.models.ticket import Ticket
 from app.models.ticket_type import TicketType
+from app.services.mollie import MollieApiError, create_mollie_payment, resolve_mollie_api_key
+from app.services.order_payment import SYSTEM_PRINCIPAL, mark_order_paid
 from app.services.stock import InsufficientStockError, TicketTypeNotFoundError, reserve_stock
 
 
@@ -106,12 +111,39 @@ class InsufficientStockCheckoutError(CheckoutError):
         super().__init__(f"Only {remaining} ticket(s) remain for one of the requested ticket types.")
 
 
+class PaymentInitiationCheckoutError(CheckoutError):
+    """Initiating payment for a ``mollie``-method order failed: either a
+    real Mollie call was attempted (a key IS configured for this event's
+    current ``EventConfig.mollie_mode``) and Mollie's API rejected it or
+    couldn't be reached, or no key is configured at all and this isn't the
+    preview-token sandbox case where that's allowed (see
+    ``_initiate_mollie_payment``). The caller (the checkout route) rolls
+    back the whole transaction on this — including the stock reservation —
+    since a payment that can't even be created shouldn't hold stock.
+    """
+
+    http_status = 502
+
+    def __init__(self) -> None:
+        super().__init__("Could not initiate payment with Mollie. Please try again shortly.")
+
+
 @dataclass(frozen=True)
 class CheckoutItemInput:
     """One requested line item: a TicketType id and quantity."""
 
     ticket_type_id: uuid.UUID
     quantity: int
+
+
+@dataclass(frozen=True)
+class CheckoutResult:
+    """What :func:`perform_checkout` returns: the created ``Order`` plus,
+    for a ``mollie``-method order that just created a real Mollie payment,
+    the Mollie-hosted checkout URL to redirect the buyer to."""
+
+    order: Order
+    mollie_checkout_url: str | None
 
 
 async def perform_checkout(
@@ -124,7 +156,7 @@ async def perform_checkout(
     language: str,
     payment_method: PaymentMethod,
     preview_token: str | None,
-) -> Order:
+) -> CheckoutResult:
     """Validate and execute one checkout, inside the caller's transaction.
 
     Validation order: ticket types exist -> all belong to one Show ->
@@ -150,9 +182,15 @@ async def perform_checkout(
     stock-availability checks, since those are basic input validity, not
     publish-timing gates.
 
+    After the Order/Tickets are created, a ``mollie``-method order also has
+    its payment initiated (real Mollie call, or the preview-sandbox
+    simulated-paid path — see :func:`_initiate_mollie_payment`); a ``door``
+    order skips this entirely and stays ``PENDING`` (Milestone 6 territory).
+
     Does not commit — the caller (the checkout route) commits after this
     returns successfully, or rolls back if a :class:`CheckoutError` is
-    raised.
+    raised (including :class:`PaymentInitiationCheckoutError`, which rolls
+    back the stock reservation too).
     """
     quantities: dict[uuid.UUID, int] = {}
     for item in items:
@@ -223,4 +261,116 @@ async def perform_checkout(
             session.add(Ticket(order_id=order.id, ticket_type_id=ticket_type_id))
     await session.flush()
 
-    return order
+    mollie_checkout_url: str | None = None
+    if payment_method == PaymentMethod.MOLLIE:
+        # Sandbox eligibility mirrors the draft-gate bypass above exactly
+        # (``is_draft and has_valid_preview_token``), not "any checkout that
+        # happens to carry a valid preview token" — a preview token remains
+        # valid forever (see ``Event.preview_token`` docstring) and, per
+        # this function's own docstring, grants no bypass at all once the
+        # Event/Show is published. Scoping the simulated-payment path the
+        # same way means it can never be used to skip real payment
+        # processing on a live, published event.
+        mollie_checkout_url = await _initiate_mollie_payment(
+            session,
+            order=order,
+            config=config,
+            preview_sandbox_allowed=is_draft and has_valid_preview_token,
+            is_preview_checkout=has_valid_preview_token,
+        )
+
+    return CheckoutResult(order=order, mollie_checkout_url=mollie_checkout_url)
+
+
+async def _initiate_mollie_payment(
+    session: AsyncSession,
+    *,
+    order: Order,
+    config: EventConfig | None,
+    preview_sandbox_allowed: bool,
+    is_preview_checkout: bool,
+) -> str | None:
+    """Kick off payment for a ``mollie``-method Order that was just created
+    (still ``PENDING``, already flushed).
+
+    Three cases:
+
+    1. A real Mollie API key is configured for this event's current
+       ``EventConfig.mollie_mode`` — call Mollie's Create Payment API
+       (``app.services.mollie.create_mollie_payment``) and return the
+       Mollie-hosted checkout URL for the buyer to be redirected to.
+       Mollie's own test mode (when ``mollie_mode == TEST``) is already a
+       safe sandbox; nothing extra is needed for that case per
+       PROJECT_BRIEF.md's Draft & Preview section.
+    2. No key is configured at all, but ``preview_sandbox_allowed`` is
+       True (a genuine draft/preview-token checkout) — skip Mollie
+       entirely and simulate: immediately mark the order ``paid`` via
+       :func:`app.services.order_payment.mark_order_paid`, attributed to
+       the automated ``SYSTEM_PRINCIPAL`` with a reason that makes the
+       simulated nature explicit in the audit log. This is this project's
+       chosen mechanism for PROJECT_BRIEF.md's "clearly-labeled 'test
+       checkout'" requirement — no real charge, no external call at all.
+       Returns ``None`` (nothing to redirect to; the caller/route sends
+       the buyer straight to order-confirmation, same as a ``door``
+       order). No real email send is triggered here either — ticket/
+       invoice email dispatch is Milestone 4/5 wiring that itself must
+       route through the event's own SMTP config (or the dev Mailpit
+       sink), not something this function touches.
+    3. No key is configured and ``preview_sandbox_allowed`` is False (a
+       real, non-preview checkout with Mollie misconfigured) — this is a
+       genuine operator error, not something to silently paper over with a
+       simulated payment for a real buyer. Raises
+       :class:`PaymentInitiationCheckoutError`.
+
+    Raises :class:`PaymentInitiationCheckoutError` if a real Mollie call
+    (case 1) fails (network/API error) — the caller rolls back the whole
+    checkout, including its stock reservation.
+    """
+    api_key = resolve_mollie_api_key(config)
+    if api_key is None:
+        if not preview_sandbox_allowed:
+            raise PaymentInitiationCheckoutError()
+        await mark_order_paid(
+            session,
+            order_id=order.id,
+            principal=SYSTEM_PRINCIPAL,
+            method_label="mollie_simulated",
+            reason=(
+                "Simulated preview-mode checkout: no Mollie API key is configured yet for this "
+                "event, so no real Mollie payment or charge was created."
+            ),
+        )
+        return None
+
+    settings = get_settings()
+    base_url = settings.public_base_url.rstrip("/")
+    redirect_url = f"{base_url}/order-confirmation/{order.id}"
+    if is_preview_checkout:
+        # Matches ``app.web.routes.public_site``'s own ``is_preview =
+        # token is not None`` rule for the confirmation page (not scoped to
+        # ``preview_sandbox_allowed``/draft-only) — this query param is
+        # purely cosmetic (which template variant renders), not a security
+        # boundary, so it should reflect "a preview token was used" exactly
+        # like the rest of the web layer already does.
+        redirect_url += "?preview=1"
+    webhook_url = f"{base_url}/api/v1/public/mollie-webhook"
+
+    try:
+        created = await create_mollie_payment(
+            api_key=api_key,
+            order_id=order.id,
+            amount=order.total,
+            redirect_url=redirect_url,
+            webhook_url=webhook_url,
+            description=f"Order {order.id}",
+        )
+    except MollieApiError as exc:
+        raise PaymentInitiationCheckoutError() from exc
+
+    order.mollie_payment_id = created.payment_id
+    # Snapshot which mode's key was actually used, so the webhook
+    # reconciles with THIS key even if an admin flips EventConfig.mollie_mode
+    # while this Order is still pending — see Order.mollie_mode's docstring.
+    order.mollie_mode = config.mollie_mode if config is not None else None
+    await session.flush()
+    return created.checkout_url

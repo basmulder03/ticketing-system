@@ -1,6 +1,9 @@
 """Public-site HTML pages (Milestone 2): the themed event landing page
 (published-slug and unguessable-preview-token variants), the checkout form
-submission, and the order confirmation page.
+submission, and the order confirmation page. Milestone 3 adds: redirecting
+the buyer to Mollie's hosted checkout when the JSON checkout API just
+created a real Mollie payment for their order (see
+``_handle_checkout_submission`` below).
 
 Every route here proxies in-process to the existing public JSON API
 (``app.api.routes.public``) via ``app.web.public_api_client`` — no
@@ -311,10 +314,26 @@ async def _handle_checkout_submission(
         )
 
     order = checkout_response.json()
-    redirect_url = f"/order-confirmation/{order['id']}"
-    if token is not None:
-        redirect_url += "?" + urlencode({"preview": "1"})
-    response = RedirectResponse(url=redirect_url, status_code=303)
+    mollie_checkout_url = order.get("mollie_checkout_url")
+    if mollie_checkout_url:
+        # Milestone 3: a real Mollie payment was just created for this
+        # order — send the buyer to Mollie's hosted checkout instead of
+        # straight to order-confirmation. Mollie redirects back to the
+        # `redirectUrl` this app itself supplied when creating the payment
+        # (see `app.services.checkout._initiate_mollie_payment`), which
+        # already points at `/order-confirmation/{id}` (with `?preview=1`
+        # when relevant) — so the stashed cookie below is still what
+        # renders that page once the buyer comes back, same as every other
+        # payment method.
+        response = RedirectResponse(url=mollie_checkout_url, status_code=303)
+    else:
+        # `door` orders, and the preview-mode simulated-payment path (order
+        # already `paid` with no real Mollie payment involved — see
+        # `app.services.checkout`), both go straight to order-confirmation.
+        redirect_url = f"/order-confirmation/{order['id']}"
+        if token is not None:
+            redirect_url += "?" + urlencode({"preview": "1"})
+        response = RedirectResponse(url=redirect_url, status_code=303)
     stash_order_confirmation(
         response,
         {

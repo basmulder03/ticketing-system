@@ -14,7 +14,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from app.models.enums import PaymentMethod, SmtpEncryptionMode
+from app.models.enums import MollieMode, PaymentMethod, SmtpEncryptionMode
 
 _EMAIL_PATTERN = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
 """A deliberately lightweight email-shape check (not full RFC/deliverability
@@ -46,6 +46,7 @@ class EventConfigUpdateRequest(BaseModel):
     sender_email: str | None = Field(default=None, max_length=255, pattern=_EMAIL_PATTERN)
     mollie_test_api_key: str | None = None
     mollie_live_api_key: str | None = None
+    mollie_mode: MollieMode | None = None
     invoice_company_name: str | None = Field(default=None, max_length=255)
     invoice_company_address: str | None = None
     invoice_company_vat_number: str | None = Field(default=None, max_length=50)
@@ -68,6 +69,7 @@ class EventConfigOut(BaseModel):
     sender_email: str | None
     mollie_test_api_key_is_set: bool
     mollie_live_api_key_is_set: bool
+    mollie_mode: MollieMode
     invoice_company_name: str | None
     invoice_company_address: str | None
     invoice_company_vat_number: str | None

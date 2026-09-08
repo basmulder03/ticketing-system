@@ -21,14 +21,24 @@ class AdminRole(str, enum.Enum):
 
 
 class ActorType(str, enum.Enum):
-    """Distinguishes human admins from AI agents in the audit log.
+    """Distinguishes human admins, AI agents, and the app's own automated
+    processes in the audit log.
 
-    Every audit entry MUST use one of these two values — never a generic
-    "system" actor — per PROJECT_BRIEF.md's AI/Agent Access requirement.
+    PROJECT_BRIEF.md's AI/Agent Access section requires that an Agent
+    key's actions are "never recorded as if a human admin made it, and
+    never silently merged into a generic 'system' actor" — that rule is
+    about not mislabeling AGENT actions, not a ban on a real, correctly-
+    named system actor existing at all. ``SYSTEM`` (added Milestone 3) is
+    for genuinely non-human, non-agent-key automated backend processes —
+    today, Mollie webhook payment reconciliation and the preview-mode
+    simulated-payment path (``app.services.order_payment.SYSTEM_PRINCIPAL``)
+    — so those entries are never misclassified as ``HUMAN`` in any future
+    audit-log view that segments "actions by staff" from everything else.
     """
 
     HUMAN = "human"
     AI_AGENT = "ai_agent"
+    SYSTEM = "system"
 
 
 class PublishStatus(str, enum.Enum):
@@ -87,6 +97,26 @@ class OrderStatus(str, enum.Enum):
     CANCELLED = "cancelled"
     EXPIRED = "expired"
     PENDING_DOOR = "pending_door"
+
+
+class MollieMode(str, enum.Enum):
+    """Explicit admin-controlled toggle for which of ``EventConfig``'s two
+    Mollie API keys (``mollie_test_api_key`` / ``mollie_live_api_key``) is
+    used when actually creating a Mollie payment (Milestone 3).
+
+    Deliberately NOT inferred from ``Event.status`` (draft vs. published):
+    PROJECT_BRIEF.md's Milestone 9 line "switch to live Mollie keys" reads
+    as a deliberate admin action, not something that flips automatically
+    the moment an event is published — an event can be published while
+    still exercising Mollie's test mode (e.g. a soft-launch review window),
+    and conversely a still-draft/preview event could in principle be
+    switched to live early. Defaults to ``TEST`` so a newly created
+    EventConfig can never accidentally process a real charge before an
+    admin explicitly opts in to ``LIVE``.
+    """
+
+    TEST = "test"
+    LIVE = "live"
 
 
 class SmtpEncryptionMode(str, enum.Enum):
