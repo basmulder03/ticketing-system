@@ -325,3 +325,76 @@ async def test_recovers_an_expired_order(
     assert await _invoice_count(db_session, order.id) == 1
     tickets_result = await db_session.execute(select(Ticket).where(Ticket.order_id == order.id))
     assert all(t.qr_token for t in tickets_result.scalars().all())
+
+
+async def test_recovering_a_cancelled_order_is_rejected_if_its_stock_was_resold(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    make_admin_user: Callable[..., Awaitable[SeededAdmin]],
+    make_event: Callable[..., Awaitable[Event]],
+    make_show: Callable[..., Awaitable[Show]],
+    make_ticket_type: Callable[..., Awaitable[TicketType]],
+    make_event_config: Callable[..., Awaitable[EventConfig]],
+) -> None:
+    """security-reviewer finding (Milestone 6): a cancelled/expired Order's
+    stock is released back to the pool the moment it lapses (see
+    ``app.services.stock``'s ``_RELEASED_STATUSES``) and can legitimately be
+    resold to a DIFFERENT buyer. Recovering the ORIGINAL, now-lapsed order
+    via mark-as-paid after that resale must be rejected (409) rather than
+    silently re-activating a second, conflicting Ticket for a TicketType
+    that's already sold out — see
+    ``app.services.order_payment._verify_stock_for_resurrected_order``."""
+    await _login_admin(client, make_admin_user)
+
+    event = await make_event(status=PublishStatus.PUBLISHED)
+    show = await make_show(event_id=event.id, status=PublishStatus.PUBLISHED)
+    ticket_type = await make_ticket_type(show_id=show.id, quantity_available=1)
+    await make_event_config(
+        event_id=event.id,
+        sales_live_at=_PAST,
+        enabled_payment_methods=[PaymentMethod.DOOR],
+    )
+
+    def _checkout_payload(buyer_suffix: str) -> dict[str, object]:
+        return {
+            "buyer_name": f"Buyer {buyer_suffix}",
+            "buyer_email": f"resold-race-{buyer_suffix}-{uuid.uuid4().hex}@example.test",
+            "buyer_address": "1 Test Street",
+            "language": "en",
+            "payment_method": "door",
+            "items": [{"ticket_type_id": str(ticket_type.id), "quantity": 1}],
+        }
+
+    # Order A takes the only ticket, then lapses (e.g. its Mollie payment
+    # would have expired — simulated directly here since only the
+    # post-lapse state matters for this test).
+    first_response = await client.post("/api/v1/public/checkout", json=_checkout_payload("A"))
+    assert first_response.status_code == 201, first_response.text
+    order_a_id = first_response.json()["id"]
+
+    order_a = await _order_by_id(db_session, order_a_id)
+    order_a.status = OrderStatus.CANCELLED
+    await db_session.commit()
+
+    # A different buyer legitimately purchases the now-freed last ticket.
+    second_response = await client.post("/api/v1/public/checkout", json=_checkout_payload("B"))
+    assert second_response.status_code == 201, second_response.text
+    order_b_id = second_response.json()["id"]
+
+    # Recovering Order A must now be rejected — its stock has already been
+    # resold to Order B.
+    recover_response = await client.post(
+        f"/api/v1/orders/{order_a_id}/mark-paid",
+        json={"method_label": "bank_transfer", "reason": "late payment, attempting recovery"},
+    )
+    assert recover_response.status_code == 409, recover_response.text
+
+    await db_session.refresh(order_a)
+    assert order_a.status == OrderStatus.CANCELLED, "must not be resurrected once its stock was resold"
+    assert await _invoice_count(db_session, order_a.id) == 0
+    tickets_result = await db_session.execute(select(Ticket).where(Ticket.order_id == order_a.id))
+    assert all(t.qr_token is None for t in tickets_result.scalars().all())
+
+    # Order B, the legitimate sale, is completely unaffected.
+    order_b = await _order_by_id(db_session, order_b_id)
+    assert order_b.status == OrderStatus.PENDING_DOOR
