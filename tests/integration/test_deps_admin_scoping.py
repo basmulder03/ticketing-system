@@ -20,6 +20,9 @@ Covers every route currently declared with ``Depends(require_admin)``:
     reasoning again — an Invoice is financial data, admin-only, not agent
     content-management scope — see ``app.api.routes.orders`` module
     docstring)
+  - POST   /api/v1/orders/{order_id}/mark-paid (Milestone 6: manual
+    mark-as-paid mutates an Order's payment status, the most sensitive
+    financial action in this module — admin-only, not agent scope)
 
 If a future route adds ``Depends(require_admin)``, add it to
 ``ADMIN_GATED_ROUTES`` below so this test keeps covering the full set.
@@ -65,6 +68,12 @@ ADMIN_GATED_ROUTES: list[tuple[str, str, str, dict[str, str] | None]] = [
         "GET",
         f"/api/v1/orders/{_PLACEHOLDER_ORDER_ID}/invoice.pdf",
         None,
+    ),
+    (
+        "mark_order_paid",
+        "POST",
+        f"/api/v1/orders/{_PLACEHOLDER_ORDER_ID}/mark-paid",
+        {"method_label": "test"},
     ),
 ]
 
