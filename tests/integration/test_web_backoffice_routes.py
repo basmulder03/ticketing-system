@@ -80,6 +80,40 @@ async def test_unauthenticated_theme_editor_redirects_to_login_with_the_original
     assert response.headers["location"] == f"/login?next={quote(path)}"
 
 
+async def test_unauthenticated_orders_list_redirects_to_login_with_the_original_path(
+    client: AsyncClient, make_event: Callable[..., Awaitable[Event]]
+) -> None:
+    """Milestone 4: mirrors the Theme editor's own redirect-with-``next``
+    test above. The rest of this page's/its resend action's coverage
+    (CSRF, happy path, 404/409 mapping, the ``order.total`` float-coercion
+    regression) lives in ``tests/integration/test_web_orders_routes.py``.
+    """
+    event = await make_event()
+    path = f"/events/{event.id}/orders"
+
+    response = await client.get(path)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == f"/login?next={quote(path)}"
+
+
+async def test_unauthenticated_email_template_editor_redirects_to_login_with_the_original_path(
+    client: AsyncClient, make_event: Callable[..., Awaitable[Event]]
+) -> None:
+    """Milestone 4: mirrors the Theme editor's own redirect-with-``next``
+    test above. The rest of this page's coverage (pre-fill vs default,
+    save/reset/preview-fragment, CSRF, language fallback) lives in
+    ``tests/integration/test_web_email_templates_routes.py``.
+    """
+    event = await make_event()
+    path = f"/events/{event.id}/email-templates"
+
+    response = await client.get(path)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == f"/login?next={quote(path)}"
+
+
 async def test_root_redirects_to_events(client: AsyncClient) -> None:
     response = await client.get("/")
     assert response.status_code == 303

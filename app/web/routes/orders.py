@@ -8,20 +8,17 @@ no filtering/sorting UI, no stats: that is Milestone 6/8 territory. This
 exists only because nothing else in the backoffice can reach an Order at
 all yet, and the resend action needs somewhere to find one.
 
-**Backend gap, flagged for `backend-builder`:** this page needs
-``GET /api/v1/events/{event_id}/orders`` (admin/agent-scoped, mirroring
-every other "list under an event" route's shape) returning a JSON array of
+This page's data comes from ``GET /api/v1/events/{event_id}/orders``
+(admin-only, mirrors every other "list under an event" route's shape —
+see ``app.api.routes.orders.list_orders``), returning a JSON array of
 order objects shaped like ``app.schemas.order.OrderOut`` (id, event_id,
 status, payment_method, buyer_name, buyer_email, buyer_address, language,
-total, tickets, created_at) — that route does NOT exist yet as of this
-milestone (only ``POST /api/v1/orders/{id}/resend-confirmation-email`` is
-implemented, see ``app.api.routes.orders``). This module calls that
-not-yet-existing endpoint and degrades to an empty list with a visible
-"could not load orders" banner (see ``_fetch_orders_context``) rather than
-crashing the page, so the resend action and the rest of the backoffice
-remain usable in the meantime — but the list itself cannot show real data,
-and therefore could not be end-to-end verified against a real order, until
-that backend route is added.
+total, tickets, created_at). ``_fetch_orders_context`` still degrades to
+an empty list with a visible "could not load orders" banner on any
+non-200/404 response, rather than crashing the page — defensive against a
+future regression in that route, not because the route is missing.
+Verified end-to-end against a real order (checkout -> paid -> orders list
+renders it -> resend sends a second email).
 """
 
 from typing import Any
@@ -55,22 +52,15 @@ async def _fetch_orders_context(request: Request, event_id: str) -> dict[str, An
             raise HTTPException(status_code=404, detail="Event not found.")
         event = event_response.json()
 
-        # See this module's docstring: this route does not exist in the
-        # JSON API yet. Handled as a soft failure (empty list + banner), not
-        # an unhandled exception, so the rest of the backoffice keeps
-        # working while that gap is closed.
         orders_response = await client.get(f"/api/v1/events/{event_id}/orders")
 
     if orders_response.status_code == 200:
         return {"event": event, "orders": orders_response.json(), "orders_error": None}
 
-    if orders_response.status_code == 404:
-        orders_error = (
-            "Orders could not be loaded: the backend endpoint this page needs "
-            "(GET /api/v1/events/{event_id}/orders) has not been built yet."
-        )
-    else:
-        orders_error = _error_detail(orders_response, "Could not load orders for this event.")
+    # Defensive fallback (event genuinely not found got its own 404 above,
+    # via event_response) — an unexpected error here degrades to an empty
+    # list + banner rather than crashing the whole page.
+    orders_error = _error_detail(orders_response, "Could not load orders for this event.")
     return {"event": event, "orders": [], "orders_error": orders_error}
 
 
