@@ -286,9 +286,19 @@ async def _handle_checkout_submission(
 
     if checkout_response.status_code >= 400:
         try:
-            detail = checkout_response.json().get("detail", "")
+            raw_detail = checkout_response.json().get("detail", "")
         except ValueError:
-            detail = ""
+            raw_detail = ""
+        # A CheckoutError's detail is always a string, but a 422 from
+        # Pydantic's OWN request-body validation (e.g. a required field
+        # missing entirely — reachable by a JS-disabled/non-browser client
+        # bypassing HTML5 `required`, not just a CheckoutError) instead
+        # returns a list of error-object dicts. _translate_checkout_error
+        # assumes a string (it calls .lower() on it), so without this
+        # normalization that shape crashes the request with a 500 instead
+        # of showing an accessible error message — found by the
+        # accessibility test suite exercising exactly this path.
+        detail = raw_detail if isinstance(raw_detail, str) else ""
         return _render_landing(
             request,
             event,

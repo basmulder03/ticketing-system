@@ -33,6 +33,17 @@ dev = [
     "pytest-asyncio>=0.23,<1.0",
     "mypy>=1.10,<2.0",
     "ruff>=0.5,<1.0",
+    # Headless-browser + axe-core automated accessibility checks against the
+    # real rendered public site (see tests/accessibility/) — per
+    # PROJECT_BRIEF.md's Testing section: "automated AA checks (e.g.
+    # axe-core) run against public pages ... as part of the test suite, not
+    # only as a manual pre-launch audit." Dev/test-only: never imported by
+    # app code, not part of the production runtime image (see Dockerfile's
+    # "NOTE for production" comment — this is the local-dev/test image).
+    # The `chromium` browser binary itself is installed separately via
+    # `playwright install --with-deps chromium` (see Dockerfile), not by
+    # this pip dependency alone.
+    "playwright>=1.45,<2.0",
 ]
 
 [tool.mypy]

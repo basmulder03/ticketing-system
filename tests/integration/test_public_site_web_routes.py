@@ -248,6 +248,35 @@ async def test_checkout_form_happy_path_creates_order_and_redirects(
     assert "buyer@example.test" in confirmation.text
 
 
+async def test_checkout_form_with_malformed_email_does_not_500(
+    client: AsyncClient,
+    make_event: Callable[..., Awaitable[Event]],
+    make_show: Callable[..., Awaitable[Show]],
+    make_ticket_type: Callable[..., Awaitable[TicketType]],
+    make_event_config: Callable[..., Awaitable[EventConfig]],
+) -> None:
+    """Accessibility-auditor finding: a client that bypasses HTML5's
+    ``required``/pattern validation (JS-disabled, or any non-browser
+    client) can submit a ``buyer_email`` that fails the JSON API's own
+    Pydantic validation — which returns `detail` as a LIST of error-object
+    dicts, not the string every CheckoutError gives. Previously this
+    crashed ``_translate_checkout_error`` with an unhandled
+    ``AttributeError`` (``list has no attribute 'lower'``), a 500 instead
+    of an accessible error message."""
+    event = await make_event(status=PublishStatus.PUBLISHED)
+    show = await make_show(event_id=event.id, status=PublishStatus.PUBLISHED)
+    ticket_type = await make_ticket_type(show_id=show.id, quantity_available=10)
+    await make_event_config(event_id=event.id, sales_live_at=_PAST, enabled_payment_methods=[PaymentMethod.DOOR])
+
+    response = await client.post(
+        f"/e/{event.slug}/checkout",
+        data=_checkout_form(show_id=str(show.id), ticket_type_id=str(ticket_type.id), buyer_email="not-an-email"),
+    )
+
+    assert response.status_code == 422
+    assert "check your details and try again" in response.text
+
+
 async def test_checkout_form_all_zero_quantities_is_rejected_with_no_items_error(
     client: AsyncClient,
     make_event: Callable[..., Awaitable[Event]],

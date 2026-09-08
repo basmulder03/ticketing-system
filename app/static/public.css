@@ -21,6 +21,13 @@
   --pub-chrome-fg: #1a1a1a;
   --pub-chrome-bg: #ffffff;
   --pub-chrome-border: #d0d0d0;
+  /* --pub-chrome-border (1.54:1 against white) is fine for decorative
+     dividers/container outlines, but WCAG 1.4.11 (Non-text Contrast)
+     requires 3:1 for the border that's the only visual cue of a form
+     control's boundary — used below for text inputs/textareas/the
+     quantity field, not for merely-decorative borders. #595959 is 7.0:1
+     against white. */
+  --pub-input-border: #595959;
   --pub-focus-ring: #0b5fff;
   --pub-error-fg: #7a0d0d;
   --pub-error-bg: #fdecec;
@@ -328,6 +335,11 @@ a {
   width: 4.5rem;
   font: inherit;
   padding: 0.3rem;
+  /* Explicit AA-passing border (not left to each browser's own unstyled
+     default, which isn't guaranteed to meet the 3:1 non-text-contrast
+     threshold everywhere) — see --pub-input-border above. */
+  border: 1px solid var(--pub-input-border);
+  border-radius: 4px;
 }
 
 .pub-remaining {
@@ -354,7 +366,7 @@ a {
   max-width: 32rem;
   font: inherit;
   padding: 0.5rem;
-  border: 1px solid var(--pub-chrome-border);
+  border: 1px solid var(--pub-input-border);
   border-radius: 4px;
 }
 

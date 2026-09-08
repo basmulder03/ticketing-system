@@ -29,6 +29,14 @@ COPY pyproject.toml ./
 COPY app ./app
 RUN pip install --no-cache-dir -e ".[dev]"
 
+# Chromium + its OS-level libraries for the Playwright/axe-core automated
+# accessibility test suite (tests/accessibility/) — dev/test-only, adds
+# noticeably to this image's size, which is acceptable here because this
+# is explicitly the local-dev/test image (see the NOTE above), never the
+# lean production build. devops-agent: when the separate production image
+# is built, this layer must NOT be carried into it.
+RUN playwright install --with-deps chromium
+
 COPY . .
 RUN chmod +x docker/entrypoint.sh
 
