@@ -33,7 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.services.checkout as checkout_module
 from app.models.audit_log import AuditLogEntry
-from app.models.enums import OrderStatus, PaymentMethod, PublishStatus
+from app.models.enums import MollieMode, OrderStatus, PaymentMethod, PublishStatus
 from app.models.event import Event
 from app.models.event_config import EventConfig
 from app.models.order import Order
@@ -151,6 +151,60 @@ async def test_duplicate_paid_webhook_delivery_is_idempotent(
     await db_session.refresh(order)
     assert order.status == OrderStatus.PAID, "must not be double-transitioned or errored on the second delivery"
     assert await _mark_paid_audit_count(db_session, order.id) == 1, "exactly ONE audit entry, not two"
+
+
+async def test_webhook_reconciles_with_the_mode_pinned_at_payment_creation_not_the_current_config(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+    make_event: Callable[..., Awaitable[Event]],
+    make_show: Callable[..., Awaitable[Show]],
+    make_ticket_type: Callable[..., Awaitable[TicketType]],
+    make_event_config: Callable[..., Awaitable[EventConfig]],
+) -> None:
+    """security-reviewer finding: an admin flipping EventConfig.mollie_mode
+    (test<->live) while an Order is still pending must not break
+    reconciliation for that in-flight Order. The Order created here pins
+    mollie_mode=test (make_event_config's default); after checkout, the
+    event's config is flipped to live with NO live key set. If the webhook
+    incorrectly re-read the live config, it would try (and fail) to
+    resolve a live key. Fixed behavior: it uses Order.mollie_mode (test)
+    and the webhook succeeds using the test key that was actually used to
+    create the payment.
+    """
+    order, payment_id = await _setup_mollie_pending_order(
+        client, db_session, monkeypatch, make_event, make_show, make_ticket_type, make_event_config
+    )
+    assert order.mollie_mode is not None and order.mollie_mode.value == "test"
+
+    # Flip the event's config to live, with no live key configured — if
+    # reconciliation used this live config instead of the pinned Order
+    # mode, resolve_mollie_api_key would return None and the route would
+    # 502 rather than reconcile.
+    await db_session.refresh(order, attribute_names=["event"])
+    config_result = await db_session.execute(
+        select(EventConfig).where(EventConfig.event_id == order.event_id)
+    )
+    config = config_result.scalar_one()
+    config.mollie_mode = MollieMode.LIVE
+    await db_session.commit()
+
+    seen_api_keys: list[str] = []
+
+    async def _fake_fetch(*, api_key: str, payment_id: str) -> str:
+        seen_api_keys.append(api_key)
+        return "paid"
+
+    monkeypatch.setattr("app.api.routes.public.fetch_mollie_payment_status", _fake_fetch)
+
+    response = await client.post("/api/v1/public/mollie-webhook", data={"id": payment_id})
+
+    assert response.status_code == 200
+    assert seen_api_keys == ["test_dummy_key_never_used_over_network"], (
+        "must reconcile with the TEST key pinned on the Order, not attempt to resolve a (unset) live key"
+    )
+    await db_session.refresh(order)
+    assert order.status == OrderStatus.PAID
 
 
 async def test_triplicate_paid_webhook_delivery_still_stays_idempotent(

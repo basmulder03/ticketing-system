@@ -296,7 +296,12 @@ async def mollie_webhook(request: Request, session: AsyncSession = Depends(get_s
     reload the redirect-back page) is always a safe no-op the second time —
     see ``app.services.order_payment.mark_order_paid`` /
     ``release_order_stock``, both of which row-lock the Order and only ever
-    transition it once out of ``PENDING``.
+    transition it once out of ``PENDING``. Once the local Order has already
+    left ``PENDING`` (a prior delivery already reconciled it), this route
+    short-circuits on the local ``Order.status`` alone and does not call
+    Mollie's API again — both for efficiency and so repeated deliveries for
+    an already-settled Order can't be used to run up unbounded outbound
+    calls against the merchant's Mollie account.
 
     Always responds quickly. An unknown payment id (no matching Order — a
     stale/foreign webhook) and an in-progress Mollie status (``open``/
@@ -318,9 +323,29 @@ async def mollie_webhook(request: Request, session: AsyncSession = Depends(get_s
         # Nothing this app knows about — 200 so Mollie stops retrying.
         return Response(status_code=status.HTTP_200_OK)
 
+    if order.status != OrderStatus.PENDING:
+        # Already reconciled to a terminal state (paid/cancelled/expired) by
+        # an earlier delivery of this same webhook — ``Order.status`` only
+        # ever leaves PENDING once (see
+        # ``app.services.order_payment.mark_order_paid``/
+        # ``release_order_stock``), so there is nothing left to reconcile.
+        # Short-circuit here WITHOUT calling Mollie's API: this keeps
+        # repeated/duplicate deliveries (Mollie's own retries, or anyone who
+        # replays a known-valid ``mollie_payment_id``, e.g. their own past
+        # order) from generating unbounded outbound GET calls against the
+        # merchant's Mollie account — a real (if minor) quota-exhaustion
+        # surface the rate limiter alone doesn't close, since it allows up
+        # to ``mollie_webhook_rate_limit_per_minute`` requests/IP/minute
+        # indefinitely, not just until first reconciliation.
+        return Response(status_code=status.HTTP_200_OK)
+
     event = await session.get(Event, order.event_id, options=[selectinload(Event.config)])
     config = event.config if event is not None else None
-    api_key = resolve_mollie_api_key(config)
+    # Pinned to the mode active when THIS Order's payment was created
+    # (Order.mollie_mode), not EventConfig's current mollie_mode — see
+    # resolve_mollie_api_key's docstring for why re-reading the live
+    # config here would be wrong.
+    api_key = resolve_mollie_api_key(config, mode=order.mollie_mode)
     if api_key is None:
         # Should not normally happen (this Order's payment was created with
         # a key in the first place) — but if the key/mode was cleared out

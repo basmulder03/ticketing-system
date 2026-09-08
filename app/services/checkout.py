@@ -368,5 +368,9 @@ async def _initiate_mollie_payment(
         raise PaymentInitiationCheckoutError() from exc
 
     order.mollie_payment_id = created.payment_id
+    # Snapshot which mode's key was actually used, so the webhook
+    # reconciles with THIS key even if an admin flips EventConfig.mollie_mode
+    # while this Order is still pending — see Order.mollie_mode's docstring.
+    order.mollie_mode = config.mollie_mode if config is not None else None
     await session.flush()
     return created.checkout_url

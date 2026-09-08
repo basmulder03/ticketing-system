@@ -47,19 +47,31 @@ class MollieApiError(Exception):
     so Mollie retries) — never let it surface as a bare 500."""
 
 
-def resolve_mollie_api_key(config: EventConfig | None) -> str | None:
-    """Return the API key matching ``config.mollie_mode`` (test or live).
+def resolve_mollie_api_key(config: EventConfig | None, *, mode: MollieMode | None = None) -> str | None:
+    """Return the API key matching ``mode`` (test or live) — ``config``'s
+    own ``mollie_mode`` if ``mode`` isn't given.
 
-    Reads ``mollie_mode`` from this specific Event's own config — never a
-    global default — per PROJECT_BRIEF.md's Per-Event Configuration
-    requirement. Never falls back to the other mode's key if the selected
-    one isn't set: which key is live for this event is an explicit admin
-    choice, not something to infer opportunistically. Returns ``None`` if
-    ``config`` is ``None`` or the selected mode's key isn't configured.
+    Reads ``mollie_mode`` from this specific Event's own config by default
+    — never a global default — per PROJECT_BRIEF.md's Per-Event
+    Configuration requirement. Never falls back to the other mode's key if
+    the selected one isn't set: which key is live for this event is an
+    explicit admin choice, not something to infer opportunistically.
+    Returns ``None`` if ``config`` is ``None`` or the selected mode's key
+    isn't configured.
+
+    The explicit ``mode`` override exists for webhook reconciliation
+    (``app.api.routes.public.mollie_webhook``), which must use the mode
+    that was actually active when THIS Order's payment was created
+    (``Order.mollie_mode``), not whatever ``EventConfig.mollie_mode``
+    happens to be right now — an admin flipping test/live while an Order
+    is still pending must never make reconciliation silently switch keys
+    out from under an in-flight payment. See ``Order.mollie_mode``'s
+    docstring for the full reasoning.
     """
     if config is None:
         return None
-    key = config.mollie_live_api_key if config.mollie_mode == MollieMode.LIVE else config.mollie_test_api_key
+    resolved_mode = mode if mode is not None else config.mollie_mode
+    key = config.mollie_live_api_key if resolved_mode == MollieMode.LIVE else config.mollie_test_api_key
     return key or None
 
 

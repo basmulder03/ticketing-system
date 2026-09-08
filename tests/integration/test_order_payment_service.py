@@ -327,17 +327,20 @@ async def test_release_order_stock_genuinely_frees_up_sold_out_stock(
     assert remaining_after == 1
 
 
-async def test_system_principal_audit_entries_use_human_actor_type_with_system_prefixed_name(
+async def test_system_principal_audit_entries_use_system_actor_type(
     db_session: AsyncSession,
     make_event: Callable[..., Awaitable[Event]],
     make_show: Callable[..., Awaitable[Show]],
     make_ticket_type: Callable[..., Awaitable[TicketType]],
     make_event_config: Callable[..., Awaitable[EventConfig]],
 ) -> None:
-    """Documents the current (flagged-for-security-reviewer) attribution
-    choice on ``SYSTEM_PRINCIPAL`` — see that constant's docstring — so a
-    future change to it is a deliberate, visible test update rather than a
-    silent behavior drift."""
+    """security-reviewer's Milestone 3 pass flagged that attributing
+    automated payment reconciliation to ``ActorType.HUMAN`` (even with a
+    ``system:``-prefixed name) risked silent misclassification as staff
+    activity in any future audit-log view segmented by actor type. Fixed
+    by adding a real ``ActorType.SYSTEM`` value — this test locks in the
+    corrected attribution so a future regression back to ``HUMAN`` is
+    caught here, not discovered later in an audit report."""
     order, _ = await _make_pending_order(db_session, make_event, make_show, make_ticket_type, make_event_config)
 
     await mark_order_paid(
@@ -351,5 +354,5 @@ async def test_system_principal_audit_entries_use_human_actor_type_with_system_p
         .where(AuditLogEntry.target_id == str(order.id))
     )
     entry = result.scalar_one()
-    assert entry.actor_type == ActorType.HUMAN
+    assert entry.actor_type == ActorType.SYSTEM
     assert entry.actor_name == "system:mollie-webhook"

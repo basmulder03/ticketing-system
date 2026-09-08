@@ -30,7 +30,7 @@ from app.models.order import Order
 from app.services.audit import record_audit_entry
 
 SYSTEM_PRINCIPAL = Principal(
-    actor_type=ActorType.HUMAN,
+    actor_type=ActorType.SYSTEM,
     id=uuid.UUID(int=0),
     name="system:mollie-webhook",
     role=None,
@@ -39,23 +39,21 @@ SYSTEM_PRINCIPAL = Principal(
 transitions (Mollie webhook reconciliation; the preview-mode simulated
 checkout).
 
-PROJECT_BRIEF.md's Core entities section models exactly two actor types —
-``human`` (backoffice admin) and ``ai_agent`` (content-management API key,
-see ``app.models.enums.ActorType``) — and neither is a true fit for "an
-automated backend process reconciling a payment," which is genuinely a
-third category the brief doesn't define. ``ActorType.AI_AGENT`` was
-deliberately NOT reused here: that value specifically means "an
-AgentAccount API key," which the brief explicitly scopes away from
-financial data and payment credentials — labeling an automatic payment
-confirmation as an "AI agent" action would be actively misleading in the
-audit log and blur exactly the privilege boundary the brief is careful to
-draw. ``ActorType.HUMAN`` with an unmistakably non-human, ``system:``-
-prefixed ``actor_name`` (and a sentinel all-zero ``actor_id`` that can
-never collide with a real ``AdminUser`` id) is the less-wrong of two
-imperfect options. Flagged for `security-reviewer`: confirm this reads
-clearly in the audit log UI, or propose adding a real third
-``ActorType.SYSTEM`` value if that's preferred (a schema change, so
-deferred to that review rather than made unilaterally here).
+Uses ``ActorType.SYSTEM`` (added alongside this module) rather than
+``ActorType.HUMAN``: security-reviewer flagged that labeling an automated
+payment reconciliation as a human action would let it be silently
+misclassified as staff activity by any future audit-log view that
+segments "actions by staff" — exactly the kind of misattribution the
+brief's audit model exists to prevent, just from a different direction
+than the "never merge an Agent action into a generic system actor" case
+the brief names explicitly. ``ActorType.AI_AGENT`` remains deliberately
+unused here too: that value specifically means "an AgentAccount API key,"
+which the brief scopes away from financial data and payment credentials —
+reusing it for an automatic payment confirmation would blur that same
+privilege boundary from the other side. The sentinel all-zero
+``actor_id`` can never collide with a real ``AdminUser`` id (a
+``uuid.uuid4()`` value), and the ``system:``-prefixed name makes the
+entry unmistakable even before ``actor_type`` is considered.
 """
 
 
