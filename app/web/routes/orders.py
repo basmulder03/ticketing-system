@@ -1,12 +1,17 @@
 """Minimal backoffice Orders view (Milestone 4): a list of an Event's
 Orders (id/status/buyer name/email/total/created date) with an inline
 "Resend confirmation email" action per PROJECT_BRIEF.md's Ticket Generation
-& Delivery section ("Backoffice action to resend a ticket").
+& Delivery section ("Backoffice action to resend a ticket"), plus (as of
+Milestone 6) an inline "Mark as paid" action for any non-``paid`` order —
+the web-layer proxy to ``POST /api/v1/orders/{order_id}/mark-paid`` (see
+``app.api.routes.orders.mark_paid``), covering door card payments, bank
+transfers, and manual corrections per PROJECT_BRIEF.md's Manual Payment
+Handling section.
 
-Deliberately minimal per this milestone's scope — no mark-as-paid action,
-no filtering/sorting UI, no stats: that is Milestone 6/8 territory. This
+Deliberately minimal beyond that per this milestone's scope — no
+filtering/sorting UI, no stats: that is Milestone 8 territory. This
 exists only because nothing else in the backoffice can reach an Order at
-all yet, and the resend action needs somewhere to find one.
+all yet, and the resend/mark-as-paid actions need somewhere to find one.
 
 This page's data comes from ``GET /api/v1/events/{event_id}/orders``
 (admin-only, mirrors every other "list under an event" route's shape —
@@ -126,3 +131,51 @@ async def resend_order_confirmation(
         "Resend attempted but the email failed to send — check SMTP configuration and the audit log.",
         kind="error",
     )
+
+
+@router.post("/events/{event_id}/orders/{order_id}/mark-paid")
+async def mark_order_paid_web(
+    request: Request,
+    event_id: str,
+    order_id: str,
+    principal: Principal = Depends(require_web_admin),
+    csrf_token: str = Form(...),
+    method_label: str = Form(...),
+    reason: str = Form(""),
+) -> RedirectResponse:
+    """Proxy to the admin-only ``POST /api/v1/orders/{order_id}/mark-paid``
+    route (see ``app.api.routes.orders.mark_paid``) — same pattern as
+    ``resend_order_confirmation`` above (CSRF-verified web session, plain
+    form fields translated into the API's JSON body). Works from any
+    non-``paid`` status per that route's docstring, so no status gate is
+    enforced here either; the template only renders this form for non-paid
+    orders as a UX nicety, not a security boundary — the API route itself
+    is the actual enforcement point (or lack thereof, by design)."""
+    verify_csrf(request, csrf_token)
+    redirect_path = f"/events/{event_id}/orders"
+
+    label = method_label.strip()
+    if not label:
+        return redirect_with_flash(redirect_path, "A payment method/label is required.", kind="error")
+
+    body: dict[str, Any] = {"method_label": label}
+    reason_clean = reason.strip()
+    if reason_clean:
+        body["reason"] = reason_clean
+
+    async with internal_api_client(request) as client:
+        resp = await client.post(f"/api/v1/orders/{order_id}/mark-paid", json=body)
+
+    if resp.status_code == 404:
+        return redirect_with_flash(redirect_path, "Order not found.", kind="error")
+    if resp.status_code >= 400:
+        return redirect_with_flash(
+            redirect_path,
+            _error_detail(resp, "Could not mark this order as paid."),
+            kind="error",
+        )
+
+    already_paid = resp.json().get("already_paid", False)
+    if already_paid:
+        return redirect_with_flash(redirect_path, "Order was already marked as paid.", kind="success")
+    return redirect_with_flash(redirect_path, "Order marked as paid.", kind="success")

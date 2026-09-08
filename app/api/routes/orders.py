@@ -7,13 +7,13 @@ scopes agent keys to.
 
 Two routers in this module, both admin-only, split by URL shape rather
 than by concern: ``router`` (flat ``/api/v1/orders/{order_id}/...``) for
-actions addressed by order id alone (resend); ``list_router`` (nested
+actions addressed by order id alone (resend, invoice download,
+Milestone 6's manual mark-as-paid); ``list_router`` (nested
 ``/api/v1/events/{event_id}/orders``) for listing an Event's orders,
 mirroring Show/TicketType's nested-under-Event pattern. Added alongside
 the Milestone 4 backoffice Orders view (``app.web.routes.orders``), which
-needs somewhere to actually source order data from — no detail/update
-routes beyond this yet (full order management/mark-as-paid is Milestone
-6, stats/filtering is Milestone 8).
+needs somewhere to actually source order data from — stats/filtering is
+Milestone 8 scope.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -29,9 +29,12 @@ from app.models.enums import OrderStatus
 from app.models.event import Event
 from app.models.order import Order
 from app.models.ticket import Ticket
-from app.schemas.order import OrderOut, TicketOut
+from app.schemas.order import MarkOrderPaidRequest, MarkOrderPaidResponse, OrderOut, TicketOut
 from app.services.invoice_pdf import render_invoice_pdf
-from app.services.ticket_delivery import send_order_confirmation_email
+from app.services.invoicing import issue_invoice_for_order
+from app.services.order_payment import mark_order_paid
+from app.services.stock import InsufficientStockError, TicketTypeNotFoundError
+from app.services.ticket_delivery import send_order_confirmation_email, sign_order_tickets
 
 router = APIRouter(prefix="/api/v1/orders", tags=["orders"])
 list_router = APIRouter(prefix="/api/v1/events/{event_id}/orders", tags=["orders"])
@@ -128,6 +131,101 @@ async def resend_confirmation_email(
         session, order_id=order.id, principal=principal, trigger="manual_resend"
     )
     return {"sent": sent}
+
+
+@router.post("/{order_id}/mark-paid")
+async def mark_paid(
+    order_id: str,
+    body: MarkOrderPaidRequest,
+    principal: Principal = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> MarkOrderPaidResponse:
+    """Manually mark an Order as ``paid`` — the backoffice counterpart to
+    the automatic Mollie webhook confirmation, per PROJECT_BRIEF.md's
+    Manual Payment Handling section ("Backoffice action to manually mark
+    any order as paid, regardless of original payment method — covers door
+    card payments (via a separately-operated SumUp terminal), bank
+    transfers, true cash, corrections, etc.").
+
+    Delegates the actual status transition to
+    ``app.services.order_payment.mark_order_paid`` — the single row-locked,
+    idempotent entry point also used by the Mollie webhook — attributed to
+    the REAL logged-in admin ``principal`` (never ``SYSTEM_PRINCIPAL``,
+    which is reserved for automated transitions; see that module's
+    docstring for why the distinction matters to this app's audit model).
+
+    Works from ANY non-``paid`` starting status (``pending``,
+    ``pending_door``, and even a previously ``cancelled``/``expired``
+    order), not just ``pending_door``: PROJECT_BRIEF.md's own wording
+    ("mark ANY order as paid, regardless of original payment method... or
+    corrections") reads as intentionally broad, and ``mark_order_paid``'s
+    own docstring already anticipates this ("a manual override of a lapsed
+    order is a legitimate staff action") — so no extra status gate is
+    added here beyond what that function already enforces.
+
+    On a genuinely fresh transition (``already_paid`` is ``False`` in the
+    response), triggers the exact same downstream effects as the webhook,
+    in the same order and with the same transaction boundary: sign the
+    order's ticket QR tokens and issue its Invoice inside this same
+    transaction, commit, and only THEN (best-effort, after commit, never
+    able to roll back the payment confirmation) send the order-confirmation
+    email with both PDFs attached. On a repeat call for an already-``paid``
+    Order (``already_paid`` is ``True``), none of that re-runs — no
+    duplicate email, no duplicate audit entry — so this action is safe to
+    click more than once.
+
+    404s if the Order doesn't exist, matching every other route in this
+    module. 409s if this Order is a ``cancelled``/``expired`` recovery
+    whose stock has since been resold to someone else — see
+    ``app.services.order_payment._verify_stock_for_resurrected_order``;
+    this is a genuine capacity conflict, not a bug, and the caller must
+    resolve it manually (e.g. contact the buyer) rather than retry.
+    """
+    parsed_id = parse_uuid_or_404(order_id, detail="Order not found.")
+    order = await session.get(Order, parsed_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found.")
+
+    try:
+        result = await mark_order_paid(
+            session,
+            order_id=parsed_id,
+            principal=principal,
+            method_label=body.method_label,
+            reason=body.reason,
+        )
+    except InsufficientStockError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Cannot mark this order as paid: its stock was released when it was cancelled/expired "
+                f"and only {max(exc.remaining, 0)} of {exc.requested} requested ticket(s) remain available "
+                "for one of its ticket types. It may have already been sold to a different buyer."
+            ),
+        ) from exc
+    except TicketTypeNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot mark this order as paid: one or more of its ticket types no longer exist.",
+        ) from exc
+    if not result.already_paid:
+        # Milestones 4/5: same fresh-payment effects as the Mollie webhook,
+        # inside this same transaction — see
+        # ``app.api.routes.public.mollie_webhook`` for the sequence this
+        # mirrors.
+        await sign_order_tickets(session, order=result.order)
+        await issue_invoice_for_order(session, order=result.order, principal=principal)
+
+    await session.commit()
+
+    if not result.already_paid:
+        # Deliberately after the commit above, best-effort — an SMTP
+        # failure must never undo or fail this mark-as-paid action itself,
+        # matching the webhook's own error-handling discipline.
+        await send_order_confirmation_email(session, order_id=parsed_id, principal=principal)
+
+    order_out = await _order_to_out(session, result.order)
+    return MarkOrderPaidResponse(already_paid=result.already_paid, order=order_out)
 
 
 @router.get("/{order_id}/invoice.pdf")

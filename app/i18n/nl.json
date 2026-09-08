@@ -58,6 +58,7 @@
   "public.order_confirmation.title": "Bestelling ontvangen",
   "public.order_confirmation.intro": "Bedankt voor uw bestelling voor",
   "public.order_confirmation.pending_notice": "Uw bestelling staat nog open. Zodra de betaling is voltooid, ontvangt u een bevestiging.",
+  "public.order_confirmation.door_pending_notice": "Uw bestelling is gereserveerd — bedankt! Er is nog niets afgeschreven: u betaalt aan de deur, dus neem {amount} mee en reken ter plekke af wanneer u aankomt voor de voorstelling.",
   "public.order_confirmation.order_id_label": "Bestelnummer",
   "public.order_confirmation.payment_method_label": "Betaalmethode",
   "public.order_confirmation.total_label": "Totaal",

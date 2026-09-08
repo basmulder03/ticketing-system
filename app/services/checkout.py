@@ -156,7 +156,8 @@ class CheckoutResult:
     just-paid Order — see ``app.services.ticket_delivery.
     send_order_confirmation_email``. Always ``False`` for a real Mollie
     payment (still ``pending`` until the webhook confirms it later) and for
-    a ``door`` order (settled in a future milestone)."""
+    a ``door`` order (starts ``pending_door``, settled later by a
+    backoffice manual mark-as-paid action — Milestone 6)."""
 
 
 async def perform_checkout(
@@ -198,7 +199,10 @@ async def perform_checkout(
     After the Order/Tickets are created, a ``mollie``-method order also has
     its payment initiated (real Mollie call, or the preview-sandbox
     simulated-paid path — see :func:`_initiate_mollie_payment`); a ``door``
-    order skips this entirely and stays ``PENDING`` (Milestone 6 territory).
+    order skips this entirely and is created directly as
+    ``OrderStatus.PENDING_DOOR`` (Milestone 6: settled later by a
+    backoffice manual mark-as-paid action, see
+    ``app.services.order_payment.mark_order_paid``).
 
     Does not commit — the caller (the checkout route) commits after this
     returns successfully, or rolls back if a :class:`CheckoutError` is
@@ -256,12 +260,19 @@ async def perform_checkout(
 
     total: Decimal = sum((locked[tid].price * qty for tid, qty in quantities.items()), Decimal("0.00"))
 
+    # `door` orders start life as PENDING_DOOR (still holding stock, per
+    # ``OrderStatus``'s docstring, but never touched by the Mollie webhook
+    # and requiring a Milestone 6 manual mark-as-paid to settle) — every
+    # other method (currently only `mollie`) keeps the original PENDING
+    # start state that ``_initiate_mollie_payment`` and the webhook both
+    # already assume.
+    initial_status = OrderStatus.PENDING_DOOR if payment_method == PaymentMethod.DOOR else OrderStatus.PENDING
     order = Order(
         event_id=event.id,
         buyer_name=buyer_name,
         buyer_email=buyer_email,
         buyer_address=buyer_address,
-        status=OrderStatus.PENDING,
+        status=initial_status,
         payment_method=payment_method,
         total=total,
         language=language,

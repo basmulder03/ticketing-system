@@ -58,6 +58,7 @@
   "public.order_confirmation.title": "Order received",
   "public.order_confirmation.intro": "Thank you — we've received your order for",
   "public.order_confirmation.pending_notice": "Your order is pending. You will receive a confirmation once payment is complete.",
+  "public.order_confirmation.door_pending_notice": "Your order is reserved — thank you! Nothing has been charged yet: this is a pay-at-the-door order, so please bring {amount} with you and pay in person when you arrive for the show.",
   "public.order_confirmation.order_id_label": "Order reference",
   "public.order_confirmation.payment_method_label": "Payment method",
   "public.order_confirmation.total_label": "Total",

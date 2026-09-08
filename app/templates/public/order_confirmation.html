@@ -18,7 +18,17 @@
   <h1>{{ translate('public.order_confirmation.title', locale) }}</h1>
   <p>{{ translate('public.order_confirmation.intro', locale) }} {{ order.event_name }}.</p>
   <p class="pub-notice pub-notice--info" role="status">
-    {{ translate('public.order_confirmation.pending_notice', locale) }}
+    {% if order.payment_method == 'door' %}
+      {# Door orders are awaiting in-person cash/card payment at the venue,
+         not "being processed" — a distinct message from the
+         mollie/pending case below, per Milestone 6's brief. The
+         ``{amount}`` placeholder is filled the same way
+         ``email_render.py`` fills single-brace i18n placeholders
+         (``str.format``), since ``translate()`` itself takes no kwargs. #}
+      {{ translate('public.order_confirmation.door_pending_notice', locale).format(amount=order.total | format_currency(locale)) }}
+    {% else %}
+      {{ translate('public.order_confirmation.pending_notice', locale) }}
+    {% endif %}
   </p>
 
   <dl class="pub-summary-list">

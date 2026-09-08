@@ -89,10 +89,11 @@ async def test_concurrent_checkouts_for_the_last_ticket_yield_exactly_one_succes
         # The successful order must itself only hold exactly 1 ticket.
         order_body = successes[0].json()
         assert len(order_body["tickets"]) == 1
-        # Milestone 2 always creates orders as PENDING regardless of chosen
-        # payment method — PENDING_DOOR is reserved for Milestone 6 (see
-        # app.models.enums.OrderStatus docstring).
-        assert order_body["status"] == "pending"
+        # Milestone 6: `door`-method checkout creates orders as
+        # PENDING_DOOR (this test's payload uses `door` — see
+        # `_checkout_payload` below), not plain PENDING — see
+        # app.services.checkout.perform_checkout.
+        assert order_body["status"] == "pending_door"
 
         # And the DB-level truth, checked against a fresh session, must
         # never show more than 1 live ticket for this TicketType — the

@@ -1,7 +1,13 @@
 """Integration tests for the backoffice Orders web surface
 (``app/web/routes/orders.py``, Milestone 4): the orders-list page
 (``GET /events/{event_id}/orders``) and the resend form handler
-(``POST /events/{event_id}/orders/{order_id}/resend``).
+(``POST /events/{event_id}/orders/{order_id}/resend``). Also covers the
+Milestone 6 "mark as paid" inline form's accessible-labeling regression (see
+the "Mark-as-paid form" section below) — the full axe-core sweep of this
+page lives in ``tests/integration/test_backoffice_accessibility.py``, not
+here, mirroring how ``test_public_site_accessibility.py`` vs.
+``test_public_site_web_routes.py`` split axe-driven checks from plain-HTML
+assertions for the public site.
 
 Mirrors ``tests/integration/test_web_backoffice_routes.py``'s conventions
 (``_api_login`` bypassing the web login form/CSRF for tests whose focus is
@@ -220,6 +226,86 @@ async def test_orders_list_renders_real_paid_order_with_formatted_total_not_500(
     # The default TicketType price from `make_ticket_type` is 15.00 (see
     # conftest.py) with 1 ticket ordered -> total 15.00.
     assert "&euro;15.00" in response.text
+
+
+async def _create_pending_door_order(
+    client: AsyncClient,
+    make_event: Callable[..., Awaitable[Event]],
+    make_show: Callable[..., Awaitable[Show]],
+    make_ticket_type: Callable[..., Awaitable[TicketType]],
+    make_event_config: Callable[..., Awaitable[EventConfig]],
+) -> tuple[str, str]:
+    """A real ``payment_method=door`` order (starts life ``pending_door`` —
+    see ``app.services.checkout.perform_checkout``), so the orders-list
+    page renders the Milestone 6 "mark as paid" inline form for it. Returns
+    (event_id, order_id)."""
+    event = await make_event(status=PublishStatus.PUBLISHED, name="Door Order Event")
+    show = await make_show(event_id=event.id, status=PublishStatus.PUBLISHED)
+    ticket_type = await make_ticket_type(show_id=show.id, quantity_available=5)
+    await make_event_config(
+        event_id=event.id, sales_live_at=_PAST, enabled_payment_methods=[PaymentMethod.DOOR]
+    )
+
+    response = await client.post(
+        "/api/v1/public/checkout",
+        json={
+            "buyer_name": "Door Buyer",
+            "buyer_email": f"door-{uuid.uuid4().hex}@example.test",
+            "buyer_address": "1 Test Street",
+            "language": "en",
+            "payment_method": "door",
+            "items": [{"ticket_type_id": str(ticket_type.id), "quantity": 1}],
+        },
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["status"] == "pending_door"
+    return str(event.id), str(body["id"])
+
+
+# --- Mark-as-paid form: accessible labeling (Milestone 6) ------------------
+#
+# accessibility-auditor: a placeholder alone is not an accessible label, and
+# an ``aria-label`` alone is not a VISIBLE label — screen-reader users get an
+# accessible name either way, but sighted users with low vision/cognitive
+# disabilities, voice-control users, and machine-translation tooling all
+# benefit from real on-page label text. This is a regression test for
+# exactly that: both fields must have a real ``<label for="...">`` element
+# with visible text, uniquely tied to that row's inputs via a per-order id
+# suffix (this form repeats once per non-paid order in the table, so a bare
+# ``id="method_label"`` would produce duplicate ids/broken label
+# association the moment two non-paid orders are on the same page).
+
+
+async def test_orders_list_mark_as_paid_form_has_visible_labeled_fields(
+    client: AsyncClient,
+    make_admin_user: Callable[..., Awaitable[SeededAdmin]],
+    make_event: Callable[..., Awaitable[Event]],
+    make_show: Callable[..., Awaitable[Show]],
+    make_ticket_type: Callable[..., Awaitable[TicketType]],
+    make_event_config: Callable[..., Awaitable[EventConfig]],
+) -> None:
+    await _api_login(client, await make_admin_user())
+    event_id, order_id = await _create_pending_door_order(
+        client, make_event, make_show, make_ticket_type, make_event_config
+    )
+
+    response = await client.get(f"/events/{event_id}/orders")
+
+    assert response.status_code == 200
+    html = response.text
+    assert f'<label for="method_label-{order_id}">Payment method</label>' in html
+    assert f'<label for="reason-{order_id}">Reason (optional)</label>' in html
+    # The required field's id/name appear together with a native `required`
+    # attribute on the SAME input tag (exposed to assistive tech via the
+    # browser's own required-field accessibility mapping — no separate
+    # aria-required needed), the optional field's does not.
+    method_input_start = html.index(f'id="method_label-{order_id}"')
+    method_input_tag = html[method_input_start : html.index(">", method_input_start)]
+    assert "required" in method_input_tag
+    reason_input_start = html.index(f'id="reason-{order_id}"')
+    reason_input_tag = html[reason_input_start : html.index(">", reason_input_start)]
+    assert "required" not in reason_input_tag
 
 
 async def test_orders_list_shows_resend_button_only_for_paid_orders(

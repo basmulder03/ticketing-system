@@ -123,3 +123,40 @@ class OrderOut(BaseModel):
     tickets: list[TicketOut]
     created_at: datetime
     mollie_checkout_url: str | None = None
+
+
+class MarkOrderPaidRequest(BaseModel):
+    """Body of ``POST /api/v1/orders/{order_id}/mark-paid`` (Milestone 6).
+
+    Both fields are free text rather than a fixed enum: PROJECT_BRIEF.md's
+    Manual Payment Handling section only says staff must "select a
+    reason/method" without prescribing a closed set of options, and the
+    realistic set (cash, bank transfer, a separately-operated SumUp card
+    terminal, a goodwill correction, etc.) is exactly the kind of
+    per-deployment/per-event copy this app already treats as editable
+    content elsewhere rather than hardcoded — see
+    ``app.services.order_payment.mark_order_paid``'s own ``method_label``/
+    ``reason`` parameters, which this schema maps onto directly. Any actual
+    fixed choice list for ``method_label`` (e.g. a dropdown) is a
+    frontend-theming/content-i18n concern, not enforced here.
+    """
+
+    method_label: str = Field(min_length=1, max_length=100)
+    reason: str | None = Field(default=None, max_length=1000)
+
+
+class MarkOrderPaidResponse(BaseModel):
+    """Response of the manual mark-as-paid action.
+
+    ``already_paid`` mirrors ``app.services.order_payment.
+    MarkOrderPaidResult.already_paid`` directly: ``True`` means this call
+    was a safe no-op (the Order was already ``paid`` — no new audit entry,
+    no re-triggered ticket/invoice/email dispatch), so the caller can
+    distinguish "just settled it" from "it was already settled" without
+    treating either as an error — both are HTTP 200 successes, since
+    clicking mark-as-paid twice must never surface as a failure per
+    PROJECT_BRIEF.md's idempotency requirements.
+    """
+
+    already_paid: bool
+    order: OrderOut

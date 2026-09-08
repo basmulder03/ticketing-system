@@ -34,11 +34,12 @@ from app.models.show import Show
 from app.models.ticket import Ticket
 from app.schemas.order import CheckoutRequest, OrderOut, TicketOut
 from app.schemas.public import PublicEventOut, PublicShowOut, PublicThemeOut, PublicTicketTypeOut
+from app.services.audit import record_audit_entry
 from app.services.checkout import CheckoutError, CheckoutItemInput, CheckoutResult, perform_checkout
 from app.services.invoicing import issue_invoice_for_order
 from app.services.mollie import MollieApiError, fetch_mollie_payment_status, resolve_mollie_api_key
 from app.services.order_payment import SYSTEM_PRINCIPAL, mark_order_paid, release_order_stock
-from app.services.stock import attach_remaining
+from app.services.stock import InsufficientStockError, TicketTypeNotFoundError, attach_remaining
 from app.services.theme_images import public_url_for
 from app.services.ticket_delivery import send_order_confirmation_email, sign_order_tickets
 
@@ -377,13 +378,37 @@ async def mollie_webhook(request: Request, session: AsyncSession = Depends(get_s
 
     just_paid = False
     if mollie_status == "paid":
-        mark_paid_result = await mark_order_paid(
-            session,
-            order_id=order.id,
-            principal=SYSTEM_PRINCIPAL,
-            method_label="mollie",
-            reason="Confirmed via Mollie webhook reconciliation.",
-        )
+        try:
+            mark_paid_result = await mark_order_paid(
+                session,
+                order_id=order.id,
+                principal=SYSTEM_PRINCIPAL,
+                method_label="mollie",
+                reason="Confirmed via Mollie webhook reconciliation.",
+            )
+        except (InsufficientStockError, TicketTypeNotFoundError) as exc:
+            # Extremely rare in practice (Mollie payment statuses are
+            # normally terminal — an already-expired/cancelled payment
+            # doesn't ordinarily flip back to paid), but this Order's
+            # stock may have been released and resold to a different
+            # buyer in the meantime (see
+            # app.services.order_payment._verify_stock_for_resurrected_order).
+            # Mollie genuinely confirmed payment, but we cannot safely
+            # fulfill it — this needs a human (refund/manual resolution),
+            # not a silent overselling bug or an infinite webhook retry
+            # loop. Acknowledge Mollie's delivery (200 — retrying changes
+            # nothing) but leave a clear, findable trail instead of
+            # crashing this request.
+            await record_audit_entry(
+                session,
+                SYSTEM_PRINCIPAL,
+                action="order.mark_paid_conflict",
+                target_type="Order",
+                target_id=str(order.id),
+                detail={"reason": f"Mollie confirmed payment but stock is no longer available: {exc}"},
+            )
+            await session.commit()
+            return Response(status_code=status.HTTP_200_OK)
         just_paid = not mark_paid_result.already_paid
         if just_paid:
             # Milestone 4: sign this Order's Tickets' QR tokens inside the

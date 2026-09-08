@@ -43,7 +43,23 @@ async def _make_pending_order(
     quantity_available: int = 5,
 ) -> tuple[Order, TicketType]:
     """A real ``pending`` Order + Ticket(s), created via the checkout
-    service (door method — no Mollie involvement needed for these tests)."""
+    service (door method — no Mollie involvement needed for these tests)
+    then forced back to plain ``PENDING``.
+
+    As of Milestone 6, ``payment_method=door`` checkout itself produces
+    ``PENDING_DOOR`` (see ``app.services.checkout.perform_checkout``), not
+    plain ``PENDING`` — but most tests in this file exist to exercise the
+    generic, payment-method-agnostic ``PENDING`` transition path (in
+    particular ``release_order_stock``, which is Mollie-webhook-specific
+    and only ever acts on a still-``PENDING`` Order, per its own
+    docstring; a ``pending_door`` Order never reaches it in production
+    since door orders have no Mollie payment to fail). Overriding the
+    status directly on the ORM row after checkout — same pattern this file
+    already uses for ``pending_door``/``cancelled``/``expired`` starting
+    states below — keeps this helper producing a realistic Order+Ticket
+    graph without a real Mollie call, while still testing plain ``PENDING``
+    where that's genuinely what the function under test expects.
+    """
     event = await make_event(status=PublishStatus.PUBLISHED)
     show = await make_show(event_id=event.id, status=PublishStatus.PUBLISHED)
     ticket_type = await make_ticket_type(show_id=show.id, quantity_available=quantity_available)
@@ -60,6 +76,7 @@ async def _make_pending_order(
         payment_method=PaymentMethod.DOOR,
         preview_token=None,
     )
+    result.order.status = OrderStatus.PENDING
     await db_session.commit()
     await db_session.refresh(result.order)
     return result.order, ticket_type
@@ -105,9 +122,11 @@ async def test_mark_order_paid_transitions_pending_door_to_paid(
     make_ticket_type: Callable[..., Awaitable[TicketType]],
     make_event_config: Callable[..., Awaitable[EventConfig]],
 ) -> None:
-    """No checkout code path sets ``pending_door`` yet (Milestone 6) — set
-    it directly to exercise the transition ``mark_order_paid`` must support
-    once the door-payment flow lands."""
+    """As of Milestone 6, ``payment_method=door`` checkout itself produces
+    ``PENDING_DOOR`` directly (see ``app.services.checkout.perform_checkout``)
+    — ``_make_pending_order`` forces plain ``PENDING`` instead (see its own
+    docstring), so set ``PENDING_DOOR`` directly here to exercise this
+    transition regardless of that helper's default."""
     order, _ = await _make_pending_order(db_session, make_event, make_show, make_ticket_type, make_event_config)
     order.status = OrderStatus.PENDING_DOOR
     await db_session.commit()
@@ -257,6 +276,36 @@ async def test_release_order_stock_is_a_no_op_on_a_non_pending_order(
     await db_session.commit()
 
     assert result.status == OrderStatus.PAID
+    assert await _audit_count(db_session, action="order.expired", target_id=order.id) == 0
+
+
+async def test_release_order_stock_is_a_no_op_on_a_pending_door_order(
+    db_session: AsyncSession,
+    make_event: Callable[..., Awaitable[Event]],
+    make_show: Callable[..., Awaitable[Show]],
+    make_ticket_type: Callable[..., Awaitable[TicketType]],
+    make_event_config: Callable[..., Awaitable[EventConfig]],
+) -> None:
+    """``release_order_stock`` is Mollie-webhook-specific — a ``door``
+    order never has a Mollie payment to fail/expire/cancel, so it should
+    never reach this function in production, but if it ever did (e.g. a
+    future refactor wiring it up by mistake), it must be a safe no-op here
+    too, exactly like any other non-``PENDING`` status — see
+    ``app.services.order_payment.release_order_stock``'s docstring."""
+    order, _ = await _make_pending_order(db_session, make_event, make_show, make_ticket_type, make_event_config)
+    order.status = OrderStatus.PENDING_DOOR
+    await db_session.commit()
+
+    result = await release_order_stock(
+        db_session,
+        order_id=order.id,
+        new_status=OrderStatus.EXPIRED,
+        principal=SYSTEM_PRINCIPAL,
+        reason="should never be called for a pending_door order",
+    )
+    await db_session.commit()
+
+    assert result.status == OrderStatus.PENDING_DOOR
     assert await _audit_count(db_session, action="order.expired", target_id=order.id) == 0
 
 
