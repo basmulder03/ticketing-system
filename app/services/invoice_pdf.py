@@ -72,22 +72,21 @@ def _line_items_rows_html(invoice: Invoice, locale: str, primary: str) -> str:
     return "\n".join(rows)
 
 
-def render_invoice_pdf(
+def _invoice_html(
     *,
     invoice: Invoice,
     order: Order,
     event: Event,
     theme: Theme | None,
     locale: str,
-) -> bytes:
-    """Render ``invoice`` (already issued — see
-    ``app.services.invoicing.issue_invoice_for_order``) as a one-page A5
-    print-friendly PDF, themed with ``event``'s Theme fixed fields and
-    localized to ``locale`` (per PROJECT_BRIEF.md: "PDF generation on
-    payment confirmation, localized to buyer's language" — normally
-    ``order.language``, since an Invoice's buyer/date/currency formatting
-    should always match the same language its Order/tickets were issued
-    in).
+) -> str:
+    """Build the full standalone invoice HTML document string handed to
+    weasyprint by :func:`render_invoice_pdf` — split out (mirroring
+    ``app.services.ticket_pdf._ticket_page_html``) so tests can assert
+    directly on the HTML-before-render step (e.g. that adversarial/
+    admin-entered strings come out escaped, and that snapshot-vs-live
+    fields behave as ``app.models.invoice.Invoice``'s docstring claims)
+    without needing to parse rendered PDF bytes for text content.
 
     Every value rendered here — invoice number/date (server-derived,
     already-safe strings), the company/VAT snapshot, and the buyer name/
@@ -168,5 +167,26 @@ def render_invoice_pdf(
 </body>
 </html>
 """
+    return document_html
+
+
+def render_invoice_pdf(
+    *,
+    invoice: Invoice,
+    order: Order,
+    event: Event,
+    theme: Theme | None,
+    locale: str,
+) -> bytes:
+    """Render ``invoice`` (already issued — see
+    ``app.services.invoicing.issue_invoice_for_order``) as a one-page A5
+    print-friendly PDF, themed with ``event``'s Theme fixed fields and
+    localized to ``locale`` (per PROJECT_BRIEF.md: "PDF generation on
+    payment confirmation, localized to buyer's language" — normally
+    ``order.language``, since an Invoice's buyer/date/currency formatting
+    should always match the same language its Order/tickets were issued
+    in). See :func:`_invoice_html` for the HTML-building step this wraps.
+    """
+    document_html = _invoice_html(invoice=invoice, order=order, event=event, theme=theme, locale=locale)
     pdf_bytes: bytes = HTML(string=document_html).write_pdf()
     return pdf_bytes
