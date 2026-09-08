@@ -45,6 +45,7 @@
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button type="submit" class="bo-button bo-button--small">Resend confirmation email</button>
           </form>
+          <a href="/api/v1/orders/{{ order.id }}/invoice.pdf" class="bo-button bo-button--small" target="_blank" rel="noopener">Download invoice</a>
           {% else %}
           <span class="bo-hint bo-hint--small">Only paid orders have a confirmation email to resend.</span>
           {% endif %}
