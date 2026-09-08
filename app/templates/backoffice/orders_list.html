@@ -50,8 +50,10 @@
           {% else %}
           <form method="post" action="/events/{{ event.id }}/orders/{{ order.id }}/mark-paid" class="bo-inline-form bo-inline-form--wrap">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <input type="text" name="method_label" placeholder="cash, bank transfer, card terminal, correction..." required aria-label="Payment method/label">
-            <input type="text" name="reason" placeholder="Reason (optional)" aria-label="Reason (optional)">
+            <label for="method_label-{{ order.id }}">Payment method</label>
+            <input type="text" id="method_label-{{ order.id }}" name="method_label" placeholder="cash, bank transfer, card terminal, correction..." required>
+            <label for="reason-{{ order.id }}">Reason (optional)</label>
+            <input type="text" id="reason-{{ order.id }}" name="reason" placeholder="e.g. comp ticket">
             <button type="submit" class="bo-button bo-button--small">Mark as paid</button>
           </form>
           <span class="bo-hint bo-hint--small">Only paid orders have a confirmation email to resend.</span>
