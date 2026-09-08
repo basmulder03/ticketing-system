@@ -301,16 +301,23 @@ async def make_ticket_type(db_session: AsyncSession) -> Callable[..., Awaitable[
 async def make_event_config(db_session: AsyncSession) -> Callable[..., Awaitable[EventConfig]]:
     """Factory fixture: insert an ``EventConfig`` row directly for a given Event id.
 
-    Defaults point at the local Mailpit SMTP sink (same convention as
-    ``scripts/seed.py``), so tests that need a *working* SMTP config (e.g.
-    the connection-test action against Mailpit) get one for free without
-    repeating the wiring at every call site.
+    Defaults point at the local Mailpit SMTP sink, resolved via
+    ``Settings.seed_smtp_host`` (same convention as ``scripts/seed.py`` and
+    ``mailpit_api_base_url`` below) rather than a hardcoded ``"mailpit"``
+    hostname — that hostname only resolves inside the docker-compose
+    network; running the suite natively (a local venv, or CI's bare-Ubuntu
+    runner) needs ``SEED_SMTP_HOST=localhost`` instead, and a hardcoded
+    default silently sent every test's mail into the void with no error
+    (the SMTP connection just failed) rather than a clear failure. Tests
+    that need a *working* SMTP config (e.g. the connection-test action, or
+    a real send landing in Mailpit) get one for free without repeating the
+    wiring at every call site.
     """
 
     async def _make(
         *,
         event_id: uuid.UUID,
-        smtp_host: str | None = "mailpit",
+        smtp_host: str | None = get_settings().seed_smtp_host,
         smtp_port: int | None = 1025,
         smtp_encryption: SmtpEncryptionMode = SmtpEncryptionMode.NONE,
         smtp_username: str | None = None,

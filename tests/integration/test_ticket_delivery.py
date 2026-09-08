@@ -37,6 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.services.checkout as checkout_module
 import app.services.ticket_delivery as ticket_delivery_module
+from app.core.config import get_settings
 from app.models.audit_log import AuditLogEntry
 from app.models.email_template import EmailTemplate
 from app.models.enums import EmailTemplateType, OrderStatus, PaymentMethod, PublishStatus
@@ -70,14 +71,22 @@ async def _setup_mollie_pending_order(
     make_event_config: Callable[..., Awaitable[EventConfig]],
     *,
     buyer_email: str | None = None,
-    smtp_host: str | None = "mailpit",
+    smtp_host: str | None = get_settings().seed_smtp_host,
 ) -> tuple[Order, str]:
     """Same pattern as ``test_mollie_webhook.py``'s helper of the same
     name: a real, published Event/Show/TicketType checked out via
     ``payment_method=mollie`` through the real HTTP route, with
     ``create_mollie_payment`` monkeypatched so no real network call
     happens. Returns the persisted (still-``pending``) Order and its
-    Mollie payment id."""
+    Mollie payment id.
+
+    ``smtp_host`` defaults to ``Settings.seed_smtp_host`` (``"mailpit"``
+    inside docker-compose, ``"localhost"`` when ``SEED_SMTP_HOST`` is
+    overridden for a native/CI run) rather than a hardcoded hostname —
+    see ``make_event_config``'s docstring in ``conftest.py`` for why a
+    hardcoded ``"mailpit"`` here silently broke every real-send test the
+    moment the suite ran outside the docker-compose network.
+    """
     payment_id = f"tr_test_{uuid.uuid4().hex[:16]}"
 
     async def _fake_create_mollie_payment(**kwargs: object) -> MolliePaymentCreated:
