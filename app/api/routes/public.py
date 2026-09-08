@@ -39,6 +39,7 @@ from app.services.mollie import MollieApiError, fetch_mollie_payment_status, res
 from app.services.order_payment import SYSTEM_PRINCIPAL, mark_order_paid, release_order_stock
 from app.services.stock import attach_remaining
 from app.services.theme_images import public_url_for
+from app.services.ticket_delivery import send_order_confirmation_email, sign_order_tickets
 
 router = APIRouter(prefix="/api/v1/public", tags=["public"])
 
@@ -230,6 +231,16 @@ async def checkout(
     transaction is rolled back and a specific 403/404/409/422/502 is
     returned (see ``app.services.checkout.CheckoutError`` and its
     subclasses) — never an unhandled 500 for an expected rejection reason.
+
+    Milestone 4: when ``result.simulated_payment`` is set (the preview-mode
+    simulated-checkout path — see ``app.services.checkout.
+    _initiate_mollie_payment``), this Order is already genuinely ``paid`` by
+    the time this transaction commits, with its Tickets' QR tokens already
+    signed inside that same transaction. The order-confirmation email is
+    dispatched here, AFTER the commit — a deliberately separate, best-effort
+    step (see ``app.services.ticket_delivery`` module docstring for why it
+    must never be allowed to roll back a real payment confirmation, or in
+    this case a real order creation).
     """
     items = [
         CheckoutItemInput(ticket_type_id=_parse_ticket_type_id(item.ticket_type_id), quantity=item.quantity)
@@ -251,6 +262,8 @@ async def checkout(
         raise HTTPException(status_code=exc.http_status, detail=exc.detail) from exc
 
     await session.commit()
+    if result.simulated_payment:
+        await send_order_confirmation_email(session, order_id=result.order.id, principal=SYSTEM_PRINCIPAL)
     return await _order_to_out(session, result.order, mollie_checkout_url=result.mollie_checkout_url)
 
 
@@ -360,14 +373,22 @@ async def mollie_webhook(request: Request, session: AsyncSession = Depends(get_s
             status_code=status.HTTP_502_BAD_GATEWAY, detail="Could not verify payment status with Mollie."
         ) from None
 
+    just_paid = False
     if mollie_status == "paid":
-        await mark_order_paid(
+        mark_paid_result = await mark_order_paid(
             session,
             order_id=order.id,
             principal=SYSTEM_PRINCIPAL,
             method_label="mollie",
             reason="Confirmed via Mollie webhook reconciliation.",
         )
+        just_paid = not mark_paid_result.already_paid
+        if just_paid:
+            # Milestone 4: sign this Order's Tickets' QR tokens inside the
+            # SAME transaction as the payment-status flip, so QR issuance is
+            # atomic with payment confirmation — see
+            # app.services.ticket_delivery module docstring.
+            await sign_order_tickets(session, order=mark_paid_result.order)
     elif mollie_status in _MOLLIE_FAILURE_STATUSES:
         await release_order_stock(
             session,
@@ -379,4 +400,14 @@ async def mollie_webhook(request: Request, session: AsyncSession = Depends(get_s
     # else: still in progress (open/pending/authorized) — nothing to do yet.
 
     await session.commit()
+
+    if just_paid:
+        # Deliberately AFTER the commit above and gated on `already_paid is
+        # False` (a genuinely fresh payment confirmation, never a retried/
+        # duplicate webhook delivery) — see MarkOrderPaidResult.already_paid
+        # and app.services.ticket_delivery's module docstring for why email
+        # dispatch is a separate, best-effort step that must never roll
+        # back the payment confirmation itself.
+        await send_order_confirmation_email(session, order_id=order.id, principal=SYSTEM_PRINCIPAL)
+
     return Response(status_code=status.HTTP_200_OK)

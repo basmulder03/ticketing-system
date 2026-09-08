@@ -134,6 +134,29 @@ class SmtpEncryptionMode(str, enum.Enum):
     STARTTLS = "starttls"
 
 
+class EmailTemplateType(str, enum.Enum):
+    """The kind of outgoing email an ``EmailTemplate`` row's ``subject``/
+    ``body`` apply to, per PROJECT_BRIEF.md's Ticket Generation & Delivery
+    section ("subject and body for each email type (order confirmation/
+    ticket, invoice, door-payment reminder, etc.)").
+
+    Only ``ORDER_CONFIRMATION_TICKET`` is wired to an actual send path in
+    Milestone 4 (see ``app.services.ticket_delivery``). Future values the
+    brief names for later milestones (an invoice email — Milestone 5; a
+    door-payment reminder — Milestone 6) are deliberately NOT pre-declared
+    here — add them when those milestones actually need to look up a
+    template by type, per KISS ("don't build unused machinery now").
+
+    ``EmailTemplate.template_type`` stores this enum's value as a plain
+    string column (not a native Postgres enum), the same choice
+    ``Order.language`` makes and for the same reason (see that column's
+    docstring): adding a new email type later is then a Python-only change,
+    no migration.
+    """
+
+    ORDER_CONFIRMATION_TICKET = "order_confirmation_ticket"
+
+
 class ThemeFont(str, enum.Enum):
     """A curated, fixed list of font choices for a Theme — deliberately NOT
     free-text (the brief calls Theme's font choice "a fixed field"), so

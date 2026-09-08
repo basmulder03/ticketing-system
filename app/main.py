@@ -19,8 +19,10 @@ from app.api.routes import (
     agent_accounts,
     audit_log,
     auth,
+    email_templates,
     event_configs,
     events,
+    orders,
     public,
     seo,
     shows,
@@ -53,6 +55,8 @@ def create_app() -> FastAPI:
     app.include_router(shows.router)
     app.include_router(ticket_types.router)
     app.include_router(themes.router)
+    app.include_router(email_templates.router)
+    app.include_router(orders.router)
     app.include_router(public.router)
     app.include_router(seo.router)
 

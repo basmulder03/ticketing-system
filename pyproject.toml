@@ -19,6 +19,16 @@ dependencies = [
     "python-multipart>=0.0.9",
     "qrcode[pil]>=7.4,<8.0",
     "weasyprint>=62.0,<63.0",
+    # weasyprint 62.x's own metadata only declares `pydyf>=0.10.0` (no
+    # upper bound), but its internal PDF-stream code (weasyprint/pdf/
+    # stream.py) is only actually compatible with pydyf's pre-0.11 `Stream`
+    # class shape — pydyf 0.11+ changed that class in a way that breaks
+    # weasyprint 62.x at runtime (`AttributeError: 'super' object has no
+    # attribute 'transform'` from ``HTML(...).write_pdf()`` — hit and
+    # confirmed locally, see Milestone 4's PDF ticket generation work).
+    # Pinned explicitly here so a fresh install doesn't silently resolve an
+    # incompatible newer pydyf.
+    "pydyf>=0.10,<0.11",
     "aiosmtplib>=3.0,<4.0",
     "argon2-cffi>=23.1,<24.0",
     "httpx>=0.27,<1.0",
@@ -55,6 +65,12 @@ exclude = ["alembic/"]
 [[tool.mypy.overrides]]
 # tinycss2 ships no py.typed marker / stubs (see app.core.css_sanitizer).
 module = ["tinycss2", "tinycss2.ast"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# qrcode and weasyprint ship no py.typed marker / stubs (see
+# app.services.ticket_pdf, Milestone 4).
+module = ["qrcode", "weasyprint"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
