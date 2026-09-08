@@ -26,6 +26,7 @@ from starlette.responses import Response
 
 from app.api.deps import Principal
 from app.core.templating import templates
+from app.i18n import translate
 from app.web.api_client import internal_api_client
 from app.web.csrf import attach_csrf_cookie, read_or_generate_csrf_token, verify_csrf
 from app.web.deps import require_web_admin
@@ -45,45 +46,52 @@ _LANGUAGE_CODES = {code for code, _ in _LANGUAGES}
 
 # Pre-fill values for a language/event combination that has no saved
 # customization yet, so the editor and its initial preview never start on
-# an empty/invalid template. Mirrors (copies, does not import — same
-# convention app.web.routes.themes uses for Theme's column defaults)
-# app.services.email_render.DEFAULT_SUBJECT / DEFAULT_BODY exactly as of
-# this writing; if that module's built-in fallback copy ever changes,
-# update these too (flagged in this milestone's handoff).
-_DEFAULT_SUBJECT: dict[str, str] = {
-    "en": "Your tickets for {{event_name}}",
-    "nl": "Je tickets voor {{event_name}}",
-}
-_DEFAULT_BODY: dict[str, str] = {
-    "en": (
-        "<p>Hi {{buyer_name}},</p>"
-        "<p>Thank you for your order for <strong>{{event_name}}</strong> on {{show_date}} "
-        "at {{show_time}}, {{venue_name}}.</p>"
-        "<p>Order total: {{order_total}}.</p>"
-    ),
-    "nl": (
-        "<p>Hoi {{buyer_name}},</p>"
-        "<p>Bedankt voor je bestelling voor <strong>{{event_name}}</strong> op {{show_date}} "
-        "om {{show_time}}, {{venue_name}}.</p>"
-        "<p>Totaalbedrag: {{order_total}}.</p>"
-    ),
-}
+# an empty/invalid template. Resolved through the same app.i18n.translate()
+# lookup app.services.email_render.DEFAULT_SUBJECT/DEFAULT_BODY use (both
+# read the same app/i18n/{locale}.json ``email.order_confirmation.*`` keys)
+# — a direct import of translate() here, NOT a second literal copy of the
+# copy itself, since app.i18n is a shared content-lookup module already
+# imported directly by both the web and API layers elsewhere (e.g.
+# app.web.routes.public_site), unlike app.services/app.models which this
+# file deliberately never imports (see this module's docstring: everything
+# else stays a thin proxy to the JSON API). This was previously a literal
+# copy that could silently drift from the real default; content-i18n's
+# Milestone 4 review folded both call sites onto one source.
+def _default_subject(language: str) -> str:
+    return translate("email.order_confirmation.subject", language)
+
+
+def _default_body(language: str) -> str:
+    return translate("email.order_confirmation.body", language)
+
 
 # The real, fixed set of placeholder keys the send-time renderer actually
 # substitutes — copied from app.services.email_render.build_placeholder_values
 # (not guessed), shown to the admin/agent so they know exactly what's
 # available. Keep this list in sync if that function's keys ever change.
 PLACEHOLDERS: list[tuple[str, str]] = [
-    ("buyer_name", "Buyer's full name"),
-    ("event_name", "Event name"),
-    ("show_date", "Show date, formatted for the order's language"),
-    ("show_time", "Show start time, formatted for the order's language"),
-    ("venue_name", "Venue name"),
-    ("venue_address", "Venue address"),
-    ("order_total", "Order total, formatted as currency"),
+    ("buyer_name", "The buyer's full name, e.g. \"Jamie Smith\"."),
+    ("event_name", "The event's name, e.g. \"Christmas Passion\"."),
+    ("show_date", "The show's date, formatted for the order's language (e.g. \"18 december 2026\" in Dutch)."),
+    (
+        "show_time",
+        (
+            "The show's start time, formatted for the order's language "
+            "(e.g. \"20:00\" in Dutch, \"8:00 PM\" in English)."
+        ),
+    ),
+    ("venue_name", "The venue's name, e.g. \"Het Kruispunt\"."),
+    ("venue_address", "The venue's full address, as entered on the show."),
+    (
+        "order_total",
+        "The order's total amount, formatted as currency for the order's language (e.g. \"€ 42,50\").",
+    ),
     (
         "days_until_show",
-        "Days remaining until the show — recomputed fresh on every send, including resends",
+        (
+            "Days remaining until the show. Recalculated fresh every time this email is sent or "
+            "resent, so a resend closer to the date always shows the correct, smaller number."
+        ),
     ),
 ]
 
@@ -109,8 +117,8 @@ async def _fetch_editor_context(request: Request, event_id: str, language: str) 
         )
         template = template_response.json() if template_response.status_code == 200 else None
 
-        subject_value = template["subject"] if template else _DEFAULT_SUBJECT[language]
-        body_value = template["body"] if template else _DEFAULT_BODY[language]
+        subject_value = template["subject"] if template else _default_subject(language)
+        body_value = template["body"] if template else _default_body(language)
 
         preview_response = await client.post(
             f"/api/v1/events/{event_id}/email-templates/preview",

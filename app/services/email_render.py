@@ -14,12 +14,31 @@ FIXED color fields (never ``Theme.custom_css``, mirroring
 testable end-to-end today. The visual polish/design pass is explicitly
 `frontend-theming`'s job, not redone here.
 
-The hardcoded ``DEFAULT_SUBJECT``/``DEFAULT_BODY``/``_SHELL_STRINGS`` EN/NL
-copy below is a functional fallback only (so a genuine payment confirmation
+The EN/NL copy behind ``DEFAULT_SUBJECT``/``DEFAULT_BODY``/``_SHELL_STRINGS``
+below is a functional fallback only (so a genuine payment confirmation
 never hard-fails over a missing template — PROJECT_BRIEF.md's Ticket
-Generation & Delivery section), not the project's real i18n content system
-(``app/i18n/en.json``/``nl.json``) — flagged for `content-i18n` to review
-the wording and decide whether/how to fold it into that system.
+Generation & Delivery section), used only when the Event has no customized
+``order_confirmation_ticket`` ``EmailTemplate`` for the buyer's language.
+
+**Content-i18n decision (Milestone 4 review):** this copy now lives in
+``app/i18n/en.json``/``nl.json`` under the ``email.order_confirmation.*``
+key namespace, resolved through the normal :func:`app.i18n.translate`
+lookup — NOT as separate Python dict literals — because it was previously
+duplicated a second time (as a literal copy, "kept in sync by comment") in
+``app.web.routes.email_templates`` for the backoffice editor's pre-fill,
+which is exactly the kind of drift risk the real i18n system exists to
+prevent. Folding it in was a clean fit, not a compromise: every value here
+is still just a flat string (the ``{{placeholder}}``/``{ticket_type}``
+tokens inside them are literal text as far as ``translate()`` is
+concerned — nothing about JSON string storage conflicts with either
+substitution mechanism used downstream). ``translate()`` only resolves the
+raw string; ``DEFAULT_SUBJECT``/``DEFAULT_BODY``/``_SHELL_STRINGS`` below
+remain as module-level names (now built from ``translate()`` at import
+time) so the rest of this module and its docstrings/call sites are
+unchanged — only where the copy is SOURCED changed, not the substitution
+logic itself (that's still exclusively ``email_placeholders.render_placeholders``,
+never Jinja/``translate()`` itself, for the security reasons documented in
+that module).
 """
 
 import html
@@ -28,6 +47,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, time
 from decimal import Decimal
 
+from app.i18n import SUPPORTED_LOCALES, translate
 from app.i18n.formatting import format_currency, format_date, format_time
 from app.models.email_template import EmailTemplate
 from app.models.event import Event
@@ -42,63 +62,42 @@ from app.services.theme_preview import FONT_STACKS
 from app.services.ticket_pdf import qr_data_uri
 
 DEFAULT_SUBJECT: dict[str, str] = {
-    "en": "Your tickets for {{event_name}}",
-    "nl": "Je tickets voor {{event_name}}",
+    locale: translate("email.order_confirmation.subject", locale) for locale in SUPPORTED_LOCALES
 }
-"""Built-in fallback ``EmailTemplate.subject``, used only when the Event has
-no customized ``order_confirmation_ticket`` template for the buyer's
-language. Functional placeholder copy — see this module's docstring."""
+"""Built-in fallback ``EmailTemplate.subject`` per locale, used only when the
+Event has no customized ``order_confirmation_ticket`` template for the
+buyer's language. Sourced from ``app/i18n/{locale}.json`` — see this
+module's docstring for why it lives there rather than as a literal here."""
 
 DEFAULT_BODY: dict[str, str] = {
-    "en": (
-        "<p>Hi {{buyer_name}},</p>"
-        "<p>Thank you for your order for <strong>{{event_name}}</strong> on {{show_date}} "
-        "at {{show_time}}, {{venue_name}}.</p>"
-        "<p>Order total: {{order_total}}.</p>"
-    ),
-    "nl": (
-        "<p>Hoi {{buyer_name}},</p>"
-        "<p>Bedankt voor je bestelling voor <strong>{{event_name}}</strong> op {{show_date}} "
-        "om {{show_time}}, {{venue_name}}.</p>"
-        "<p>Totaalbedrag: {{order_total}}.</p>"
-    ),
+    locale: translate("email.order_confirmation.body", locale) for locale in SUPPORTED_LOCALES
 }
-"""Built-in fallback ``EmailTemplate.body``. Same functional-placeholder-copy
-caveat as :data:`DEFAULT_SUBJECT`."""
+"""Built-in fallback ``EmailTemplate.body`` per locale. Same sourcing note as
+:data:`DEFAULT_SUBJECT`."""
+
+_SHELL_KEYS: tuple[str, ...] = (
+    "heading",
+    "days_prefix",
+    "days_suffix_plural",
+    "days_suffix_singular",
+    "days_today",
+    "tickets_heading",
+    "ticket_type_column",
+    "qr_column",
+    "qr_alt",
+    "attachment_note",
+    "logo_alt",
+    "footer",
+)
 
 _SHELL_STRINGS: dict[str, dict[str, str]] = {
-    "en": {
-        "heading": "Your tickets",
-        "days_prefix": "Time until the show:",
-        "days_suffix_plural": "days to go",
-        "days_suffix_singular": "day to go",
-        "days_today": "The show is today!",
-        "tickets_heading": "Your ticket(s)",
-        "ticket_type_column": "Ticket type",
-        "qr_column": "QR code",
-        "qr_alt": "QR code for your {ticket_type} ticket — present this or the attached PDF at the door.",
-        "attachment_note": "Your ticket(s) are also attached to this email as a PDF, ready to print.",
-        "logo_alt": "{event_name} logo",
-        "footer": "{event_name} — sent via Beacon",
-    },
-    "nl": {
-        "heading": "Je tickets",
-        "days_prefix": "Nog te gaan tot de voorstelling:",
-        "days_suffix_plural": "dagen",
-        "days_suffix_singular": "dag",
-        "days_today": "De voorstelling is vandaag!",
-        "tickets_heading": "Je ticket(s)",
-        "ticket_type_column": "Ticketsoort",
-        "qr_column": "QR-code",
-        "qr_alt": "QR-code voor je {ticket_type}-ticket — laat deze of de bijgevoegde PDF zien bij de deur.",
-        "attachment_note": "Je ticket(s) zijn ook als PDF bijgevoegd bij deze e-mail, klaar om af te drukken.",
-        "logo_alt": "Logo van {event_name}",
-        "footer": "{event_name} — verzonden via Beacon",
-    },
+    locale: {key: translate(f"email.order_confirmation.{key}", locale) for key in _SHELL_KEYS}
+    for locale in SUPPORTED_LOCALES
 }
 """Built-in fallback shell chrome strings (labels around the admin-authored
-body content — never buyer/agent-controlled). Same functional-placeholder-
-copy caveat as :data:`DEFAULT_SUBJECT`; flagged for `content-i18n`."""
+body content — never buyer/agent-controlled), one dict per locale, each key
+resolved from ``app/i18n/{locale}.json``'s ``email.order_confirmation.<key>``
+entry. Same sourcing note as :data:`DEFAULT_SUBJECT`."""
 
 _DEFAULT_FONT_STACK = "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
 _DEFAULT_PRIMARY = "#1a1a1a"

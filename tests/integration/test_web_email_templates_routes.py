@@ -316,7 +316,7 @@ async def test_get_with_unknown_language_falls_back_to_en(
     # The English tab is the active one, and the English built-in default
     # subject is what's pre-filled — not a crash and not the Dutch default.
     assert 'value="Your tickets for {{event_name}}"' in response.text
-    assert 'value="Je tickets voor {{event_name}}"' not in response.text
+    assert 'value="Uw tickets voor {{event_name}}"' not in response.text
 
 
 async def test_save_with_unknown_language_falls_back_to_en_and_saves_under_en(
