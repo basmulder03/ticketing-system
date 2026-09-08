@@ -1,0 +1,59 @@
+{% extends "backoffice/base.html" %}
+{% block title %}Orders — {{ event.name }} — Beacon Backoffice{% endblock %}
+{% block content %}
+<p class="bo-breadcrumb"><a href="/events">Events</a> / {{ event.name }}</p>
+<p class="bo-hint bo-hint--small">
+  <a href="/events/{{ event.id }}/theme">Theme</a> ·
+  <a href="/events/{{ event.id }}/email-templates">Email templates</a> ·
+  <a href="/events/{{ event.id }}/orders" aria-current="page">Orders</a>
+</p>
+<h1>Orders: {{ event.name }}</h1>
+<p class="bo-hint">
+  Minimal Orders view: enough to see who ordered what and resend a confirmation/ticket email. Marking an order as
+  paid, filtering, and sales stats are not part of this view yet.
+</p>
+
+{% if orders_error %}
+<div class="bo-banner bo-banner--error" role="alert">{{ orders_error }}</div>
+{% endif %}
+
+<div class="bo-table-wrap">
+  <table class="bo-table">
+    <thead>
+      <tr>
+        <th scope="col">Order</th>
+        <th scope="col">Status</th>
+        <th scope="col">Buyer</th>
+        <th scope="col">Email</th>
+        <th scope="col">Total</th>
+        <th scope="col">Created</th>
+        <th scope="col"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for order in orders %}
+      <tr>
+        <td data-label="Order"><span title="{{ order.id }}">{{ order.id[:8] }}&hellip;</span></td>
+        <td data-label="Status"><span class="bo-badge bo-badge--{{ order.status }}">{{ order.status }}</span></td>
+        <td data-label="Buyer">{{ order.buyer_name }}</td>
+        <td data-label="Email">{{ order.buyer_email }}</td>
+        <td data-label="Total">&euro;{{ '%.2f' % (order.total | float) }}</td>
+        <td data-label="Created">{{ order.created_at[:16].replace('T', ' ') }}</td>
+        <td data-label="Actions">
+          {% if order.status == 'paid' %}
+          <form method="post" action="/events/{{ event.id }}/orders/{{ order.id }}/resend" class="bo-inline-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit" class="bo-button bo-button--small">Resend confirmation email</button>
+          </form>
+          {% else %}
+          <span class="bo-hint bo-hint--small">Only paid orders have a confirmation email to resend.</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7">{% if orders_error %}Orders could not be loaded.{% else %}No orders yet for this event.{% endif %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

@@ -1,0 +1,100 @@
+{% extends "backoffice/base.html" %}
+{% block title %}Email templates — {{ event.name }} — Beacon Backoffice{% endblock %}
+{% block content %}
+<p class="bo-breadcrumb"><a href="/events">Events</a> / {{ event.name }}</p>
+<p class="bo-hint bo-hint--small">
+  <a href="/events/{{ event.id }}/theme">Theme</a> ·
+  <a href="/events/{{ event.id }}/email-templates" aria-current="page">Email templates</a> ·
+  <a href="/events/{{ event.id }}/orders">Orders</a>
+</p>
+<h1>Email templates: {{ event.name }}</h1>
+<p class="bo-hint">
+  Editing the <strong>order confirmation / ticket</strong> email — sent automatically once an order is paid, and
+  resendable any time from this event's <a href="/events/{{ event.id }}/orders">Orders</a> page. Colors, logo, and
+  font in the preview below always come from this event's Theme, never from anything typed here.
+</p>
+
+<nav class="bo-tabs" aria-label="Language">
+  {% for code, label in languages %}
+  <a class="bo-tabs__tab {% if code == language %}bo-tabs__tab--active{% endif %}"
+     href="/events/{{ event.id }}/email-templates?language={{ code }}"
+     {% if code == language %}aria-current="page"{% endif %}>{{ label }}</a>
+  {% endfor %}
+</nav>
+
+{% if not template %}
+<div class="bo-banner bo-banner--info" role="status">
+  No customized template yet for this language — the fields below are pre-filled with the built-in default, which
+  is what actually sends until you save a customized version here.
+</div>
+{% endif %}
+
+<div class="bo-theme-layout">
+  <div class="bo-theme-layout__form">
+
+    <section class="bo-panel">
+      <h2>Available placeholders</h2>
+      <p class="bo-hint bo-hint--small">Use these anywhere in the subject or body — each is substituted with the
+        real order's data at send time (and resend time, for <code>days_until_show</code>). Anything else typed as
+        <code>{{ '{{' }}...{{ '}}' }}</code> is left as literal text, never evaluated.</p>
+      <div class="bo-table-wrap">
+        <table class="bo-table bo-table--compact">
+          <thead><tr><th scope="col">Placeholder</th><th scope="col">Value</th></tr></thead>
+          <tbody>
+            {% for key, description in placeholders %}
+            <tr><td data-label="Placeholder"><code>{{ '{{' }}{{ key }}{{ '}}' }}</code></td><td data-label="Value">{{ description }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <form id="email-template-form" method="post" action="/events/{{ event.id }}/email-templates"
+          hx-post="/events/{{ event.id }}/email-templates/preview-fragment"
+          hx-trigger="input changed delay:500ms, change changed delay:200ms"
+          hx-target="#email-template-preview-pane" hx-swap="innerHTML">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="language" value="{{ language }}">
+
+      <section class="bo-panel">
+        <h2>Subject &amp; body</h2>
+        <div class="bo-field">
+          <label for="subject">Subject</label>
+          <input type="text" id="subject" name="subject" maxlength="500" required value="{{ subject_value }}">
+        </div>
+        <div class="bo-field">
+          <label for="body">Body (HTML)</label>
+          <textarea id="body" name="body" rows="14" required spellcheck="false">{{ body_value }}</textarea>
+          <p class="bo-hint bo-hint--small">Plain HTML content only (e.g. <code>&lt;p&gt;</code>, <code>&lt;strong&gt;</code>)
+            — this is dropped into a table-based email shell with your event's theme colors/logo/font around it, not
+            rendered on its own.</p>
+        </div>
+      </section>
+
+      <button type="submit" class="bo-button bo-button--primary">Save template</button>
+    </form>
+
+    <section class="bo-panel">
+      <h2>Reset</h2>
+      <p class="bo-hint bo-hint--small">Deletes this language's customization and reverts to the built-in default
+        shown when the page first loads with none saved.</p>
+      <form method="post" action="/events/{{ event.id }}/email-templates/reset" class="bo-inline-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="language" value="{{ language }}">
+        <button type="submit" class="bo-button bo-button--danger bo-button--small" {% if not template %}disabled{% endif %}>
+          Reset to built-in default
+        </button>
+      </form>
+    </section>
+  </div>
+
+  <aside class="bo-theme-layout__preview">
+    <h2>Live preview</h2>
+    <p class="bo-hint bo-hint--small">Updates automatically as you edit the fields above (after a short pause),
+      rendered against sample order data and this event's real theme — nothing here is sent or saved.</p>
+    <div id="email-template-preview-pane">
+      {% include "backoffice/_email_template_preview_fragment.html" %}
+    </div>
+  </aside>
+</div>
+{% endblock %}
