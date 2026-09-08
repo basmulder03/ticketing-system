@@ -77,8 +77,32 @@ async def _lock_order(session: AsyncSession, order_id: uuid.UUID) -> Order:
     ``scalar_one`` if it doesn't exist — callers are expected to have
     already resolved the Order's existence before calling into this
     module (e.g. the webhook route's own lookup by ``mollie_payment_id``).
+
+    ``execution_options(populate_existing=True)`` is load-bearing, not a
+    stylistic default — found and fixed via a genuine, reproduced bug: the
+    webhook route (``app.api.routes.public.mollie_webhook``) already reads
+    this same Order via a PLAIN (non-locking) query earlier in the SAME
+    session, before calling into this module at all, to look it up by
+    ``mollie_payment_id``. Without ``populate_existing``, SQLAlchemy's
+    identity map returns that already-loaded Python object as-is when this
+    query's WHERE clause matches the same primary key — the
+    ``SELECT ... FOR UPDATE`` is still genuinely sent to Postgres and
+    genuinely serializes concurrent transactions at the DB level, but the
+    in-memory ``status`` attribute is NOT refreshed from that query's
+    result, so a transaction that was blocked waiting for another one to
+    commit resumes holding the STALE pre-lock status it cached earlier —
+    reading ``PENDING`` even though the row it just locked is actually
+    ``PAID``. Reproduced directly: 8 genuinely concurrent duplicate webhook
+    deliveries for the same Order, before this fix, produced multiple
+    ``already_paid=False`` results and multiple ``order.mark_paid`` audit
+    entries for one Order — exactly the double-processing the brief's
+    "a retried webhook must never double-issue tickets" requirement exists
+    to prevent. See ``app.services.invoicing._allocate_invoice_number`` for
+    the sibling bug this was found alongside (same root cause, same fix).
     """
-    result = await session.execute(select(Order).where(Order.id == order_id).with_for_update())
+    result = await session.execute(
+        select(Order).where(Order.id == order_id).with_for_update().execution_options(populate_existing=True)
+    )
     return result.scalar_one()
 
 

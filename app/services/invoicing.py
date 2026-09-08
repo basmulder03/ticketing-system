@@ -75,7 +75,30 @@ async def _allocate_invoice_number(session: AsyncSession, *, event_id: uuid.UUID
     published an event with no EventConfig row at all, which the rest of
     this app's Event-creation flow does not allow to happen.
     """
-    result = await session.execute(select(EventConfig).where(EventConfig.event_id == event_id).with_for_update())
+    # populate_existing() is load-bearing, not a stylistic default: the
+    # webhook route (app.api.routes.public.mollie_webhook) already loads
+    # this same Event's EventConfig earlier in the SAME session (via
+    # `session.get(Event, ..., options=[selectinload(Event.config)])`, to
+    # resolve the Mollie API key) BEFORE this function ever runs. Without
+    # populate_existing(), SQLAlchemy's identity map returns that
+    # already-loaded Python object as-is when this query's WHERE clause
+    # matches the same primary key — the SELECT ... FOR UPDATE is still
+    # genuinely sent to Postgres and genuinely serializes concurrent
+    # transactions at the DB level, but the in-memory `next_invoice_number`
+    # attribute is NOT refreshed from that query's result, so every
+    # transaction reads the SAME stale pre-lock value it cached earlier
+    # instead of the fresh, correctly-serialized one — multiple concurrent
+    # payment confirmations then compute the identical "next" number
+    # despite the row lock working correctly, and collide on
+    # Invoice's (event_id, number) unique constraint. Reproduced and
+    # confirmed via a minimal isolated script before this fix; re-verified
+    # after (see this module's test coverage).
+    result = await session.execute(
+        select(EventConfig)
+        .where(EventConfig.event_id == event_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     config = result.scalar_one_or_none()
     if config is None:
         return 1, None
