@@ -138,6 +138,50 @@ def test_venue_name_and_address_are_escaped_in_ticket_page_html() -> None:
     assert "<img src=x" not in html
 
 
+# --- Field label localization ------------------------------------------
+
+
+def test_ticket_page_html_uses_english_field_labels_for_en_locale() -> None:
+    event, order, show, ticket, ticket_type = _build_order_and_ticket(buyer_name="Buyer", ticket_type_name="Adult")
+    html = _ticket_page_html(
+        ticket=ticket,
+        ticket_type=ticket_type,
+        order=order,
+        show=show,
+        event=event,
+        logo_uri=None,
+        primary="#1a1a1a",
+        accent="#c9a227",
+        locale="en",
+    )
+    assert "<dt style=\"font-weight:bold;\">Show</dt>" in html
+    assert "<dt style=\"font-weight:bold;\">Venue</dt>" in html
+    assert "<dt style=\"font-weight:bold;\">Ticket type</dt>" in html
+    assert "<dt style=\"font-weight:bold;\">Ticket holder</dt>" in html
+
+
+def test_ticket_page_html_uses_dutch_field_labels_for_nl_locale() -> None:
+    event, order, show, ticket, ticket_type = _build_order_and_ticket(buyer_name="Buyer", ticket_type_name="Adult")
+    html = _ticket_page_html(
+        ticket=ticket,
+        ticket_type=ticket_type,
+        order=order,
+        show=show,
+        event=event,
+        logo_uri=None,
+        primary="#1a1a1a",
+        accent="#c9a227",
+        locale="nl",
+    )
+    assert "<dt style=\"font-weight:bold;\">Voorstelling</dt>" in html
+    assert "<dt style=\"font-weight:bold;\">Locatie</dt>" in html
+    assert "<dt style=\"font-weight:bold;\">Ticketsoort</dt>" in html
+    assert "<dt style=\"font-weight:bold;\">Tickethouder</dt>" in html
+    # English labels must not leak into the Dutch-locale render.
+    assert "<dt style=\"font-weight:bold;\">Show</dt>" not in html
+    assert "<dt style=\"font-weight:bold;\">Venue</dt>" not in html
+
+
 def test_ticket_page_html_raises_value_error_when_qr_token_missing() -> None:
     event, order, show, ticket, ticket_type = _build_order_and_ticket(buyer_name="Buyer", ticket_type_name="Adult")
     ticket.qr_token = None

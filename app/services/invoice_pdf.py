@@ -19,14 +19,15 @@ company/VAT details snapshotted on the ``Invoice`` row
 are untrusted at this rendering layer regardless of who originally typed
 them.
 
-Field labels ("Invoice", "Bill to", "Qty", etc.) are plain English string
-literals below, NOT run through the ``app.i18n`` translation layer —
-matching ``app.services.ticket_pdf``'s existing, already-shipped precedent
-of hardcoded English field labels for its own ticket fields ("Show",
-"Venue", "Ticket type", "Ticket holder") despite ``Order.language`` already
-driving date/time formatting there. This is a known pre-existing gap
-(flagged again here, not newly introduced) — see this module's handoff for
-`content-i18n` to localize both PDFs' field labels together in one pass.
+Field labels ("Invoice", "Bill to", "Qty", etc.) are resolved via
+``app.i18n.translate`` (``pdf.invoice.*`` keys, see ``app/i18n/en.json`` /
+``app/i18n/nl.json``) using the same ``locale`` already driving
+``format_date``/``format_currency`` here — matching
+``app.services.ticket_pdf``'s ``_ticket_page_html`` (``pdf.ticket.*`` keys),
+which now does the same for its own field labels ("Show", "Venue", "Ticket
+type", "Ticket holder"). Deliberately still plain string interpolation, not
+Jinja — see this module's top-level security note on why untrusted content
+in these PDFs is built with ``html.escape`` rather than a templating engine.
 """
 
 import html
@@ -34,6 +35,7 @@ from decimal import Decimal
 
 from weasyprint import HTML
 
+from app.i18n import translate
 from app.i18n.formatting import format_currency, format_date
 from app.models.event import Event
 from app.models.invoice import Invoice
@@ -123,11 +125,21 @@ def _invoice_html(
     total_formatted = _esc(format_currency(order.total, locale))
     issued_date = _esc(format_date(invoice.issued_at.date(), locale))
 
+    invoice_label = _esc(translate("pdf.invoice.title_label", locale))
+    date_label = _esc(translate("pdf.invoice.date_label", locale))
+    from_label = _esc(translate("pdf.invoice.from_label", locale))
+    bill_to_label = _esc(translate("pdf.invoice.bill_to_label", locale))
+    item_column = _esc(translate("pdf.invoice.item_column", locale))
+    qty_column = _esc(translate("pdf.invoice.qty_column", locale))
+    unit_price_column = _esc(translate("pdf.invoice.unit_price_column", locale))
+    line_total_column = _esc(translate("pdf.invoice.line_total_column", locale))
+    total_label = _esc(translate("pdf.invoice.total_label", locale))
+
     document_html = f"""<!DOCTYPE html>
 <html lang="{_esc(locale)}">
 <head>
 <meta charset="utf-8" />
-<title>Invoice {_esc(invoice.formatted_number)}</title>
+<title>{invoice_label} {_esc(invoice.formatted_number)}</title>
 <style>
   @page {{ size: A5; margin: 14mm; }}
   body {{ font-family: {font_stack}; color: {primary}; background: {secondary}; margin: 0; font-size: 10.5pt; }}
@@ -137,32 +149,32 @@ def _invoice_html(
 <body>
 <header style="text-align:center;margin-bottom:6mm;">{logo_html}</header>
 <h2 style="font-size:14pt;margin:0 0 4mm;color:{primary};border-bottom:2px solid {accent};padding-bottom:2mm;">
-  Invoice {_esc(invoice.formatted_number)}
+  {invoice_label} {_esc(invoice.formatted_number)}
 </h2>
-<p style="margin:0 0 4mm;">Date: {issued_date}</p>
+<p style="margin:0 0 4mm;">{date_label}: {issued_date}</p>
 <table style="margin-bottom:6mm;">
 <tr>
   <td style="vertical-align:top;width:50%;padding-right:4mm;">
-    <p style="font-weight:bold;margin:0 0 2mm;">From</p>
+    <p style="font-weight:bold;margin:0 0 2mm;">{from_label}</p>
     <p style="margin:0;">{company_block or "&nbsp;"}</p>
   </td>
   <td style="vertical-align:top;width:50%;">
-    <p style="font-weight:bold;margin:0 0 2mm;">Bill to</p>
+    <p style="font-weight:bold;margin:0 0 2mm;">{bill_to_label}</p>
     <p style="margin:0;">{buyer_block or "&nbsp;"}</p>
   </td>
 </tr>
 </table>
 <table style="margin-bottom:4mm;">
 <tr>
-  <th scope="col" style="border:1px solid #dddddd;padding:6px;text-align:left;">Item</th>
-  <th scope="col" style="border:1px solid #dddddd;padding:6px;text-align:right;">Qty</th>
-  <th scope="col" style="border:1px solid #dddddd;padding:6px;text-align:right;">Unit price</th>
-  <th scope="col" style="border:1px solid #dddddd;padding:6px;text-align:right;">Line total</th>
+  <th scope="col" style="border:1px solid #dddddd;padding:6px;text-align:left;">{item_column}</th>
+  <th scope="col" style="border:1px solid #dddddd;padding:6px;text-align:right;">{qty_column}</th>
+  <th scope="col" style="border:1px solid #dddddd;padding:6px;text-align:right;">{unit_price_column}</th>
+  <th scope="col" style="border:1px solid #dddddd;padding:6px;text-align:right;">{line_total_column}</th>
 </tr>
 {rows_html}
 </table>
 <p style="text-align:right;font-size:12pt;font-weight:bold;border-top:2px solid {accent};padding-top:2mm;">
-  Total: {total_formatted}
+  {total_label}: {total_formatted}
 </p>
 </body>
 </html>

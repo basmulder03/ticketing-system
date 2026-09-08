@@ -79,5 +79,20 @@
   "email.order_confirmation.qr_alt": "QR-code voor uw {ticket_type}-ticket — laat deze of de bijgevoegde PDF zien bij de deur.",
   "email.order_confirmation.attachment_note": "Uw ticket(s) zijn ook als PDF bijgevoegd bij deze e-mail, klaar om af te drukken.",
   "email.order_confirmation.logo_alt": "Logo van {event_name}",
-  "email.order_confirmation.footer": "{event_name} — verzonden via Beacon"
+  "email.order_confirmation.footer": "{event_name} — verzonden via Beacon",
+
+  "pdf.ticket.show_label": "Voorstelling",
+  "pdf.ticket.venue_label": "Locatie",
+  "pdf.ticket.ticket_type_label": "Ticketsoort",
+  "pdf.ticket.ticket_holder_label": "Tickethouder",
+
+  "pdf.invoice.title_label": "Factuur",
+  "pdf.invoice.date_label": "Datum",
+  "pdf.invoice.from_label": "Van",
+  "pdf.invoice.bill_to_label": "Aan",
+  "pdf.invoice.item_column": "Omschrijving",
+  "pdf.invoice.qty_column": "Aantal",
+  "pdf.invoice.unit_price_column": "Stukprijs",
+  "pdf.invoice.line_total_column": "Bedrag",
+  "pdf.invoice.total_label": "Totaal"
 }

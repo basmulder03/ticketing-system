@@ -148,6 +148,41 @@ def test_invoice_html_renders_buyer_name_address_and_total_straight_off_order() 
     assert "123.45" in html or "123,45" in html  # currency formatting may use either separator
 
 
+# --- Field label localization --------------------------------------------
+
+
+def test_invoice_html_uses_english_field_labels_for_en_locale() -> None:
+    event, order, invoice = _build_event_order_invoice()
+    html = _invoice_html(invoice=invoice, order=order, event=event, theme=None, locale="en")
+    assert "Invoice" in html
+    assert "Date: " in html
+    assert '>From</p>' in html
+    assert '>Bill to</p>' in html
+    assert ">Item</th>" in html
+    assert ">Qty</th>" in html
+    assert ">Unit price</th>" in html
+    assert ">Line total</th>" in html
+    assert "Total: " in html
+
+
+def test_invoice_html_uses_dutch_field_labels_for_nl_locale() -> None:
+    event, order, invoice = _build_event_order_invoice()
+    html = _invoice_html(invoice=invoice, order=order, event=event, theme=None, locale="nl")
+    assert "Factuur" in html
+    assert "Datum: " in html
+    assert '>Van</p>' in html
+    assert '>Aan</p>' in html
+    assert ">Omschrijving</th>" in html
+    assert ">Aantal</th>" in html
+    assert ">Stukprijs</th>" in html
+    assert ">Bedrag</th>" in html
+    assert "Totaal: " in html
+    # English labels must not leak into the Dutch-locale render.
+    assert '>From</p>' not in html
+    assert '>Bill to</p>' not in html
+    assert ">Item</th>" not in html
+
+
 # --- render_invoice_pdf: real PDF output ---------------------------------
 
 
