@@ -91,7 +91,7 @@ async def test_perform_checkout_happy_path_creates_pending_order(
 ) -> None:
     _, _, ticket_type = await _live_setup(make_event, make_show, make_ticket_type, make_event_config)
 
-    order = await perform_checkout(
+    result = await perform_checkout(
         db_session,
         items=[CheckoutItemInput(ticket_type_id=ticket_type.id, quantity=2)],
         buyer_name="Buyer",
@@ -102,7 +102,8 @@ async def test_perform_checkout_happy_path_creates_pending_order(
         preview_token=None,
     )
     await db_session.commit()
-    assert order.total == ticket_type.price * 2
+    assert result.order.total == ticket_type.price * 2
+    assert result.mollie_checkout_url is None
 
 
 async def test_ticket_type_not_found_raises_typed_error(db_session: AsyncSession) -> None:
@@ -219,7 +220,7 @@ async def test_valid_preview_token_bypasses_draft_sales_live_and_paused_gates(
         event_id=event.id, sales_live_at=_FUTURE, enabled_payment_methods=[PaymentMethod.DOOR]
     )
 
-    order = await perform_checkout(
+    result = await perform_checkout(
         db_session,
         items=[CheckoutItemInput(ticket_type_id=ticket_type.id, quantity=1)],
         buyer_name="Buyer",
@@ -230,7 +231,7 @@ async def test_valid_preview_token_bypasses_draft_sales_live_and_paused_gates(
         preview_token=event.preview_token,
     )
     await db_session.commit()
-    assert order.id is not None
+    assert result.order.id is not None
 
 
 async def test_preview_token_still_enforces_payment_method_enabled(

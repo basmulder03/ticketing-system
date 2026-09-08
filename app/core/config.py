@@ -65,6 +65,20 @@ class Settings(BaseSettings):
     """Max ``POST /api/v1/public/checkout`` attempts per client IP per rolling
     minute (Milestone 2) — see ``app.core.rate_limit.checkout_rate_limiter``."""
 
+    mollie_webhook_rate_limit_per_minute: int = 120
+    """Max ``POST /api/v1/public/mollie-webhook`` requests per client IP per
+    rolling minute (Milestone 3). Deliberately much more generous than the
+    checkout limit: this endpoint's real caller is Mollie's own
+    infrastructure retrying undelivered webhooks (potentially from a small
+    number of shared source IPs across many merchants), not individual
+    buyers — a tight per-IP limit here risks silently dropping Mollie's own
+    legitimate retries, which would leave a paid order stuck ``pending``.
+    120/minute is generous enough for that while still bounding the worst
+    case if this public, unauthenticated endpoint is ever hit by something
+    other than Mollie (each request only causes one lookup plus, if it
+    matches a real Order, one outbound Mollie GET call — see
+    ``app.api.routes.public.mollie_webhook``)."""
+
     public_base_url: str = "http://localhost:8000"
     """Canonical public base URL used to build absolute links in
     ``sitemap.xml``/``robots.txt`` (Milestone 2) and, in later milestones,

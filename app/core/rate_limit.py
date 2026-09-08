@@ -75,3 +75,12 @@ PROJECT_BRIEF.md's Security & Ops section ("rate limiting on checkout and
 scan endpoints"), limits how many checkout attempts a single client IP can
 make per rolling minute, independent of the row-locked stock check (which
 guards correctness, not abuse/load)."""
+
+mollie_webhook_rate_limiter = InMemoryRateLimiter(
+    limit=_settings.mollie_webhook_rate_limit_per_minute, window_seconds=60.0
+)
+"""Applied to ``POST /api/v1/public/mollie-webhook`` (Milestone 3) — kept
+deliberately generous (see ``Settings.mollie_webhook_rate_limit_per_minute``
+for the reasoning): the endpoint's real caller is Mollie's own
+infrastructure, not a buyer, so an aggressive per-IP limit here risks
+dropping Mollie's legitimate retries rather than stopping abuse."""

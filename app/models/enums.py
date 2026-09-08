@@ -89,6 +89,26 @@ class OrderStatus(str, enum.Enum):
     PENDING_DOOR = "pending_door"
 
 
+class MollieMode(str, enum.Enum):
+    """Explicit admin-controlled toggle for which of ``EventConfig``'s two
+    Mollie API keys (``mollie_test_api_key`` / ``mollie_live_api_key``) is
+    used when actually creating a Mollie payment (Milestone 3).
+
+    Deliberately NOT inferred from ``Event.status`` (draft vs. published):
+    PROJECT_BRIEF.md's Milestone 9 line "switch to live Mollie keys" reads
+    as a deliberate admin action, not something that flips automatically
+    the moment an event is published — an event can be published while
+    still exercising Mollie's test mode (e.g. a soft-launch review window),
+    and conversely a still-draft/preview event could in principle be
+    switched to live early. Defaults to ``TEST`` so a newly created
+    EventConfig can never accidentally process a real charge before an
+    admin explicitly opts in to ``LIVE``.
+    """
+
+    TEST = "test"
+    LIVE = "live"
+
+
 class SmtpEncryptionMode(str, enum.Enum):
     """Transport encryption mode for an EventConfig's SMTP settings.
 

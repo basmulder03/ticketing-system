@@ -77,6 +77,19 @@ class Order(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     total: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     language: Mapped[str] = mapped_column(String(10), nullable=False)
+    mollie_payment_id: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True, index=True)
+    """The Mollie payment id (``tr_xxx``) returned by Mollie's Create
+    Payment API (Milestone 3, see ``app.services.mollie.create_mollie_payment``),
+    set only for ``payment_method=mollie`` orders that actually went through
+    a real Mollie call (never set for ``door`` orders, and never set for the
+    preview-mode simulated-checkout path — see
+    ``app.services.checkout._initiate_mollie_payment`` — since neither ever
+    calls Mollie's API at all). This is the lookup key the webhook handler
+    uses to find which ``Order`` a Mollie webhook's payment id refers to
+    (see ``app.api.routes.public.mollie_webhook``). Unique (Mollie payment
+    ids are globally unique) and indexed for that lookup; nullable since
+    most orders (door, or the simulated sandbox path) never get one.
+    """
 
     event: Mapped["Event"] = relationship()
     tickets: Mapped[list["Ticket"]] = relationship(back_populates="order", cascade="all, delete-orphan")

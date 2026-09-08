@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import Principal, require_admin
 from app.api.routes._utils import apply_partial_update, parse_uuid_or_404
 from app.db.session import get_session
-from app.models.enums import SmtpEncryptionMode
+from app.models.enums import MollieMode, SmtpEncryptionMode
 from app.models.event import Event
 from app.models.event_config import EventConfig
 from app.schemas.event_config import (
@@ -39,6 +39,7 @@ _COPYABLE_FIELDS = (
     "sender_email",
     "mollie_test_api_key",
     "mollie_live_api_key",
+    "mollie_mode",
     "invoice_company_name",
     "invoice_company_address",
     "invoice_company_vat_number",
@@ -63,6 +64,7 @@ def _to_out(config: EventConfig) -> EventConfigOut:
         sender_email=config.sender_email,
         mollie_test_api_key_is_set=bool(config.mollie_test_api_key),
         mollie_live_api_key_is_set=bool(config.mollie_live_api_key),
+        mollie_mode=config.mollie_mode,
         invoice_company_name=config.invoice_company_name,
         invoice_company_address=config.invoice_company_address,
         invoice_company_vat_number=config.invoice_company_vat_number,
@@ -137,6 +139,12 @@ async def upsert_event_config(
     if changes.get("enabled_payment_methods") is None and "enabled_payment_methods" in changes:
         config.enabled_payment_methods = []
         changes["enabled_payment_methods"] = []
+    if changes.get("mollie_mode") is None and "mollie_mode" in changes:
+        # mollie_mode is a NOT NULL column (default TEST) — an explicit
+        # `null` resets it to that safe default rather than being rejected
+        # as a DB integrity error, same convention as smtp_encryption above.
+        config.mollie_mode = MollieMode.TEST
+        changes["mollie_mode"] = MollieMode.TEST.value
     # Never write secret plaintext into the audit log. Every non-secret
     # value is stringified too (not just passed through as-is) — same
     # convention as ticket_types.py's update route — since `changes` can
