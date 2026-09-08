@@ -163,7 +163,16 @@ class RenderedEmail:
 
 def _logo_html(theme: Theme | None, event_name: str, locale: str) -> str:
     if theme is None or not theme.logo_path:
-        return f'<h2 style="margin:0;font-size:18px;">{html.escape(event_name)}</h2>'
+        # A styled <p>, NOT a heading tag: this is a branding/masthead
+        # fallback standing in for the logo <img> below (the same visual
+        # slot, just no image uploaded) — it is not document content, so
+        # giving it a heading tag would put a heading ABOVE and BEFORE the
+        # email's real <h1> ("Your tickets", further down in this same
+        # function's caller), producing a broken heading hierarchy
+        # (starting at h2, then reversing back to h1) that a screen-reader
+        # user navigating by heading level would find nonsensical. See
+        # this milestone's accessibility-auditor review.
+        return f'<p style="margin:0;font-size:18px;font-weight:bold;">{html.escape(event_name)}</p>'
     url = public_url_for(theme.logo_path) or ""
     alt = _shell(locale)["logo_alt"].format(event_name=html.escape(event_name))
     return f'<img src="{html.escape(url)}" alt="{alt}" style="max-height:64px;max-width:220px;display:block;margin:0 auto;" />'
@@ -262,7 +271,7 @@ def render_order_confirmation_email(
 {body_content}
 <p style="margin:16px 0;padding:12px;border:2px solid {primary};font-size:16px;"><strong>{html.escape(days_line)}</strong></p>
 <h2 style="margin:24px 0 8px;font-size:17px;color:{primary};">{html.escape(shell["tickets_heading"])}</h2>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
+<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
 <tr>
 <th scope="col" style="border:1px solid #dddddd;padding:8px;text-align:left;">{html.escape(shell["ticket_type_column"])}</th>
 <th scope="col" style="border:1px solid #dddddd;padding:8px;text-align:center;">{html.escape(shell["qr_column"])}</th>

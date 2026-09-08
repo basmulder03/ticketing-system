@@ -531,13 +531,42 @@ async def axe_page(_browser: Browser) -> AsyncGenerator[Page, None]:
     await context.close()
 
 
+async def _evaluate_axe_on_current_page(
+    page: Page, *, disabled_rules: list[str] | None = None
+) -> list[dict[str, Any]]:
+    """Run axe-core against whatever ``page`` currently has loaded (already
+    navigated/``set_content``-ed by the caller), scoped to the WCAG 2.1 A/AA
+    rule tags (matching this milestone's "must meet WCAG 2.1 AA"
+    requirement — not the stricter AAA tags axe also knows about). Returns
+    the raw ``violations`` array.
+
+    Shared by :func:`run_axe` (navigates to a real app route first) and
+    :func:`run_axe_on_html` (loads a raw HTML string via ``page.set_content``
+    first, for content — like rendered email bodies — that isn't served by
+    any app route) so both entry points run axe identically rather than
+    keeping two copies of this ``page.evaluate`` call in sync by hand.
+    """
+    rules_option = {rule: {"enabled": False} for rule in (disabled_rules or [])}
+    result = await page.evaluate(
+        """
+        async (rulesOption) => {
+          return await axe.run(document, {
+            runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21aa'] },
+            rules: rulesOption,
+          });
+        }
+        """,
+        rules_option,
+    )
+    violations: list[dict[str, Any]] = result["violations"]
+    return violations
+
+
 async def run_axe(
     page: Page, path: str, *, disabled_rules: list[str] | None = None
 ) -> list[dict[str, Any]]:
     """Navigate ``axe_page`` to ``path`` and run axe-core against the fully
-    rendered page, scoped to the WCAG 2.1 A/AA rule tags (matching this
-    milestone's "must meet WCAG 2.1 AA" requirement — not the stricter AAA
-    tags axe also knows about). Returns the raw ``violations`` array.
+    rendered page.
 
     ``disabled_rules``: rule ids to turn off for this run. Used to exclude
     ``color-contrast`` on the themed landing page only — a Theme's fixed
@@ -559,20 +588,31 @@ async def run_axe(
     # from the app (not a network-level failure), not its status code.
     assert response is not None, f"navigation to {path} got no response at all"
 
-    rules_option = {rule: {"enabled": False} for rule in (disabled_rules or [])}
-    result = await page.evaluate(
-        """
-        async (rulesOption) => {
-          return await axe.run(document, {
-            runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21aa'] },
-            rules: rulesOption,
-          });
-        }
-        """,
-        rules_option,
-    )
-    violations: list[dict[str, Any]] = result["violations"]
-    return violations
+    return await _evaluate_axe_on_current_page(page, disabled_rules=disabled_rules)
+
+
+async def run_axe_on_html(
+    page: Page, html: str, *, disabled_rules: list[str] | None = None
+) -> list[dict[str, Any]]:
+    """Load a raw HTML string directly into ``page`` (via
+    ``page.set_content``) and run axe-core against it — for content that
+    isn't served by any app route, e.g. Milestone 4's rendered email bodies
+    (``app.services.email_render.render_order_confirmation_email`` builds a
+    complete standalone HTML document string; there is no URL that returns
+    it, since it's only ever assembled in-process and handed straight to
+    ``aiosmtplib``/``EmailMessage`` — see ``app.services.ticket_delivery``).
+
+    Deliberately does NOT go through ``axe_page``'s ASGI-route-interception
+    machinery (no navigation/route ever happens here, so there's nothing to
+    intercept) — any ``<img>`` referencing a real app path (e.g. a Theme
+    logo under ``/uploads/...``) simply won't resolve, which is fine: axe's
+    ``image-alt``/``ARIA`` checks only look at the DOM's ``alt``
+    attribute/accessible name, not whether the underlying request
+    succeeded. Callers on a page that also needs real route interception
+    (none currently do) should use a fresh, non-``axe_page`` Page instead.
+    """
+    await page.set_content(html)
+    return await _evaluate_axe_on_current_page(page, disabled_rules=disabled_rules)
 
 
 # --- Mailpit HTTP API (real end-to-end email content assertions) -----------
