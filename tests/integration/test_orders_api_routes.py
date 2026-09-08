@@ -186,12 +186,11 @@ async def test_order_out_shape_including_nested_tickets(
     [order] = response.json()
     assert order["id"] == order_id
     assert order["event_id"] == event_id
-    # A `door` order is not settled by checkout itself at this milestone
-    # (mark-as-paid/`pending_door` reconciliation is Milestone 6 scope — see
-    # app.services.checkout.perform_checkout's docstring: "a `door` order
-    # skips this entirely and stays PENDING") — so it's still plain
-    # `pending`, not `pending_door`, here.
-    assert order["status"] == "pending"
+    # A `door` order is not settled by checkout itself (Milestone 6: it
+    # starts life as `pending_door` and is only settled later by a
+    # backoffice manual mark-as-paid action — see
+    # app.services.checkout.perform_checkout's docstring).
+    assert order["status"] == "pending_door"
     assert order["payment_method"] == "door"
     assert order["buyer_name"] == "Door Buyer"
     assert order["buyer_email"] == "shape@example.test"

@@ -43,7 +43,23 @@ async def _make_pending_order(
     quantity_available: int = 5,
 ) -> tuple[Order, TicketType]:
     """A real ``pending`` Order + Ticket(s), created via the checkout
-    service (door method — no Mollie involvement needed for these tests)."""
+    service (door method — no Mollie involvement needed for these tests)
+    then forced back to plain ``PENDING``.
+
+    As of Milestone 6, ``payment_method=door`` checkout itself produces
+    ``PENDING_DOOR`` (see ``app.services.checkout.perform_checkout``), not
+    plain ``PENDING`` — but most tests in this file exist to exercise the
+    generic, payment-method-agnostic ``PENDING`` transition path (in
+    particular ``release_order_stock``, which is Mollie-webhook-specific
+    and only ever acts on a still-``PENDING`` Order, per its own
+    docstring; a ``pending_door`` Order never reaches it in production
+    since door orders have no Mollie payment to fail). Overriding the
+    status directly on the ORM row after checkout — same pattern this file
+    already uses for ``pending_door``/``cancelled``/``expired`` starting
+    states below — keeps this helper producing a realistic Order+Ticket
+    graph without a real Mollie call, while still testing plain ``PENDING``
+    where that's genuinely what the function under test expects.
+    """
     event = await make_event(status=PublishStatus.PUBLISHED)
     show = await make_show(event_id=event.id, status=PublishStatus.PUBLISHED)
     ticket_type = await make_ticket_type(show_id=show.id, quantity_available=quantity_available)
@@ -60,6 +76,7 @@ async def _make_pending_order(
         payment_method=PaymentMethod.DOOR,
         preview_token=None,
     )
+    result.order.status = OrderStatus.PENDING
     await db_session.commit()
     await db_session.refresh(result.order)
     return result.order, ticket_type
