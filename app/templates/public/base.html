@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="{{ locale }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ translate('app.name', locale) }}{% endblock %}</title>
+  {% block meta_description %}
+  {% if meta_description %}<meta name="description" content="{{ meta_description }}">{% endif %}
+  {% endblock %}
+
+  {% if is_preview %}
+  {# Per PROJECT_BRIEF.md's Draft & Preview section: a preview link is public
+     but unlisted — never indexed, never followed into by a crawler. #}
+  <meta name="robots" content="noindex, nofollow">
+  {% endif %}
+
+  {% block canonical %}
+  {% if canonical_url %}<link rel="canonical" href="{{ canonical_url }}">{% endif %}
+  {% endblock %}
+
+  {% block open_graph %}{% endblock %}
+
+  {% block structured_data %}{% endblock %}
+
+  <link rel="stylesheet" href="/static/public.css">
+  {% block theme_style %}{% endblock %}
+  {% block extra_head %}{% endblock %}
+  <script src="/static/public.js" defer></script>
+</head>
+<body>
+  <a class="pub-skip-link" href="#pub-main">{{ translate('public.chrome.skip_to_content', locale) }}</a>
+  <p id="pub-copy-announcer" class="pub-visually-hidden" aria-live="polite" role="status"></p>
+
+  {% if is_preview %}
+  <div class="pub-preview-banner" role="status">
+    {{ translate('public.chrome.preview_banner', locale) }}
+  </div>
+  {% endif %}
+
+  <header class="pub-chrome-header">
+    {% if home_url %}
+    <a class="pub-chrome-header__brand" href="{{ home_url }}">{{ translate('app.name', locale) }}</a>
+    {% else %}
+    <span class="pub-chrome-header__brand">{{ translate('app.name', locale) }}</span>
+    {% endif %}
+    <nav class="pub-lang-switcher" aria-label="{{ translate('public.chrome.language_switcher_label', locale) }}">
+      <a href="{{ with_query_param(request, 'lang', 'en') }}" hreflang="en" {% if locale == 'en' %}aria-current="true"{% endif %}>English</a>
+      <a href="{{ with_query_param(request, 'lang', 'nl') }}" hreflang="nl" {% if locale == 'nl' %}aria-current="true"{% endif %}>Nederlands</a>
+    </nav>
+  </header>
+
+  <main id="pub-main" class="pub-main">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="pub-chrome-footer">
+    <p>{{ translate('app.name', locale) }}</p>
+  </footer>
+</body>
+</html>

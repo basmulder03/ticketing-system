@@ -31,6 +31,7 @@ from app.core.config import get_settings
 from app.web.deps import WebAuthRequired
 from app.web.routes import auth as web_auth
 from app.web.routes import events as web_events
+from app.web.routes import public_site as web_public_site
 from app.web.routes import themes as web_themes
 
 
@@ -63,6 +64,15 @@ def create_app() -> FastAPI:
     app.include_router(web_auth.router)
     app.include_router(web_events.router)
     app.include_router(web_themes.router)
+
+    # Public-site HTML pages (Milestone 2, `frontend-theming`): themed
+    # landing/preview pages, checkout form, order confirmation — see
+    # app/web/routes/public_site.py. Registered after the backoffice web
+    # routers so a path clash (there isn't one today) would favor the
+    # backoffice; kept as its own router since these pages are
+    # unauthenticated and use a separate themed Jinja environment
+    # (app.core.public_templating), not the backoffice one.
+    app.include_router(web_public_site.router)
 
     @app.exception_handler(WebAuthRequired)
     async def _redirect_to_login(request: Request, exc: WebAuthRequired) -> RedirectResponse:

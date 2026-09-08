@@ -13,7 +13,7 @@ from collections.abc import Awaitable, Callable
 from httpx import AsyncClient
 
 from app.models.enums import PublishStatus
-from tests.integration.conftest import SeededAdmin
+from tests.integration.conftest import SeededAdmin, SeededAgent
 
 
 async def _login(client: AsyncClient, seeded: SeededAdmin) -> None:
@@ -251,3 +251,63 @@ async def test_create_event_status_enum_out_of_publish_status(
 
     assert response.status_code == 201
     assert response.json()["status"] == PublishStatus.PUBLISHED.value
+
+
+# --- preview_token: included for both admin and agent principals ---------
+#
+# Milestone 2: `preview_token` was added to `EventOut` so the backoffice
+# can render a copy-preview-link button (see
+# `tests/integration/test_web_backoffice_routes.py`). It's a capability URL,
+# not a payment/SMTP-class secret, so both admin and agent principals see
+# it — same access tier as every other Event field.
+
+
+async def test_get_event_includes_preview_token_for_admin(
+    client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]]
+) -> None:
+    await _login(client, await make_admin_user())
+    created = await client.post("/api/v1/events", json={"name": "Event", "slug": "preview-token-admin"})
+    event_id = created.json()["id"]
+    assert created.json()["preview_token"]
+
+    response = await client.get(f"/api/v1/events/{event_id}")
+    assert response.status_code == 200
+    assert response.json()["preview_token"] == created.json()["preview_token"]
+
+
+async def test_list_events_includes_preview_token_for_admin(
+    client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]]
+) -> None:
+    await _login(client, await make_admin_user())
+    await client.post("/api/v1/events", json={"name": "Event", "slug": "preview-token-list"})
+
+    response = await client.get("/api/v1/events")
+    assert response.status_code == 200
+    assert all(event["preview_token"] for event in response.json())
+
+
+async def test_get_and_list_events_include_preview_token_for_agent(
+    client: AsyncClient,
+    client_factory: Callable[[str | None], AsyncClient],
+    make_admin_user: Callable[..., Awaitable[SeededAdmin]],
+    make_agent_account: Callable[..., Awaitable[SeededAgent]],
+) -> None:
+    await _login(client, await make_admin_user())
+    created = await client.post("/api/v1/events", json={"name": "Event", "slug": "preview-token-agent"})
+    event_id = created.json()["id"]
+
+    agent = await make_agent_account()
+    headers = {"X-Agent-Api-Key": agent.raw_key}
+
+    # A fresh, unauthenticated client (no admin session cookie) — the
+    # admin-session-cookie path in `get_current_principal` is tried first,
+    # so reusing the already-logged-in `client` here would silently resolve
+    # as the admin, not actually exercise the agent auth path.
+    async with client_factory(None) as agent_client:
+        get_response = await agent_client.get(f"/api/v1/events/{event_id}", headers=headers)
+        assert get_response.status_code == 200
+        assert get_response.json()["preview_token"] == created.json()["preview_token"]
+
+        list_response = await agent_client.get("/api/v1/events", headers=headers)
+        assert list_response.status_code == 200
+        assert all(event["preview_token"] for event in list_response.json())

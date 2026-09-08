@@ -46,6 +46,29 @@
       var output = field && field.querySelector(".bo-color-field__value");
       if (output) output.textContent = event.target.value;
     });
+
+    // Copy-to-clipboard for shareable links (e.g. an event's unguessable
+    // preview link — see app/templates/backoffice/events_list.html). Falls
+    // back to a manual "select the text yourself" prompt on browsers/
+    // contexts without Clipboard API access (e.g. non-HTTPS local network
+    // access) rather than failing silently.
+    document.addEventListener("click", function (event) {
+      var button = event.target.closest(".bo-copy-link");
+      if (!button) return;
+      var value = button.getAttribute("data-copy-value");
+      var originalText = button.textContent;
+      function showCopied() {
+        button.textContent = "Copied!";
+        setTimeout(function () { button.textContent = originalText; }, 1500);
+      }
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(value).then(showCopied, function () {
+          window.prompt("Copy this link:", value);
+        });
+      } else {
+        window.prompt("Copy this link:", value);
+      }
+    });
   </script>
 </body>
 </html>

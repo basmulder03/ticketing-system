@@ -1,0 +1,236 @@
+{% extends "public/base.html" %}
+
+{% block title %}{{ event.name }} — {{ translate('app.name', locale) }}{% endblock %}
+
+{% block open_graph %}
+<meta property="og:type" content="website">
+<meta property="og:title" content="{{ event.name }}">
+{% if meta_description %}<meta property="og:description" content="{{ meta_description }}">{% endif %}
+<meta property="og:url" content="{{ page_url }}">
+{% if og_image %}<meta property="og:image" content="{{ og_image }}">{% endif %}
+<meta name="twitter:card" content="{{ 'summary_large_image' if og_image else 'summary' }}">
+<meta name="twitter:title" content="{{ event.name }}">
+{% if meta_description %}<meta name="twitter:description" content="{{ meta_description }}">{% endif %}
+{% if og_image %}<meta name="twitter:image" content="{{ og_image }}">{% endif %}
+{% endblock %}
+
+{% block structured_data %}
+<script type="application/ld+json">{{ json_ld | safe }}</script>
+{% endblock %}
+
+{% block theme_style %}
+{% if theme_css %}<style>{{ theme_css | safe }}</style>{% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="event-content">
+  <section class="pub-hero">
+    {% if event.theme and event.theme.logo_url %}
+    <img class="pub-hero__logo" src="{{ event.theme.logo_url }}" alt="{{ event.name }}">
+    {% endif %}
+    <h1 class="pub-hero__title">{{ event.name }}</h1>
+    {% if event.description %}<p class="pub-hero__description">{{ event.description }}</p>{% endif %}
+
+    <div class="pub-share">
+      <button type="button" class="pub-button pub-button--ghost" data-copy-url="{{ page_url }}"
+        data-copied-label="{{ translate('public.share.copied', locale) }}">
+        {{ translate('public.share.copy_link', locale) }}
+      </button>
+      <a class="pub-share__link" href="{{ share_urls.whatsapp }}" target="_blank" rel="noopener noreferrer">WhatsApp</a>
+      <a class="pub-share__link" href="{{ share_urls.facebook }}" target="_blank" rel="noopener noreferrer">Facebook</a>
+      <a class="pub-share__link" href="{{ share_urls.email }}">{{ translate('public.share.email', locale) }}</a>
+    </div>
+  </section>
+
+  {% if event.sales_paused %}
+  <p class="pub-notice pub-notice--warning" role="status">
+    {{ translate('public.landing.sales_paused_banner', locale) }}
+  </p>
+  {% endif %}
+
+  {% if checkout_error %}
+  <p class="pub-notice pub-notice--error" role="alert">{{ checkout_error }}</p>
+  {% endif %}
+
+  <section class="pub-countdown-section" data-sales-live-at="{{ sales_live_at_raw or '' }}">
+    <div id="pub-countdown" class="pub-countdown" {% if sales_live_now %}hidden{% endif %}
+      data-unit-days="{{ translate('public.landing.countdown_unit_days', locale) }}"
+      data-unit-hours="{{ translate('public.landing.countdown_unit_hours', locale) }}"
+      data-unit-minutes="{{ translate('public.landing.countdown_unit_minutes', locale) }}"
+      data-unit-seconds="{{ translate('public.landing.countdown_unit_seconds', locale) }}"
+      data-live-announcement="{{ translate('public.landing.countdown_now_live', locale) }}">
+      <p class="pub-countdown__label">{{ translate('public.landing.countdown_label', locale) }}</p>
+      <p class="pub-countdown__value" id="pub-countdown-value"></p>
+    </div>
+    <p id="pub-presale-announcer" class="pub-visually-hidden" aria-live="polite" role="status"></p>
+
+    <div id="pub-buy-section" class="pub-buy-section" {% if not sales_live_now %}hidden{% endif %}>
+      <h2>{{ translate('public.landing.choose_show_heading', locale) }}</h2>
+
+      {% if not event.shows %}
+      <p>{{ translate('public.landing.no_shows', locale) }}</p>
+      {% else %}
+      <form id="pub-checkout-form" class="pub-checkout-form" method="post" action="{{ checkout_action }}" novalidate>
+        <fieldset class="pub-show-picker">
+          <legend>{{ translate('public.landing.choose_show_legend', locale) }}</legend>
+          {% for show in event.shows %}
+          <div class="pub-show-picker__option">
+            <input type="radio" name="show_choice" id="show-radio-{{ show.id }}" value="{{ show.id }}"
+              class="pub-show-radio" {% if show.id == selected_show_id %}checked{% endif %}>
+            <label for="show-radio-{{ show.id }}">{{ show.date | format_date(locale) }} — {{ show.venue_name }}</label>
+          </div>
+          {% endfor %}
+        </fieldset>
+
+        {% for show in event.shows %}
+        <div class="pub-show-panel" data-show-panel="{{ show.id }}" {% if show.id != selected_show_id %}hidden{% endif %}>
+          <div class="pub-venue">
+            <h3>{{ show.venue_name }}</h3>
+            <p class="pub-venue__address">{{ show.venue_address }}</p>
+            <p>
+              {{ translate('public.landing.doors_time_label', locale) }} {{ show.doors_time | format_time(locale) }}
+              &mdash;
+              {{ translate('public.landing.start_time_label', locale) }} {{ show.start_time | format_time(locale) }}
+            </p>
+            <div class="pub-venue-map">
+              {# security-reviewer (Milestone 2 pass 2): dropped
+                 allow-same-origin. The embedded origin
+                 (nominatim.openstreetmap.org) is genuinely cross-origin
+                 from this app's own domain, so the classic
+                 allow-scripts+allow-same-origin sandbox-escape (the framed
+                 document using same-origin DOM access to strip its own
+                 sandbox attribute via the parent document) doesn't apply
+                 here as-is — that requires the framed origin to MATCH the
+                 embedding page's origin. Still, allow-same-origin grants
+                 the iframe its own origin's cookies/localStorage for no
+                 functional benefit to us: Nominatim's search UI still
+                 renders (script execution, cross-origin fetch to its
+                 search API, and map-tile <img> loads all work fine from an
+                 opaque-origin sandboxed frame — none of those require
+                 same-origin treatment), so this is a free least-privilege
+                 reduction, not a functionality trade-off. No
+                 allow-top-navigation/allow-popups/allow-forms are granted
+                 either, so the frame can't hijack this page or submit
+                 anything on our domain regardless. Flagged as a one-time
+                 manual check for a human (does the Nominatim search UI
+                 still render/behave identically) since this repo's testing
+                 discipline treats visual/live-embed behavior as a manual
+                 checklist item, not something automated here. #}
+              <iframe
+                class="pub-venue-map__frame"
+                title="{{ translate('public.landing.map_title', locale) }} — {{ show.venue_name }}"
+                loading="lazy"
+                referrerpolicy="no-referrer"
+                sandbox="allow-scripts"
+                src="https://nominatim.openstreetmap.org/ui/search.html?q={{ show.venue_address | urlencode }}"
+              ></iframe>
+            </div>
+            <p class="pub-venue-map__fallback">
+              <a href="https://www.openstreetmap.org/search?query={{ show.venue_address | urlencode }}" target="_blank" rel="noopener noreferrer">
+                {{ translate('public.landing.map_fallback_link', locale) }}: {{ show.venue_address }}
+              </a>
+            </p>
+          </div>
+
+          <table class="pub-ticket-table">
+            <caption class="pub-visually-hidden">{{ translate('public.landing.ticket_table_caption', locale) }}</caption>
+            <thead>
+              <tr>
+                <th scope="col">{{ translate('public.landing.ticket_type_column', locale) }}</th>
+                <th scope="col">{{ translate('public.landing.price_column', locale) }}</th>
+                <th scope="col">{{ translate('public.landing.quantity_column', locale) }}</th>
+                <th scope="col"><span class="pub-visually-hidden">{{ translate('public.share.copy_ticket_link', locale) }}</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for tt in show.ticket_types %}
+              <tr data-ticket-type-row="{{ tt.id }}"{% if tt.id == highlight_ticket_type_id %} class="pub-highlight"{% endif %}>
+                <td>
+                  <label for="qty-{{ tt.id }}">{{ tt.name }}</label>
+                  {% if tt.remaining == 0 %}
+                  <span class="pub-badge pub-badge--sold-out">{{ translate('public.landing.sold_out', locale) }}</span>
+                  {% endif %}
+                </td>
+                <td data-unit-price="{{ tt.price }}">{{ tt.price | format_currency(locale) }}</td>
+                <td>
+                  {% if tt.remaining > 0 %}
+                  <label class="pub-visually-hidden" for="qty-{{ tt.id }}">
+                    {{ translate('public.landing.quantity_column', locale) }} — {{ tt.name }}
+                  </label>
+                  <input type="number" inputmode="numeric" id="qty-{{ tt.id }}" name="qty_{{ tt.id }}"
+                    class="pub-qty-input" min="0" max="{{ tt.remaining }}"
+                    value="{{ sticky.get('qty_' ~ tt.id, '0') }}"
+                    aria-describedby="qty-{{ tt.id }}-remaining">
+                  <span id="qty-{{ tt.id }}-remaining" class="pub-remaining">
+                    {{ tt.remaining }} {{ translate('public.landing.remaining_suffix', locale) }}
+                  </span>
+                  {% else %}
+                  {{ translate('public.landing.sold_out', locale) }}
+                  {% endif %}
+                </td>
+                <td>
+                  <button type="button" class="pub-button pub-button--ghost pub-button--small"
+                    data-copy-url="{{ page_url }}?ticket_type={{ tt.id }}"
+                    data-copied-label="{{ translate('public.share.copied', locale) }}">
+                    {{ translate('public.share.copy_ticket_link', locale) }}
+                  </button>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endfor %}
+
+        <h2>{{ translate('public.checkout.heading', locale) }}</h2>
+
+        <div class="pub-field">
+          <label for="buyer_name">{{ translate('public.checkout.buyer_name_label', locale) }}</label>
+          <input type="text" id="buyer_name" name="buyer_name" required autocomplete="name"
+            value="{{ sticky.get('buyer_name', '') }}">
+        </div>
+        <div class="pub-field">
+          <label for="buyer_email">{{ translate('public.checkout.buyer_email_label', locale) }}</label>
+          <input type="email" id="buyer_email" name="buyer_email" required autocomplete="email"
+            value="{{ sticky.get('buyer_email', '') }}">
+        </div>
+        <div class="pub-field">
+          <label for="buyer_address">{{ translate('public.checkout.buyer_address_label', locale) }}</label>
+          <textarea id="buyer_address" name="buyer_address" required autocomplete="street-address">{{ sticky.get('buyer_address', '') }}</textarea>
+        </div>
+
+        {% if event.enabled_payment_methods %}
+        <fieldset class="pub-payment-methods">
+          <legend>{{ translate('public.checkout.payment_method_legend', locale) }}</legend>
+          {% if 'mollie' in event.enabled_payment_methods %}
+          <div class="pub-payment-methods__option">
+            <input type="radio" id="payment-mollie" name="payment_method" value="mollie"
+              {% if sticky.get('payment_method', 'mollie') == 'mollie' %}checked{% endif %}>
+            <label for="payment-mollie">{{ translate('public.checkout.payment_method_mollie', locale) }}</label>
+          </div>
+          {% endif %}
+          {% if 'door' in event.enabled_payment_methods %}
+          <div class="pub-payment-methods__option">
+            <input type="radio" id="payment-door" name="payment_method" value="door"
+              {% if sticky.get('payment_method') == 'door' %}checked{% endif %}>
+            <label for="payment-door">{{ translate('public.checkout.payment_method_door', locale) }}</label>
+          </div>
+          {% endif %}
+        </fieldset>
+        {% else %}
+        <p class="pub-notice pub-notice--warning">{{ translate('public.checkout.no_payment_methods', locale) }}</p>
+        {% endif %}
+
+        <p class="pub-order-total" id="pub-order-total" aria-live="polite"
+          data-label="{{ translate('public.checkout.order_total_label', locale) }}"></p>
+
+        <button type="submit" class="pub-button pub-button--primary"
+          {% if not event.enabled_payment_methods %}disabled{% endif %}>
+          {{ translate('public.checkout.submit_button', locale) }}
+        </button>
+      </form>
+      {% endif %}
+    </div>
+  </section>
+</div>
+{% endblock %}

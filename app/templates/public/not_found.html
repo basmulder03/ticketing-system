@@ -1,0 +1,8 @@
+{% extends "public/base.html" %}
+{% block title %}{{ translate('public.not_found.title', locale) }}{% endblock %}
+{% block content %}
+<section class="pub-plain-section">
+  <h1>{{ translate('public.not_found.title', locale) }}</h1>
+  <p>{{ translate('public.not_found.body', locale) }}</p>
+</section>
+{% endblock %}

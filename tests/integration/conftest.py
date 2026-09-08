@@ -18,10 +18,15 @@ from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
+from http.cookies import SimpleCookie
+from pathlib import Path
+from typing import Any, Literal
+from urllib.parse import urlsplit
 
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from playwright.async_api import Browser, BrowserContext, Page, Request, Route, async_playwright
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -383,3 +388,194 @@ async def make_theme(db_session: AsyncSession) -> Callable[..., Awaitable[Theme]
         return theme
 
     return _make
+
+
+# --- Accessibility (axe-core via Playwright) --------------------------------
+#
+# Per PROJECT_BRIEF.md's Testing section: "Accessibility tests: automated AA
+# checks (e.g. axe-core) run against public pages ... as part of the test
+# suite, not only as a manual pre-launch audit." These fixtures give
+# ``tests/integration/test_public_site_accessibility.py`` a real headless
+# Chromium page wired directly to this process's real ASGI app, so axe-core
+# audits the actual rendered HTML/CSS/JS a buyer's browser would receive —
+# not a static HTML fixture reconstructed by hand.
+
+_AXE_JS_PATH = Path(__file__).parent / "vendor" / "axe.min.js"
+_TEST_ORIGIN = "http://a11y-test.local"
+
+
+@pytest_asyncio.fixture
+async def _browser() -> AsyncGenerator[Browser, None]:
+    """A headless Chromium instance for one test.
+
+    Deliberately function-scoped, not session-scoped: pytest-asyncio (in
+    this project's default configuration — see ``pyproject.toml``'s
+    ``asyncio_mode = "auto"``) gives each test function its own event loop
+    (see ``_dispose_db_engine_between_tests`` above), and a Playwright
+    ``Browser``'s async connection is bound to the event loop it was
+    created on — reusing one across tests/loops hangs. Launching Chromium
+    per test costs a few hundred ms, which is fine for this suite's size.
+    """
+    async with async_playwright() as playwright:
+        browser = await playwright.chromium.launch()
+        yield browser
+        await browser.close()
+
+
+async def apply_set_cookie_headers(context: BrowserContext, raw_set_cookie_values: list[str]) -> None:
+    """Parse one or more raw ``Set-Cookie`` header values (per
+    ``axe_page``'s docstring on why these are applied out-of-band rather
+    than via ``route.fulfill``'s headers dict) and add each as a real
+    cookie on the Playwright browser context, so subsequent requests from
+    the page send them exactly like a real browser would.
+
+    Also used directly by ``test_public_site_accessibility.py`` for the
+    order-confirmation page: that test performs checkout via a plain
+    ``httpx`` client (not a real form click) specifically to sidestep a
+    known Chromium/CDP limitation where ``route.fulfill()`` with a 3xx
+    status doesn't route the browser's automatic redirect-follow request
+    back through page/context interception (it escapes to real DNS
+    resolution instead, which fails for this test's fake ``a11y-test.local``
+    origin) — see that test's docstring for the full explanation.
+    """
+    for raw_value in raw_set_cookie_values:
+        parsed = SimpleCookie()
+        parsed.load(raw_value)
+        for name, morsel in parsed.items():
+            path = morsel["path"] or "/"
+            same_site_raw = (morsel["samesite"] or "Lax").capitalize()
+            same_site: Literal["Strict", "Lax", "None"] = (
+                same_site_raw if same_site_raw in ("Strict", "Lax", "None") else "Lax"  # type: ignore[assignment]
+            )
+            await context.add_cookies(
+                [
+                    {
+                        "name": name,
+                        "value": morsel.value,
+                        "url": f"{_TEST_ORIGIN}{path}",
+                        "httpOnly": bool(morsel["httponly"]),
+                        "secure": bool(morsel["secure"]),
+                        "sameSite": same_site,
+                    }
+                ]
+            )
+
+
+@pytest_asyncio.fixture
+async def axe_page(_browser: Browser) -> AsyncGenerator[Page, None]:
+    """A Playwright ``Page`` wired to ``app.main.app`` via request
+    interception — every navigation/asset/form request the page makes is
+    routed straight through the same in-process ASGI app the rest of this
+    suite exercises (``httpx.ASGITransport``, mirroring ``_make_client``
+    above), rather than requiring a real listening HTTP server. axe-core is
+    injected as a page-init script, so ``window.axe`` is available on every
+    navigation without re-injecting it per test.
+
+    Uses its own random pseudo-IP as the ASGI "client" (see
+    ``_make_client``'s docstring) so this page's requests never share a
+    rate-limit bucket with another test's.
+    """
+    host = f"a11y-{uuid.uuid4().hex[:12]}"
+    transport = ASGITransport(app=app, client=(host, 12345))
+
+    async def _handle_route(route: Route, request: Request) -> None:
+        parsed = urlsplit(request.url)
+        path_and_query = parsed.path + (f"?{parsed.query}" if parsed.query else "")
+        forwarded_headers = {
+            key: value
+            for key, value in request.headers.items()
+            if key.lower() not in ("host", "content-length")
+        }
+        body = request.post_data_buffer
+        async with AsyncClient(transport=transport, base_url=_TEST_ORIGIN) as client:
+            response = await client.request(
+                request.method, path_and_query, headers=forwarded_headers, content=body
+            )
+        # This app can set more than one cookie on a single response (e.g.
+        # the checkout redirect sets both the order-confirmation cookie and
+        # the locale cookie — see app.web.routes.public_site.submit_checkout).
+        # Playwright's ``route.fulfill`` only accepts a flat
+        # ``Dict[str, str]`` of headers (one value per name), so a naive
+        # dict from ``response.headers.items()`` would silently drop every
+        # Set-Cookie but the last. Every real Set-Cookie is applied directly
+        # to this test's browser context instead (``context.add_cookies``,
+        # via ``apply_set_cookie_headers`` below) and stripped from the
+        # fulfilled response headers, so multi-cookie responses behave
+        # exactly as a real browser handling them would.
+        set_cookie_values = response.headers.get_list("set-cookie")
+        response_headers: dict[str, str] = {
+            key: value
+            for key, value in response.headers.items()
+            if key.lower() not in ("content-encoding", "content-length", "transfer-encoding", "set-cookie")
+        }
+        await route.fulfill(status=response.status_code, headers=response_headers, body=response.content)
+        if set_cookie_values:
+            await apply_set_cookie_headers(context, set_cookie_values)
+
+    context = await _browser.new_context(base_url=_TEST_ORIGIN)
+    await context.route("**/*", _handle_route)
+    await context.add_init_script(path=str(_AXE_JS_PATH))
+    page = await context.new_page()
+
+    yield page
+
+    await context.close()
+
+
+async def run_axe(
+    page: Page, path: str, *, disabled_rules: list[str] | None = None
+) -> list[dict[str, Any]]:
+    """Navigate ``axe_page`` to ``path`` and run axe-core against the fully
+    rendered page, scoped to the WCAG 2.1 A/AA rule tags (matching this
+    milestone's "must meet WCAG 2.1 AA" requirement — not the stricter AAA
+    tags axe also knows about). Returns the raw ``violations`` array.
+
+    ``disabled_rules``: rule ids to turn off for this run. Used to exclude
+    ``color-contrast`` on the themed landing page only — a Theme's fixed
+    colors (and anything under ``.event-content`` that inherits them, incl.
+    the buy-flow buttons/labels) already get an automated AA contrast report
+    from Milestone 1.5 (``app.services.contrast``); re-flagging arbitrary
+    per-event theme color choices here would duplicate that check and
+    produce false "failures" this suite can't fix (the colors are runtime
+    event data, not something this template/CSS controls). Every other page
+    (order confirmation, unavailable, 404) has no Theme involved at all, so
+    color-contrast stays enabled there — see
+    ``test_public_site_accessibility.py``.
+    """
+    response = await page.goto(path)
+    # Deliberately not asserting response.ok here: several of the pages
+    # this suite audits (order-confirmation-unavailable, 404) are SUPPOSED
+    # to return a non-2xx status — what matters for an a11y audit is that
+    # the browser actually received and rendered *some* real response body
+    # from the app (not a network-level failure), not its status code.
+    assert response is not None, f"navigation to {path} got no response at all"
+
+    rules_option = {rule: {"enabled": False} for rule in (disabled_rules or [])}
+    result = await page.evaluate(
+        """
+        async (rulesOption) => {
+          return await axe.run(document, {
+            runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21aa'] },
+            rules: rulesOption,
+          });
+        }
+        """,
+        rules_option,
+    )
+    violations: list[dict[str, Any]] = result["violations"]
+    return violations
+
+
+def format_axe_violations(violations: list[dict[str, Any]]) -> str:
+    """Render axe-core violations into a readable failure message: rule id,
+    human-readable description, WCAG tags, and every affected node's CSS
+    selector + a short HTML snippet — enough to locate/fix the issue without
+    re-running the test interactively."""
+    lines = []
+    for violation in violations:
+        lines.append(f"[{violation['id']}] ({violation['impact']}) {violation['help']} — {violation['helpUrl']}")
+        for node in violation["nodes"]:
+            selector = " ".join(node.get("target", []))
+            snippet = (node.get("html") or "")[:200]
+            lines.append(f"    at {selector}: {snippet}")
+    return "\n".join(lines)

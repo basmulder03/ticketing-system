@@ -22,8 +22,8 @@ async def test_sitemap_includes_only_published_events(
     assert response.headers["content-type"].startswith("application/xml")
 
     body = response.text
-    assert f"/events/{published.slug}" in body
-    assert f"/events/{draft.slug}" not in body
+    assert f"/e/{published.slug}" in body
+    assert f"/e/{draft.slug}" not in body
 
 
 async def test_sitemap_is_well_formed_xml(

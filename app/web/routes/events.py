@@ -12,6 +12,7 @@ from fastapi.responses import RedirectResponse
 from starlette.responses import Response
 
 from app.api.deps import Principal
+from app.core.config import get_settings
 from app.core.templating import templates
 from app.web.api_client import internal_api_client
 from app.web.csrf import attach_csrf_cookie, read_or_generate_csrf_token
@@ -39,6 +40,7 @@ async def events_list(request: Request, principal: Principal = Depends(require_w
         {
             "principal": principal,
             "events": events,
+            "public_base_url": get_settings().public_base_url,
             "csrf_token": token,
             "flash": request.query_params.get("flash"),
             "flash_kind": request.query_params.get("flash_kind", "success"),

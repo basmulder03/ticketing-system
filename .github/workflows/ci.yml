@@ -66,6 +66,16 @@ jobs:
       - name: Install project
         run: pip install -e ".[dev]"
 
+      - name: Install Playwright Chromium (accessibility test suite)
+        # tests/integration/test_public_site_accessibility.py drives a real
+        # headless Chromium page (axe-core) against the public site — see
+        # tests/integration/conftest.py's axe_page fixture. `--with-deps`
+        # also installs the OS-level libraries Chromium needs on this
+        # runner image. devops-agent: flagged for review re: caching this
+        # across CI runs (the download is ~300MB and doesn't change often)
+        # rather than re-fetching on every job.
+        run: playwright install --with-deps chromium
+
       - name: Run migrations
         run: alembic upgrade head
 
