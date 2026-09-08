@@ -33,6 +33,7 @@ from app.schemas.order import MarkOrderPaidRequest, MarkOrderPaidResponse, Order
 from app.services.invoice_pdf import render_invoice_pdf
 from app.services.invoicing import issue_invoice_for_order
 from app.services.order_payment import mark_order_paid
+from app.services.stock import InsufficientStockError, TicketTypeNotFoundError
 from app.services.ticket_delivery import send_order_confirmation_email, sign_order_tickets
 
 router = APIRouter(prefix="/api/v1/orders", tags=["orders"])
@@ -174,20 +175,39 @@ async def mark_paid(
     click more than once.
 
     404s if the Order doesn't exist, matching every other route in this
-    module.
+    module. 409s if this Order is a ``cancelled``/``expired`` recovery
+    whose stock has since been resold to someone else — see
+    ``app.services.order_payment._verify_stock_for_resurrected_order``;
+    this is a genuine capacity conflict, not a bug, and the caller must
+    resolve it manually (e.g. contact the buyer) rather than retry.
     """
     parsed_id = parse_uuid_or_404(order_id, detail="Order not found.")
     order = await session.get(Order, parsed_id)
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found.")
 
-    result = await mark_order_paid(
-        session,
-        order_id=parsed_id,
-        principal=principal,
-        method_label=body.method_label,
-        reason=body.reason,
-    )
+    try:
+        result = await mark_order_paid(
+            session,
+            order_id=parsed_id,
+            principal=principal,
+            method_label=body.method_label,
+            reason=body.reason,
+        )
+    except InsufficientStockError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Cannot mark this order as paid: its stock was released when it was cancelled/expired "
+                f"and only {max(exc.remaining, 0)} of {exc.requested} requested ticket(s) remain available "
+                "for one of its ticket types. It may have already been sold to a different buyer."
+            ),
+        ) from exc
+    except TicketTypeNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot mark this order as paid: one or more of its ticket types no longer exist.",
+        ) from exc
     if not result.already_paid:
         # Milestones 4/5: same fresh-payment effects as the Mollie webhook,
         # inside this same transaction — see
