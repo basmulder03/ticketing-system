@@ -94,6 +94,48 @@ def test_other_control_characters_are_stripped_but_tab_is_kept() -> None:
     assert result == "a\tbcd"
 
 
+# --- CRLF in the literal template text itself (not via a placeholder) -------
+
+
+def test_crlf_in_literal_subject_text_is_stripped_when_escape_html_false() -> None:
+    """An agent/admin can type a raw CRLF directly into stored
+    ``EmailTemplate.subject`` text (not through any ``{{placeholder}}``) —
+    this must be stripped too, not just substituted values, since the
+    subject is destined for a plain email header."""
+    text = "Your tickets\r\nBcc: evil@example.com"
+    result = render_placeholders(text, {}, escape_html=False)
+    assert "\r" not in result
+    assert "\n" not in result
+    assert result == "Your ticketsBcc: evil@example.com"
+
+
+def test_bare_lf_in_literal_subject_text_is_stripped() -> None:
+    text = "Your tickets\nBcc: evil@example.com"
+    result = render_placeholders(text, {}, escape_html=False)
+    assert "\n" not in result
+    assert result == "Your ticketsBcc: evil@example.com"
+
+
+def test_crlf_in_literal_subject_text_stripped_alongside_real_placeholder() -> None:
+    """The literal-text stripping and placeholder substitution compose
+    correctly: the CRLF around the placeholder is stripped and the known
+    key is still substituted."""
+    text = "Hi {{buyer_name}}\r\nBcc: evil@example.com"
+    result = render_placeholders(text, {"buyer_name": "Jamie"}, escape_html=False)
+    assert result == "Hi JamieBcc: evil@example.com"
+
+
+def test_crlf_in_literal_body_text_is_left_alone_when_escape_html_true() -> None:
+    """A literal newline in stored HTML body source is harmless whitespace
+    there (never a header value), so this module intentionally does NOT
+    strip it when ``escape_html=True`` — only the header/plain-text
+    (``escape_html=False``) case needs literal-text sanitization."""
+    text = "<p>Hi</p>\r\n<p>{{buyer_name}}</p>"
+    result = render_placeholders(text, {"buyer_name": "Jamie"}, escape_html=True)
+    assert "\r\n" in result
+    assert result == "<p>Hi</p>\r\n<p>Jamie</p>"
+
+
 # --- Malformed placeholder syntax: left as literal text, never raises -------
 
 

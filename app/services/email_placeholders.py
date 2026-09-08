@@ -35,6 +35,16 @@ Two independent properties this module guarantees, both load-bearing:
      ``</td><td>`` renders as inert literal text in the email, never as
      markup that could break the surrounding table-based layout or inject
      content into someone else's inbox render.
+   - The same control-character stripping is ALSO applied to the raw
+     template ``text`` itself (not just substituted values) whenever
+     ``escape_html=False`` -- an agent/admin can type a literal CRLF
+     directly into a stored ``EmailTemplate.subject`` without going
+     through any ``{{placeholder}}`` at all, and that must not depend
+     solely on ``email.message.EmailMessage``'s header-assignment
+     rejecting embedded CR/LF downstream (see
+     ``app.services.ticket_delivery``) -- this module enforces it
+     itself, as defense in depth, not as an incidental side effect of
+     a stdlib call several layers away.
 
 Unknown/malformed placeholder syntax in the template text is handled
 without ever raising: text that doesn't match the ``{{key}}`` pattern at
@@ -94,9 +104,29 @@ def render_placeholders(text: str, values: Mapping[str, str], *, escape_html: bo
     this module's docstring for why both paths still sanitize control
     characters unconditionally.
 
+    When ``escape_html`` is ``False`` (the header/plain-text case), ``text``
+    itself — the raw, stored template content, not just the values
+    substituted into it — is also run through :func:`_sanitize_value`
+    before substitution. This matters because ``text`` here is
+    agent/admin-authored ``EmailTemplate.subject`` content: an agent or
+    admin could type a literal CRLF directly into the stored subject text
+    (not via a ``{{placeholder}}`` at all), which this module's
+    value-sanitization alone would never touch. In practice
+    ``email.message.EmailMessage``'s header assignment
+    (``message["Subject"] = ...``, see ``app.services.ticket_delivery``)
+    already rejects an embedded CR/LF by raising ``ValueError`` — but this
+    module must not rely solely on that downstream, incidental protection;
+    sanitizing the literal template text here too is defense in depth, and
+    means a stray newline degrades to being silently dropped rather than
+    failing the entire send. Skipped when ``escape_html`` is ``True``
+    (the HTML body) since a literal newline in stored HTML source is
+    harmless whitespace there, never a header value.
+
     Never raises: this function has no failure mode other than "leave the
     ambiguous/unknown bit of text alone."
     """
+    if not escape_html:
+        text = _sanitize_value(text)
 
     def _replace(match: re.Match[str]) -> str:
         key = match.group(1)

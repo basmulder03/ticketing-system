@@ -22,7 +22,7 @@ class EmailTemplateUpsertRequest(BaseModel):
     """
 
     subject: str = Field(min_length=1, max_length=500)
-    body: str = Field(min_length=1)
+    body: str = Field(min_length=1, max_length=50_000)
 
 
 class EmailTemplateOut(BaseModel):
@@ -55,7 +55,7 @@ class EmailTemplatePreviewRequest(BaseModel):
     template_type: str = Field(default=EmailTemplateType.ORDER_CONFIRMATION_TICKET.value)
     language: str = Field(min_length=2, max_length=10)
     subject: str = Field(min_length=1, max_length=500)
-    body: str = Field(min_length=1)
+    body: str = Field(min_length=1, max_length=50_000)
 
     @field_validator("language")
     @classmethod
