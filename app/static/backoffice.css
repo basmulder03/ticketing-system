@@ -213,6 +213,12 @@ summary:focus-visible {
   border-color: #c3d9f0;
 }
 
+.bo-banner--error {
+  background: var(--bo-color-danger-bg);
+  color: var(--bo-color-danger);
+  border-color: #f1c0c3;
+}
+
 .bo-form-error {
   color: var(--bo-color-danger);
   font-weight: 600;
@@ -428,6 +434,25 @@ summary:focus-visible {
   content: "\2717 "; /* cross */
 }
 
+/* Order status badges (app.models.enums.OrderStatus) */
+
+.bo-badge--paid {
+  background: var(--bo-color-success-bg);
+  color: var(--bo-color-success-text);
+}
+
+.bo-badge--pending,
+.bo-badge--pending_door {
+  background: #f1eadb;
+  color: #6b5a1a;
+}
+
+.bo-badge--cancelled,
+.bo-badge--expired {
+  background: var(--bo-color-danger-bg);
+  color: var(--bo-color-danger);
+}
+
 /* Images */
 
 .bo-image-preview {
@@ -502,6 +527,47 @@ summary:focus-visible {
   .bo-preview-frame {
     height: 280px;
   }
+}
+
+/* Taller preview frame for longer content (e.g. the email preview, which
+   includes a logo, heading, body copy, and a ticket table). */
+
+.bo-preview-frame--tall {
+  height: 480px;
+}
+
+@media (min-width: 1024px) {
+  .bo-preview-frame--tall {
+    height: 620px;
+  }
+}
+
+/* Language-switcher tabs (e.g. the EmailTemplate editor's EN/NL switch). */
+
+.bo-tabs {
+  display: flex;
+  gap: var(--bo-spacing-2);
+  margin-bottom: var(--bo-spacing-4);
+  border-bottom: 1px solid var(--bo-color-border);
+}
+
+.bo-tabs__tab {
+  display: inline-block;
+  padding: var(--bo-spacing-2) var(--bo-spacing-3);
+  text-decoration: none;
+  color: var(--bo-color-muted);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.bo-tabs__tab:hover {
+  color: var(--bo-color-text);
+}
+
+.bo-tabs__tab--active {
+  color: var(--bo-color-text);
+  font-weight: 600;
+  border-bottom-color: var(--bo-color-primary);
 }
 
 .bo-code-block {

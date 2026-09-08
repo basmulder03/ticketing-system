@@ -3,11 +3,12 @@ lifecycle status, and the total charged.
 """
 
 import uuid
+from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+from sqlalchemy import DateTime, ForeignKey, Numeric, String, Text
 from sqlalchemy import Enum as SAEnum
-from sqlalchemy import ForeignKey, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -107,6 +108,22 @@ class Order(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     creation time makes reconciliation immune to a mid-flight config
     change, matching how ``total``/``price`` are also snapshotted at
     checkout rather than re-derived later.
+    """
+
+    confirmation_email_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    """When the order-confirmation/ticket email last successfully sent
+    (Milestone 4, see ``app.services.ticket_delivery.
+    send_order_confirmation_email``). ``None`` means it has never been sent
+    (or every attempt so far has failed — see the audit log's
+    ``order.confirmation_email.failed`` entries for failure history, since
+    this column only ever records a *successful* send). Updated again on
+    every resend (Milestone 4's admin resend action), so this always
+    reflects the most recent successful delivery, not the first one — used
+    by the backoffice to show "last sent at" and by
+    ``app.services.order_payment.mark_order_paid``'s callers as a purely
+    informational signal, never as the double-send guard itself (that guard
+    is ``MarkOrderPaidResult.already_paid``, checked by the caller before
+    this module is ever invoked at all).
     """
 
     event: Mapped["Event"] = relationship()

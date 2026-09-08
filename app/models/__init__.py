@@ -9,9 +9,11 @@ a side effect of being imported here.
 from app.models.admin_user import AdminUser
 from app.models.agent_account import AgentAccount
 from app.models.audit_log import AuditLogEntry
+from app.models.email_template import EmailTemplate
 from app.models.enums import (
     ActorType,
     AdminRole,
+    EmailTemplateType,
     OrderStatus,
     PaymentMethod,
     PublishStatus,
@@ -32,6 +34,8 @@ __all__ = [
     "AdminUser",
     "AgentAccount",
     "AuditLogEntry",
+    "EmailTemplate",
+    "EmailTemplateType",
     "Event",
     "EventConfig",
     "Order",

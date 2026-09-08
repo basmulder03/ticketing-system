@@ -64,5 +64,20 @@
   "public.order_confirmation.tickets_heading": "Tickets",
   "public.order_confirmation.back_to_event_link": "Terug naar de evenementpagina",
   "public.order_confirmation.unavailable_title": "Bestelbevestiging niet beschikbaar",
-  "public.order_confirmation.unavailable_body": "Deze link naar uw bestelbevestiging is verlopen of niet beschikbaar in deze browser. Heeft u zojuist een bestelling geplaatst? Houd dan het door u opgegeven e-mailadres in de gaten — zodra ticketverzending is ingeschakeld, ontvangt u daar uw bevestiging."
+  "public.order_confirmation.unavailable_body": "Deze link naar uw bestelbevestiging is verlopen of niet beschikbaar in deze browser. Heeft u zojuist een bestelling geplaatst? Houd dan het door u opgegeven e-mailadres in de gaten — zodra ticketverzending is ingeschakeld, ontvangt u daar uw bevestiging.",
+
+  "email.order_confirmation.subject": "Uw tickets voor {{event_name}}",
+  "email.order_confirmation.body": "<p>Beste {{buyer_name}},</p><p>Hartelijk dank voor uw bestelling voor <strong>{{event_name}}</strong> — wat fijn dat u erbij bent!</p><p>Voorstelling: {{show_date}} om {{show_time}}, {{venue_name}}.</p><p>Totaalbedrag: {{order_total}}.</p><p>We kijken ernaar uit u te mogen verwelkomen.</p>",
+  "email.order_confirmation.heading": "Uw tickets",
+  "email.order_confirmation.days_prefix": "Nog te gaan tot de voorstelling:",
+  "email.order_confirmation.days_suffix_plural": "dagen",
+  "email.order_confirmation.days_suffix_singular": "dag",
+  "email.order_confirmation.days_today": "De voorstelling is vandaag!",
+  "email.order_confirmation.tickets_heading": "Uw ticket(s)",
+  "email.order_confirmation.ticket_type_column": "Ticketsoort",
+  "email.order_confirmation.qr_column": "QR-code",
+  "email.order_confirmation.qr_alt": "QR-code voor uw {ticket_type}-ticket — laat deze of de bijgevoegde PDF zien bij de deur.",
+  "email.order_confirmation.attachment_note": "Uw ticket(s) zijn ook als PDF bijgevoegd bij deze e-mail, klaar om af te drukken.",
+  "email.order_confirmation.logo_alt": "Logo van {event_name}",
+  "email.order_confirmation.footer": "{event_name} — verzonden via Beacon"
 }

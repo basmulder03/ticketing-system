@@ -10,6 +10,12 @@ Covers every route currently declared with ``Depends(require_admin)``:
   - GET    /api/v1/admin/agent-accounts
   - POST   /api/v1/admin/agent-accounts/{agent_id}/revoke
   - GET    /api/v1/admin/audit-log
+  - POST   /api/v1/orders/{order_id}/resend-confirmation-email (Milestone 4:
+    an Order is financial/buyer-PII data, not "content-type data" — see
+    ``app.api.routes.orders`` module docstring — so this is admin-only, not
+    ``require_admin_or_agent``)
+  - GET    /api/v1/events/{event_id}/orders (Milestone 4: same reasoning —
+    listing Orders is financial/buyer-PII data, admin-only)
 
 If a future route adds ``Depends(require_admin)``, add it to
 ``ADMIN_GATED_ROUTES`` below so this test keeps covering the full set.
@@ -24,6 +30,8 @@ from app.models.enums import AdminRole
 from tests.integration.conftest import SeededAdmin, SeededAgent
 
 _PLACEHOLDER_AGENT_ID = "11111111-1111-1111-1111-111111111111"
+_PLACEHOLDER_ORDER_ID = "22222222-2222-2222-2222-222222222222"
+_PLACEHOLDER_EVENT_ID = "33333333-3333-3333-3333-333333333333"
 
 # (label, method, path, json_body)
 ADMIN_GATED_ROUTES: list[tuple[str, str, str, dict[str, str] | None]] = [
@@ -36,6 +44,18 @@ ADMIN_GATED_ROUTES: list[tuple[str, str, str, dict[str, str] | None]] = [
         None,
     ),
     ("list_audit_log", "GET", "/api/v1/admin/audit-log", None),
+    (
+        "resend_confirmation_email",
+        "POST",
+        f"/api/v1/orders/{_PLACEHOLDER_ORDER_ID}/resend-confirmation-email",
+        None,
+    ),
+    (
+        "list_event_orders",
+        "GET",
+        f"/api/v1/events/{_PLACEHOLDER_EVENT_ID}/orders",
+        None,
+    ),
 ]
 
 _IDS = [route[0] for route in ADMIN_GATED_ROUTES]

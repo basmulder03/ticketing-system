@@ -28,6 +28,7 @@ from app.models.ticket_type import TicketType
 from app.services.mollie import MollieApiError, create_mollie_payment, resolve_mollie_api_key
 from app.services.order_payment import SYSTEM_PRINCIPAL, mark_order_paid
 from app.services.stock import InsufficientStockError, TicketTypeNotFoundError, reserve_stock
+from app.services.ticket_delivery import sign_order_tickets
 
 
 class CheckoutError(Exception):
@@ -144,6 +145,17 @@ class CheckoutResult:
 
     order: Order
     mollie_checkout_url: str | None
+    simulated_payment: bool = False
+    """``True`` only when this checkout took the preview-mode simulated-
+    payment path (see :func:`_initiate_mollie_payment` case 2) — the Order
+    is already ``paid`` by the time this is returned, with no real Mollie
+    payment involved. The caller (``app.api.routes.public.checkout``) uses
+    this, once its own transaction has committed, as the signal to trigger
+    the Milestone 4 order-confirmation email dispatch for this genuinely-
+    just-paid Order — see ``app.services.ticket_delivery.
+    send_order_confirmation_email``. Always ``False`` for a real Mollie
+    payment (still ``pending`` until the webhook confirms it later) and for
+    a ``door`` order (settled in a future milestone)."""
 
 
 async def perform_checkout(
@@ -262,6 +274,7 @@ async def perform_checkout(
     await session.flush()
 
     mollie_checkout_url: str | None = None
+    simulated_payment = False
     if payment_method == PaymentMethod.MOLLIE:
         # Sandbox eligibility mirrors the draft-gate bypass above exactly
         # (``is_draft and has_valid_preview_token``), not "any checkout that
@@ -271,7 +284,7 @@ async def perform_checkout(
         # Event/Show is published. Scoping the simulated-payment path the
         # same way means it can never be used to skip real payment
         # processing on a live, published event.
-        mollie_checkout_url = await _initiate_mollie_payment(
+        mollie_checkout_url, simulated_payment = await _initiate_mollie_payment(
             session,
             order=order,
             config=config,
@@ -279,7 +292,7 @@ async def perform_checkout(
             is_preview_checkout=has_valid_preview_token,
         )
 
-    return CheckoutResult(order=order, mollie_checkout_url=mollie_checkout_url)
+    return CheckoutResult(order=order, mollie_checkout_url=mollie_checkout_url, simulated_payment=simulated_payment)
 
 
 async def _initiate_mollie_payment(
@@ -289,9 +302,11 @@ async def _initiate_mollie_payment(
     config: EventConfig | None,
     preview_sandbox_allowed: bool,
     is_preview_checkout: bool,
-) -> str | None:
+) -> tuple[str | None, bool]:
     """Kick off payment for a ``mollie``-method Order that was just created
-    (still ``PENDING``, already flushed).
+    (still ``PENDING``, already flushed). Returns
+    ``(mollie_checkout_url, simulated_payment)`` — see
+    :class:`CheckoutResult`'s ``simulated_payment`` field.
 
     Three cases:
 
@@ -301,21 +316,27 @@ async def _initiate_mollie_payment(
        Mollie-hosted checkout URL for the buyer to be redirected to.
        Mollie's own test mode (when ``mollie_mode == TEST``) is already a
        safe sandbox; nothing extra is needed for that case per
-       PROJECT_BRIEF.md's Draft & Preview section.
+       PROJECT_BRIEF.md's Draft & Preview section. ``simulated_payment`` is
+       ``False``.
     2. No key is configured at all, but ``preview_sandbox_allowed`` is
        True (a genuine draft/preview-token checkout) — skip Mollie
        entirely and simulate: immediately mark the order ``paid`` via
        :func:`app.services.order_payment.mark_order_paid`, attributed to
        the automated ``SYSTEM_PRINCIPAL`` with a reason that makes the
-       simulated nature explicit in the audit log. This is this project's
+       simulated nature explicit in the audit log, and sign its Tickets'
+       QR tokens (``app.services.ticket_delivery.sign_order_tickets`` —
+       Milestone 4) inside this same transaction. This is this project's
        chosen mechanism for PROJECT_BRIEF.md's "clearly-labeled 'test
        checkout'" requirement — no real charge, no external call at all.
-       Returns ``None`` (nothing to redirect to; the caller/route sends
-       the buyer straight to order-confirmation, same as a ``door``
-       order). No real email send is triggered here either — ticket/
-       invoice email dispatch is Milestone 4/5 wiring that itself must
-       route through the event's own SMTP config (or the dev Mailpit
-       sink), not something this function touches.
+       Returns ``(None, True)`` (nothing to redirect to; the caller/route
+       sends the buyer straight to order-confirmation, same as a ``door``
+       order) — the caller uses the ``True`` flag to trigger the
+       order-confirmation EMAIL dispatch itself, AFTER its own transaction
+       commits (email sending is a separate, best-effort step that must
+       never be inside the same transaction as the payment-status/stock
+       changes — see ``app.services.ticket_delivery`` module docstring).
+       In dev this naturally routes through the local Mailpit SMTP sink,
+       same as any other event's configured SMTP settings.
     3. No key is configured and ``preview_sandbox_allowed`` is False (a
        real, non-preview checkout with Mollie misconfigured) — this is a
        genuine operator error, not something to silently paper over with a
@@ -340,7 +361,8 @@ async def _initiate_mollie_payment(
                 "event, so no real Mollie payment or charge was created."
             ),
         )
-        return None
+        await sign_order_tickets(session, order=order)
+        return None, True
 
     settings = get_settings()
     base_url = settings.public_base_url.rstrip("/")
@@ -373,4 +395,4 @@ async def _initiate_mollie_payment(
     # while this Order is still pending — see Order.mollie_mode's docstring.
     order.mollie_mode = config.mollie_mode if config is not None else None
     await session.flush()
-    return created.checkout_url
+    return created.checkout_url, False

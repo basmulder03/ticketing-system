@@ -12,6 +12,7 @@ so tests stay independent regardless of execution order.
 Unit tests (``tests/unit/``) don't use any of these fixtures.
 """
 
+import asyncio
 import datetime as dt
 import uuid
 from collections.abc import AsyncGenerator, Awaitable, Callable
@@ -30,6 +31,7 @@ from playwright.async_api import Browser, BrowserContext, Page, Request, Route, 
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.security import generate_agent_api_key, hash_password
 from app.db.session import async_session_factory, engine
 from app.main import app
@@ -299,16 +301,23 @@ async def make_ticket_type(db_session: AsyncSession) -> Callable[..., Awaitable[
 async def make_event_config(db_session: AsyncSession) -> Callable[..., Awaitable[EventConfig]]:
     """Factory fixture: insert an ``EventConfig`` row directly for a given Event id.
 
-    Defaults point at the local Mailpit SMTP sink (same convention as
-    ``scripts/seed.py``), so tests that need a *working* SMTP config (e.g.
-    the connection-test action against Mailpit) get one for free without
-    repeating the wiring at every call site.
+    Defaults point at the local Mailpit SMTP sink, resolved via
+    ``Settings.seed_smtp_host`` (same convention as ``scripts/seed.py`` and
+    ``mailpit_api_base_url`` below) rather than a hardcoded ``"mailpit"``
+    hostname — that hostname only resolves inside the docker-compose
+    network; running the suite natively (a local venv, or CI's bare-Ubuntu
+    runner) needs ``SEED_SMTP_HOST=localhost`` instead, and a hardcoded
+    default silently sent every test's mail into the void with no error
+    (the SMTP connection just failed) rather than a clear failure. Tests
+    that need a *working* SMTP config (e.g. the connection-test action, or
+    a real send landing in Mailpit) get one for free without repeating the
+    wiring at every call site.
     """
 
     async def _make(
         *,
         event_id: uuid.UUID,
-        smtp_host: str | None = "mailpit",
+        smtp_host: str | None = get_settings().seed_smtp_host,
         smtp_port: int | None = 1025,
         smtp_encryption: SmtpEncryptionMode = SmtpEncryptionMode.NONE,
         smtp_username: str | None = None,
@@ -522,13 +531,42 @@ async def axe_page(_browser: Browser) -> AsyncGenerator[Page, None]:
     await context.close()
 
 
+async def _evaluate_axe_on_current_page(
+    page: Page, *, disabled_rules: list[str] | None = None
+) -> list[dict[str, Any]]:
+    """Run axe-core against whatever ``page`` currently has loaded (already
+    navigated/``set_content``-ed by the caller), scoped to the WCAG 2.1 A/AA
+    rule tags (matching this milestone's "must meet WCAG 2.1 AA"
+    requirement — not the stricter AAA tags axe also knows about). Returns
+    the raw ``violations`` array.
+
+    Shared by :func:`run_axe` (navigates to a real app route first) and
+    :func:`run_axe_on_html` (loads a raw HTML string via ``page.set_content``
+    first, for content — like rendered email bodies — that isn't served by
+    any app route) so both entry points run axe identically rather than
+    keeping two copies of this ``page.evaluate`` call in sync by hand.
+    """
+    rules_option = {rule: {"enabled": False} for rule in (disabled_rules or [])}
+    result = await page.evaluate(
+        """
+        async (rulesOption) => {
+          return await axe.run(document, {
+            runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21aa'] },
+            rules: rulesOption,
+          });
+        }
+        """,
+        rules_option,
+    )
+    violations: list[dict[str, Any]] = result["violations"]
+    return violations
+
+
 async def run_axe(
     page: Page, path: str, *, disabled_rules: list[str] | None = None
 ) -> list[dict[str, Any]]:
     """Navigate ``axe_page`` to ``path`` and run axe-core against the fully
-    rendered page, scoped to the WCAG 2.1 A/AA rule tags (matching this
-    milestone's "must meet WCAG 2.1 AA" requirement — not the stricter AAA
-    tags axe also knows about). Returns the raw ``violations`` array.
+    rendered page.
 
     ``disabled_rules``: rule ids to turn off for this run. Used to exclude
     ``color-contrast`` on the themed landing page only — a Theme's fixed
@@ -550,20 +588,108 @@ async def run_axe(
     # from the app (not a network-level failure), not its status code.
     assert response is not None, f"navigation to {path} got no response at all"
 
-    rules_option = {rule: {"enabled": False} for rule in (disabled_rules or [])}
-    result = await page.evaluate(
-        """
-        async (rulesOption) => {
-          return await axe.run(document, {
-            runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21aa'] },
-            rules: rulesOption,
-          });
-        }
-        """,
-        rules_option,
-    )
-    violations: list[dict[str, Any]] = result["violations"]
-    return violations
+    return await _evaluate_axe_on_current_page(page, disabled_rules=disabled_rules)
+
+
+async def run_axe_on_html(
+    page: Page, html: str, *, disabled_rules: list[str] | None = None
+) -> list[dict[str, Any]]:
+    """Load a raw HTML string directly into ``page`` (via
+    ``page.set_content``) and run axe-core against it — for content that
+    isn't served by any app route, e.g. Milestone 4's rendered email bodies
+    (``app.services.email_render.render_order_confirmation_email`` builds a
+    complete standalone HTML document string; there is no URL that returns
+    it, since it's only ever assembled in-process and handed straight to
+    ``aiosmtplib``/``EmailMessage`` — see ``app.services.ticket_delivery``).
+
+    Deliberately does NOT go through ``axe_page``'s ASGI-route-interception
+    machinery (no navigation/route ever happens here, so there's nothing to
+    intercept) — any ``<img>`` referencing a real app path (e.g. a Theme
+    logo under ``/uploads/...``) simply won't resolve, which is fine: axe's
+    ``image-alt``/``ARIA`` checks only look at the DOM's ``alt``
+    attribute/accessible name, not whether the underlying request
+    succeeded. Callers on a page that also needs real route interception
+    (none currently do) should use a fresh, non-``axe_page`` Page instead.
+    """
+    await page.set_content(html)
+    return await _evaluate_axe_on_current_page(page, disabled_rules=disabled_rules)
+
+
+# --- Mailpit HTTP API (real end-to-end email content assertions) -----------
+#
+# Milestone 4 ("Ticket generation & delivery") sends real emails via
+# aiosmtplib against the local Mailpit SMTP sink (see docker-compose.yml /
+# .github/workflows/ci.yml). Most send-path tests in
+# tests/integration/test_ticket_delivery.py monkeypatch aiosmtplib.send
+# directly (fast, precise control over success/failure/call-count), but
+# PROJECT_BRIEF.md's Testing section calls for verifying "email content
+# generation checked against actual rendered output... rendered against
+# Mailpit or captured output, not just 'did send() get called'" — so at
+# least one flow performs a real send and asserts on what actually landed
+# in Mailpit, via Mailpit's HTTP API (not just trusting the SMTP send
+# succeeded).
+
+
+def mailpit_api_base_url() -> str:
+    """Base URL for Mailpit's HTTP API, derived from the same
+    ``Settings.seed_smtp_host`` local/CI SMTP-sink hostname every
+    ``EventConfig``-touching test already relies on (see
+    ``make_event_config``'s docstring) — Mailpit's web/API port is a fixed
+    8025 alongside its SMTP port 1025, both exposed on that same host in
+    ``docker-compose.yml`` (local dev) and ``.github/workflows/ci.yml``
+    (CI)."""
+    settings = get_settings()
+    return f"http://{settings.seed_smtp_host}:8025"
+
+
+async def fetch_latest_mailpit_message_to(to_email: str, *, timeout: float = 5.0) -> dict[str, Any]:
+    """Poll Mailpit's search API for the most recent message addressed to
+    ``to_email`` and return its FULL content (subject, HTML, plain text,
+    attachment metadata) via a second ``GET .../message/{id}`` call.
+
+    Searching by a test-unique ``to_email`` (rather than "the single most
+    recent message in the whole mailbox") keeps this safe to use even
+    though Mailpit's mailbox is a shared, un-isolated sink across this
+    entire serial test run (see ``docker-compose.yml``'s single ``mailpit``
+    service) — every caller should pass a randomized recipient address so
+    two tests' messages can never be confused for one another. Polls
+    briefly (Mailpit's HTTP API can lag a few milliseconds behind a
+    just-completed SMTP send) rather than assuming the message is visible
+    immediately.
+
+    Raises ``AssertionError`` if no matching message shows up within
+    ``timeout`` seconds.
+    """
+    base_url = mailpit_api_base_url()
+    loop = asyncio.get_event_loop()
+    deadline = loop.time() + timeout
+    async with AsyncClient(base_url=base_url, timeout=5.0) as api_client:
+        while True:
+            response = await api_client.get("/api/v1/messages", params={"query": f"to:{to_email}"})
+            response.raise_for_status()
+            messages = response.json()["messages"]
+            if messages:
+                message_id = messages[0]["ID"]
+                detail_response = await api_client.get(f"/api/v1/message/{message_id}")
+                detail_response.raise_for_status()
+                result: dict[str, Any] = detail_response.json()
+                return result
+            if loop.time() >= deadline:
+                raise AssertionError(f"No Mailpit message to {to_email!r} appeared within {timeout}s")
+            await asyncio.sleep(0.1)
+
+
+async def fetch_mailpit_attachment(message_id: str, part_id: str) -> bytes:
+    """Download one attachment's raw bytes from Mailpit by message/part id
+    (see ``fetch_latest_mailpit_message_to``'s ``Attachments`` list, each
+    entry's ``PartID``) — used to verify a real PDF attachment landed
+    (magic-byte check), not just that ``Attachments`` metadata claims one
+    exists."""
+    base_url = mailpit_api_base_url()
+    async with AsyncClient(base_url=base_url, timeout=5.0) as api_client:
+        response = await api_client.get(f"/api/v1/message/{message_id}/part/{part_id}")
+        response.raise_for_status()
+        return response.content
 
 
 def format_axe_violations(violations: list[dict[str, Any]]) -> str:

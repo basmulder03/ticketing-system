@@ -1,0 +1,22 @@
+{# HTMX swap target content — also included directly (not via HTTP) for the
+   email template editor page's initial render. See
+   app/web/routes/email_templates.py. #}
+{% if error %}
+<p class="bo-form-error" role="alert">{{ error }}</p>
+{% else %}
+<p class="bo-field"><strong>Subject:</strong> {{ preview.subject }}</p>
+<div class="bo-preview-frame-wrap">
+  {# sandbox="" (no allow-* tokens): scripts, forms, top-level navigation, and
+     popups are blocked inside this document regardless of content, and the
+     empty sandbox also denies allow-same-origin — same defense-in-depth
+     posture as the Theme editor's preview iframe. #}
+  <iframe class="bo-preview-frame bo-preview-frame--tall" title="Live email preview" sandbox="" srcdoc="{{ preview_doc }}"></iframe>
+</div>
+
+<details class="bo-panel--advanced">
+  <summary>Plain-text alternative</summary>
+  <p class="bo-hint bo-hint--small">Sent alongside the HTML version in every real email, for clients/screen readers
+    that prefer it.</p>
+  <pre class="bo-code-block">{{ preview.text_body }}</pre>
+</details>
+{% endif %}

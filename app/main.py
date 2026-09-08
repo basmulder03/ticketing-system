@@ -19,8 +19,10 @@ from app.api.routes import (
     agent_accounts,
     audit_log,
     auth,
+    email_templates,
     event_configs,
     events,
+    orders,
     public,
     seo,
     shows,
@@ -30,7 +32,9 @@ from app.api.routes import (
 from app.core.config import get_settings
 from app.web.deps import WebAuthRequired
 from app.web.routes import auth as web_auth
+from app.web.routes import email_templates as web_email_templates
 from app.web.routes import events as web_events
+from app.web.routes import orders as web_orders
 from app.web.routes import public_site as web_public_site
 from app.web.routes import themes as web_themes
 
@@ -53,6 +57,9 @@ def create_app() -> FastAPI:
     app.include_router(shows.router)
     app.include_router(ticket_types.router)
     app.include_router(themes.router)
+    app.include_router(email_templates.router)
+    app.include_router(orders.router)
+    app.include_router(orders.list_router)
     app.include_router(public.router)
     app.include_router(seo.router)
 
@@ -64,6 +71,8 @@ def create_app() -> FastAPI:
     app.include_router(web_auth.router)
     app.include_router(web_events.router)
     app.include_router(web_themes.router)
+    app.include_router(web_email_templates.router)
+    app.include_router(web_orders.router)
 
     # Public-site HTML pages (Milestone 2, `frontend-theming`): themed
     # landing/preview pages, checkout form, order confirmation — see
