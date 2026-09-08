@@ -35,6 +35,7 @@ from app.models.ticket import Ticket
 from app.schemas.order import CheckoutRequest, OrderOut, TicketOut
 from app.schemas.public import PublicEventOut, PublicShowOut, PublicThemeOut, PublicTicketTypeOut
 from app.services.checkout import CheckoutError, CheckoutItemInput, CheckoutResult, perform_checkout
+from app.services.invoicing import issue_invoice_for_order
 from app.services.mollie import MollieApiError, fetch_mollie_payment_status, resolve_mollie_api_key
 from app.services.order_payment import SYSTEM_PRINCIPAL, mark_order_paid, release_order_stock
 from app.services.stock import attach_remaining
@@ -236,11 +237,12 @@ async def checkout(
     simulated-checkout path — see ``app.services.checkout.
     _initiate_mollie_payment``), this Order is already genuinely ``paid`` by
     the time this transaction commits, with its Tickets' QR tokens already
-    signed inside that same transaction. The order-confirmation email is
-    dispatched here, AFTER the commit — a deliberately separate, best-effort
-    step (see ``app.services.ticket_delivery`` module docstring for why it
-    must never be allowed to roll back a real payment confirmation, or in
-    this case a real order creation).
+    signed and its Invoice already issued (Milestone 5) inside that same
+    transaction. The order-confirmation email (with the invoice PDF
+    attached) is dispatched here, AFTER the commit — a deliberately
+    separate, best-effort step (see ``app.services.ticket_delivery``
+    module docstring for why it must never be allowed to roll back a real
+    payment confirmation, or in this case a real order creation).
     """
     items = [
         CheckoutItemInput(ticket_type_id=_parse_ticket_type_id(item.ticket_type_id), quantity=item.quantity)
@@ -389,6 +391,12 @@ async def mollie_webhook(request: Request, session: AsyncSession = Depends(get_s
             # atomic with payment confirmation — see
             # app.services.ticket_delivery module docstring.
             await sign_order_tickets(session, order=mark_paid_result.order)
+            # Milestone 5: issue the Invoice (sequential number allocation)
+            # inside this SAME transaction too — see
+            # app.services.invoicing module docstring for why invoice
+            # issuance, unlike email dispatch, must be atomic with payment
+            # confirmation rather than a best-effort post-commit step.
+            await issue_invoice_for_order(session, order=mark_paid_result.order, principal=SYSTEM_PRINCIPAL)
     elif mollie_status in _MOLLIE_FAILURE_STATUSES:
         await release_order_stock(
             session,

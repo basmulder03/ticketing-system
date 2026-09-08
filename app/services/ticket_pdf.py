@@ -46,7 +46,7 @@ from app.models.ticket import Ticket
 from app.models.ticket_type import TicketType
 from app.services.theme_preview import FONT_STACKS
 
-__all__ = ["qr_data_uri", "render_tickets_pdf"]
+__all__ = ["logo_data_uri", "qr_data_uri", "render_tickets_pdf"]
 
 _DEFAULT_FONT_STACK = "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
 _DEFAULT_PRIMARY = "#1a1a1a"
@@ -83,12 +83,17 @@ def qr_data_uri(payload: str) -> str:
     return "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
 
 
-def _logo_data_uri(theme: Theme | None) -> str | None:
+def logo_data_uri(theme: Theme | None) -> str | None:
     """Read the theme's logo file (if any) straight off local disk and
     return it as a base64 data URI, for the same "no follow-up fetch"
     reason as :func:`qr_data_uri`. Returns ``None`` if there is no theme,
     no logo configured, or the file is unexpectedly missing on disk (never
     raises — a missing logo degrades to no-logo-image, not a failed PDF).
+
+    Public (not ``ticket``-specific despite living in this module): reused
+    as-is by ``app.services.invoice_pdf`` (Milestone 5) since logo
+    resolution has nothing ticket-specific about it — DRY rather than a
+    second near-identical implementation for the invoice PDF.
     """
     if theme is None or not theme.logo_path:
         return None
@@ -172,7 +177,7 @@ def render_tickets_pdf(
     secondary = theme.secondary_color if theme is not None else _DEFAULT_SECONDARY
     accent = theme.accent_color if theme is not None else _DEFAULT_ACCENT
     font_stack = FONT_STACKS.get(theme.font_choice, _DEFAULT_FONT_STACK) if theme is not None else _DEFAULT_FONT_STACK
-    logo_uri = _logo_data_uri(theme)
+    logo_uri = logo_data_uri(theme)
 
     pages = "\n".join(
         _ticket_page_html(

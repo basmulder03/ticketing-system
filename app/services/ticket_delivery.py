@@ -1,7 +1,10 @@
 """Orchestrates what happens once an Order genuinely becomes ``paid`` for
 the first time (Milestone 4): signing each of its Tickets' QR tokens, and
-sending the order-confirmation/ticket email (PDF attached) over the Event's
-own SMTP settings.
+sending the order-confirmation/ticket email (ticket PDF attached) over the
+Event's own SMTP settings. Milestone 5 extends the same send with a second
+attachment: the Invoice PDF — per PROJECT_BRIEF.md's Invoicing section
+("[invoice] emailed alongside the ticket"), this is deliberately the SAME
+email/attachment set, not a second email.
 
 Both real callers of ``app.services.order_payment.mark_order_paid`` that
 can observe a fresh (``already_paid=False``) transition today —
@@ -10,23 +13,27 @@ preview-mode simulated-checkout path
 (``app.services.checkout._initiate_mollie_payment``) — route through this
 module's two functions:
 
-1. :func:`sign_order_tickets` — called INSIDE the same DB transaction as
-   the ``mark_order_paid`` status flip (flush-only, no commit), so QR-token
-   assignment is atomic with the payment confirmation itself. Idempotent:
-   only signs Tickets that don't already have a ``qr_token``.
+1. :func:`sign_order_tickets` and (Milestone 5)
+   ``app.services.invoicing.issue_invoice_for_order`` — both called INSIDE
+   the same DB transaction as the ``mark_order_paid`` status flip
+   (flush-only, no commit), so QR-token assignment and invoice-number
+   allocation are both atomic with the payment confirmation itself. Both
+   are idempotent (only sign Tickets that don't already have a
+   ``qr_token``; only issue an Invoice that doesn't already exist for the
+   Order).
 2. :func:`send_order_confirmation_email` — called AFTER that transaction
    has committed. Sending email is a separate, best-effort side effect
    that must NEVER be allowed to roll back or fail a genuine payment
    confirmation — see PROJECT_BRIEF.md's Security & Ops section
    ("alerting on failed payments or failed email sends"). This function
    never raises: it deliberately catches ANY exception raised while
-   rendering the email/PDF or sending it (not just SMTP-specific errors —
+   rendering the email/PDFs or sending it (not just SMTP-specific errors —
    a rendering bug must be treated the same way), writes a clear audit log
    entry either way, and returns a bool instead. It also re-signs any
-   unsigned Tickets itself (defensive — see its docstring), which makes it
-   safe to call standalone from the admin resend action
-   (``app.api.routes.orders.resend_confirmation_email``) without depending
-   on step 1 having already run in the same request.
+   unsigned Tickets and (defensively) re-issues the Invoice if missing
+   itself (see its docstring), which makes it safe to call standalone from
+   the admin resend action (``app.api.routes.orders.resend_confirmation_email``)
+   without depending on step 1 having already run in the same request.
 """
 
 import uuid
@@ -49,6 +56,8 @@ from app.models.ticket import Ticket
 from app.models.ticket_type import TicketType
 from app.services.audit import record_audit_entry
 from app.services.email_render import render_order_confirmation_email
+from app.services.invoice_pdf import render_invoice_pdf
+from app.services.invoicing import issue_invoice_for_order
 from app.services.ticket_pdf import render_tickets_pdf
 
 __all__ = ["send_order_confirmation_email", "sign_order_tickets"]
@@ -156,6 +165,14 @@ async def send_order_confirmation_email(
     order, event, show, tickets, ticket_types_by_id = context
 
     tickets = await sign_order_tickets(session, order=order)
+    # Milestone 5: defensively (re-)issue the Invoice here too, mirroring
+    # the QR-signing line above — idempotent (see
+    # app.services.invoicing.issue_invoice_for_order), so this is a no-op
+    # in the normal case where the payment-confirmation transaction already
+    # issued it, and only actually allocates a number if this Order
+    # somehow reached here without one (e.g. a resend for an order paid
+    # before this module was extended, or a bug elsewhere).
+    invoice = await issue_invoice_for_order(session, order=order, principal=principal)
 
     config = event.config
     if config is None or not config.smtp_host or not config.smtp_port or not config.sender_email:
@@ -203,6 +220,13 @@ async def send_order_confirmation_email(
             theme=event.theme,
             locale=order.language,
         )
+        invoice_pdf_bytes = render_invoice_pdf(
+            invoice=invoice,
+            order=order,
+            event=event,
+            theme=event.theme,
+            locale=order.language,
+        )
 
         message = EmailMessage()
         message["Subject"] = rendered.subject
@@ -214,6 +238,17 @@ async def send_order_confirmation_email(
         message.add_alternative(rendered.html_body, subtype="html")
         message.add_attachment(
             pdf_bytes, maintype="application", subtype="pdf", filename=f"tickets-{order.id}.pdf"
+        )
+        # Milestone 5: the invoice PDF is a SECOND attachment on this same
+        # email, not a second email — per PROJECT_BRIEF.md's Invoicing
+        # section ("Emailed alongside the ticket").
+        # Filename deliberately keyed off `order.id` (a UUID), not
+        # `invoice.formatted_number` — `number_prefix` is an admin-entered
+        # free-text EventConfig field (see app.models.event_config), so
+        # using it raw in a Content-Disposition filename would let admin
+        # input reach an email header value; a UUID is always safe here.
+        message.add_attachment(
+            invoice_pdf_bytes, maintype="application", subtype="pdf", filename=f"invoice-{order.id}.pdf"
         )
 
         use_tls = config.smtp_encryption == SmtpEncryptionMode.SSL

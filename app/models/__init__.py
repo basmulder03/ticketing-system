@@ -22,6 +22,7 @@ from app.models.enums import (
 )
 from app.models.event import Event
 from app.models.event_config import EventConfig
+from app.models.invoice import Invoice
 from app.models.order import Order
 from app.models.show import Show
 from app.models.theme import Theme
@@ -38,6 +39,7 @@ __all__ = [
     "EmailTemplateType",
     "Event",
     "EventConfig",
+    "Invoice",
     "Order",
     "OrderStatus",
     "PaymentMethod",
