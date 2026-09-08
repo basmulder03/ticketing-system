@@ -27,12 +27,14 @@ from dataclasses import dataclass
 import pytest
 from httpx import AsyncClient
 
-from app.models.enums import AdminRole
+from app.models.enums import AdminRole, EmailTemplateType
 from app.models.event import Event
 from app.models.event_config import EventConfig
 from app.models.show import Show
 from app.models.ticket_type import TicketType
 from tests.integration.conftest import SeededAdmin, SeededAgent
+
+_TEMPLATE_TYPE = EmailTemplateType.ORDER_CONFIRMATION_TICKET.value
 
 AGENT_API_KEY_HEADER = "X-Agent-Api-Key"
 
@@ -113,6 +115,34 @@ CONTENT_GATED_ROUTES: list[tuple[str, str, str, dict[str, object] | None]] = [
         {"name": "Updated"},
     ),
     ("delete_ticket_type", "DELETE", "/api/v1/shows/{show_id}/ticket-types/{ticket_type_id}", None),
+    # EmailTemplate routes (Milestone 4) — "email template content" is
+    # explicitly listed as agent-accessible content-type data in
+    # PROJECT_BRIEF.md's AI/Agent Access section.
+    ("list_email_templates", "GET", "/api/v1/events/{event_id}/email-templates", None),
+    (
+        "get_email_template",
+        "GET",
+        f"/api/v1/events/{{event_id}}/email-templates/{_TEMPLATE_TYPE}/en",
+        None,
+    ),
+    (
+        "upsert_email_template",
+        "PUT",
+        f"/api/v1/events/{{event_id}}/email-templates/{_TEMPLATE_TYPE}/en",
+        {"subject": "Subject", "body": "<p>Body</p>"},
+    ),
+    (
+        "preview_email_template",
+        "POST",
+        "/api/v1/events/{event_id}/email-templates/preview",
+        {"language": "en", "subject": "Subject", "body": "<p>Body</p>"},
+    ),
+    (
+        "delete_email_template",
+        "DELETE",
+        f"/api/v1/events/{{event_id}}/email-templates/{_TEMPLATE_TYPE}/en",
+        None,
+    ),
 ]
 _CONTENT_IDS = [route[0] for route in CONTENT_GATED_ROUTES]
 

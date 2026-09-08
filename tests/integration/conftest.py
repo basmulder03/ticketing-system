@@ -12,6 +12,7 @@ so tests stay independent regardless of execution order.
 Unit tests (``tests/unit/``) don't use any of these fixtures.
 """
 
+import asyncio
 import datetime as dt
 import uuid
 from collections.abc import AsyncGenerator, Awaitable, Callable
@@ -30,6 +31,7 @@ from playwright.async_api import Browser, BrowserContext, Page, Request, Route, 
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.security import generate_agent_api_key, hash_password
 from app.db.session import async_session_factory, engine
 from app.main import app
@@ -564,6 +566,83 @@ async def run_axe(
     )
     violations: list[dict[str, Any]] = result["violations"]
     return violations
+
+
+# --- Mailpit HTTP API (real end-to-end email content assertions) -----------
+#
+# Milestone 4 ("Ticket generation & delivery") sends real emails via
+# aiosmtplib against the local Mailpit SMTP sink (see docker-compose.yml /
+# .github/workflows/ci.yml). Most send-path tests in
+# tests/integration/test_ticket_delivery.py monkeypatch aiosmtplib.send
+# directly (fast, precise control over success/failure/call-count), but
+# PROJECT_BRIEF.md's Testing section calls for verifying "email content
+# generation checked against actual rendered output... rendered against
+# Mailpit or captured output, not just 'did send() get called'" — so at
+# least one flow performs a real send and asserts on what actually landed
+# in Mailpit, via Mailpit's HTTP API (not just trusting the SMTP send
+# succeeded).
+
+
+def mailpit_api_base_url() -> str:
+    """Base URL for Mailpit's HTTP API, derived from the same
+    ``Settings.seed_smtp_host`` local/CI SMTP-sink hostname every
+    ``EventConfig``-touching test already relies on (see
+    ``make_event_config``'s docstring) — Mailpit's web/API port is a fixed
+    8025 alongside its SMTP port 1025, both exposed on that same host in
+    ``docker-compose.yml`` (local dev) and ``.github/workflows/ci.yml``
+    (CI)."""
+    settings = get_settings()
+    return f"http://{settings.seed_smtp_host}:8025"
+
+
+async def fetch_latest_mailpit_message_to(to_email: str, *, timeout: float = 5.0) -> dict[str, Any]:
+    """Poll Mailpit's search API for the most recent message addressed to
+    ``to_email`` and return its FULL content (subject, HTML, plain text,
+    attachment metadata) via a second ``GET .../message/{id}`` call.
+
+    Searching by a test-unique ``to_email`` (rather than "the single most
+    recent message in the whole mailbox") keeps this safe to use even
+    though Mailpit's mailbox is a shared, un-isolated sink across this
+    entire serial test run (see ``docker-compose.yml``'s single ``mailpit``
+    service) — every caller should pass a randomized recipient address so
+    two tests' messages can never be confused for one another. Polls
+    briefly (Mailpit's HTTP API can lag a few milliseconds behind a
+    just-completed SMTP send) rather than assuming the message is visible
+    immediately.
+
+    Raises ``AssertionError`` if no matching message shows up within
+    ``timeout`` seconds.
+    """
+    base_url = mailpit_api_base_url()
+    loop = asyncio.get_event_loop()
+    deadline = loop.time() + timeout
+    async with AsyncClient(base_url=base_url, timeout=5.0) as api_client:
+        while True:
+            response = await api_client.get("/api/v1/messages", params={"query": f"to:{to_email}"})
+            response.raise_for_status()
+            messages = response.json()["messages"]
+            if messages:
+                message_id = messages[0]["ID"]
+                detail_response = await api_client.get(f"/api/v1/message/{message_id}")
+                detail_response.raise_for_status()
+                result: dict[str, Any] = detail_response.json()
+                return result
+            if loop.time() >= deadline:
+                raise AssertionError(f"No Mailpit message to {to_email!r} appeared within {timeout}s")
+            await asyncio.sleep(0.1)
+
+
+async def fetch_mailpit_attachment(message_id: str, part_id: str) -> bytes:
+    """Download one attachment's raw bytes from Mailpit by message/part id
+    (see ``fetch_latest_mailpit_message_to``'s ``Attachments`` list, each
+    entry's ``PartID``) — used to verify a real PDF attachment landed
+    (magic-byte check), not just that ``Attachments`` metadata claims one
+    exists."""
+    base_url = mailpit_api_base_url()
+    async with AsyncClient(base_url=base_url, timeout=5.0) as api_client:
+        response = await api_client.get(f"/api/v1/message/{message_id}/part/{part_id}")
+        response.raise_for_status()
+        return response.content
 
 
 def format_axe_violations(violations: list[dict[str, Any]]) -> str:
