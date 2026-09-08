@@ -267,13 +267,23 @@ summary:focus-visible {
 .bo-field input[type="password"],
 .bo-field input[type="file"],
 .bo-field select,
-.bo-field textarea {
+.bo-field textarea,
+.bo-inline-form input[type="text"] {
   border: 1px solid var(--bo-color-border);
   border-radius: var(--bo-radius);
   padding: var(--bo-spacing-2) var(--bo-spacing-3);
   font: inherit;
   background: var(--bo-color-surface);
   color: var(--bo-color-text);
+}
+
+.bo-inline-form input[type="text"] {
+  /* Compact sizing for inline-form text inputs (e.g. the Orders list
+     mark-as-paid action, Milestone 6) — same visual style as .bo-field
+     inputs above, but narrower since they share a table cell with a
+     submit button rather than a full-width form column. */
+  width: 9rem;
+  font-size: 0.85rem;
 }
 
 .bo-field textarea {

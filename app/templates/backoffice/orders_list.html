@@ -9,8 +9,9 @@
 </p>
 <h1>Orders: {{ event.name }}</h1>
 <p class="bo-hint">
-  Minimal Orders view: enough to see who ordered what and resend a confirmation/ticket email. Marking an order as
-  paid, filtering, and sales stats are not part of this view yet.
+  Minimal Orders view: enough to see who ordered what, resend a confirmation/ticket email, and manually mark an
+  order as paid (cash, bank transfer, card terminal, corrections, etc.). Filtering and sales stats are not part of
+  this view yet.
 </p>
 
 {% if orders_error %}
@@ -47,6 +48,12 @@
           </form>
           <a href="/api/v1/orders/{{ order.id }}/invoice.pdf" class="bo-button bo-button--small" target="_blank" rel="noopener">Download invoice</a>
           {% else %}
+          <form method="post" action="/events/{{ event.id }}/orders/{{ order.id }}/mark-paid" class="bo-inline-form bo-inline-form--wrap">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="text" name="method_label" placeholder="cash, bank transfer, card terminal, correction..." required aria-label="Payment method/label">
+            <input type="text" name="reason" placeholder="Reason (optional)" aria-label="Reason (optional)">
+            <button type="submit" class="bo-button bo-button--small">Mark as paid</button>
+          </form>
           <span class="bo-hint bo-hint--small">Only paid orders have a confirmation email to resend.</span>
           {% endif %}
         </td>
