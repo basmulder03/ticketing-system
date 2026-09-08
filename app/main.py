@@ -24,6 +24,7 @@ from app.api.routes import (
     events,
     orders,
     public,
+    scan,
     seo,
     shows,
     themes,
@@ -61,6 +62,7 @@ def create_app() -> FastAPI:
     app.include_router(orders.router)
     app.include_router(orders.list_router)
     app.include_router(public.router)
+    app.include_router(scan.router)
     app.include_router(seo.router)
 
     # Server-rendered backoffice HTML pages (Jinja2 + HTMX), added in

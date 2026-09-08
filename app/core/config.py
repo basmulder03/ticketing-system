@@ -79,6 +79,17 @@ class Settings(BaseSettings):
     matches a real Order, one outbound Mollie GET call — see
     ``app.api.routes.public.mollie_webhook``)."""
 
+    scan_rate_limit_per_minute: int = 60
+    """Max ``POST /api/v1/shows/{show_id}/scan`` attempts per client IP per
+    rolling minute (Milestone 7) — per PROJECT_BRIEF.md's Security & Ops
+    section ("rate limiting on checkout and scan endpoints"). Set well above
+    a single scanner's realistic worst-case entry-rush rate: this endpoint's
+    caller is a door-staff mobile browser, not a buyer, but a shared venue
+    Wi-Fi network can put several scanning devices behind one NATed IP, so
+    the limit is looser than ``checkout_rate_limit_per_minute`` while still
+    bounding abuse (e.g. someone scripting signature-guessing attempts
+    against ``verify_ticket_token``) — see ``app.core.rate_limit.scan_rate_limiter``."""
+
     public_base_url: str = "http://localhost:8000"
     """Canonical public base URL used to build absolute links in
     ``sitemap.xml``/``robots.txt`` (Milestone 2) and, in later milestones,

@@ -76,6 +76,14 @@ scan endpoints"), limits how many checkout attempts a single client IP can
 make per rolling minute, independent of the row-locked stock check (which
 guards correctness, not abuse/load)."""
 
+scan_rate_limiter = InMemoryRateLimiter(limit=_settings.scan_rate_limit_per_minute, window_seconds=60.0)
+"""Applied to ``POST /api/v1/shows/{show_id}/scan`` (Milestone 7) — per
+PROJECT_BRIEF.md's Security & Ops section ("rate limiting on checkout and
+scan endpoints"). Keyed by client IP like every other limiter here, which
+means a whole venue's scanning devices sharing one NATed IP share one
+budget — see ``Settings.scan_rate_limit_per_minute`` for why the limit is
+set generously relative to ``checkout_rate_limiter``."""
+
 mollie_webhook_rate_limiter = InMemoryRateLimiter(
     limit=_settings.mollie_webhook_rate_limit_per_minute, window_seconds=60.0
 )
