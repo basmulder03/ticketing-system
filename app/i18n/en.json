@@ -64,5 +64,5 @@
   "public.order_confirmation.tickets_heading": "Tickets",
   "public.order_confirmation.back_to_event_link": "Back to event page",
   "public.order_confirmation.unavailable_title": "Order confirmation unavailable",
-  "public.order_confirmation.unavailable_body": "This order confirmation link has expired or isn't available in this browser. If you just placed an order, please check the email address you provided once ticket delivery is enabled."
+  "public.order_confirmation.unavailable_body": "This order confirmation link has expired or isn't available in this browser. If you just placed an order, keep an eye on the email address you provided — once ticket delivery is enabled, your confirmation will be sent there."
 }

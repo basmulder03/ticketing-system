@@ -77,7 +77,7 @@
           <div class="pub-show-picker__option">
             <input type="radio" name="show_choice" id="show-radio-{{ show.id }}" value="{{ show.id }}"
               class="pub-show-radio" {% if show.id == selected_show_id %}checked{% endif %}>
-            <label for="show-radio-{{ show.id }}">{{ show.date }} — {{ show.venue_name }}</label>
+            <label for="show-radio-{{ show.id }}">{{ show.date | format_date(locale) }} — {{ show.venue_name }}</label>
           </div>
           {% endfor %}
         </fieldset>
@@ -88,9 +88,9 @@
             <h3>{{ show.venue_name }}</h3>
             <p class="pub-venue__address">{{ show.venue_address }}</p>
             <p>
-              {{ translate('public.landing.doors_time_label', locale) }} {{ show.doors_time }}
+              {{ translate('public.landing.doors_time_label', locale) }} {{ show.doors_time | format_time(locale) }}
               &mdash;
-              {{ translate('public.landing.start_time_label', locale) }} {{ show.start_time }}
+              {{ translate('public.landing.start_time_label', locale) }} {{ show.start_time | format_time(locale) }}
             </p>
             <div class="pub-venue-map">
               <iframe
@@ -128,7 +128,7 @@
                   <span class="pub-badge pub-badge--sold-out">{{ translate('public.landing.sold_out', locale) }}</span>
                   {% endif %}
                 </td>
-                <td data-unit-price="{{ tt.price }}">{{ tt.price }}</td>
+                <td data-unit-price="{{ tt.price }}">{{ tt.price | format_currency(locale) }}</td>
                 <td>
                   {% if tt.remaining > 0 %}
                   <label class="pub-visually-hidden" for="qty-{{ tt.id }}">

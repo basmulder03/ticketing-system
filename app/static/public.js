@@ -114,10 +114,25 @@
   }
 
   // ---- Live order total for the currently-selected show's panel ----
+
+  // Mirrors app.i18n.formatting.format_currency's two-locale convention
+  // ("€ 15,00" nl vs "€15.00" en) so the live-typing total the buyer sees
+  // while picking quantities doesn't visually disagree with the
+  // server-rendered per-ticket prices right next to it.
+  function formatCurrency(amount, locale) {
+    var fixed = amount.toFixed(2);
+    var parts = fixed.split(".");
+    if (locale === "nl") {
+      return "€ " + parts[0] + "," + parts[1];
+    }
+    return "€" + parts[0] + "." + parts[1];
+  }
+
   function initOrderTotal() {
     var form = document.getElementById("pub-checkout-form");
     var totalEl = document.getElementById("pub-order-total");
     if (!form || !totalEl) return;
+    var locale = document.documentElement.getAttribute("lang") || "en";
 
     function recompute() {
       var activePanel = form.querySelector(".pub-show-panel:not([hidden])");
@@ -132,7 +147,7 @@
         var price = priceCell ? parseFloat(priceCell.getAttribute("data-unit-price")) : 0;
         total += qty * price;
       });
-      totalEl.textContent = totalEl.getAttribute("data-label") + " " + total.toFixed(2);
+      totalEl.textContent = totalEl.getAttribute("data-label") + " " + formatCurrency(total, locale);
     }
 
     form.addEventListener("input", function (event) {

@@ -22,6 +22,7 @@ from fastapi import Request
 from fastapi.templating import Jinja2Templates
 
 from app.i18n import translate
+from app.i18n.formatting import format_currency, format_date, format_datetime, format_time
 
 PUBLIC_TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "templates"
 """The shared ``app/templates`` root (same directory ``app.core.templating``
@@ -34,6 +35,13 @@ actually reference."""
 
 public_templates = Jinja2Templates(directory=str(PUBLIC_TEMPLATES_DIR))
 public_templates.env.globals["translate"] = translate
+
+# Locale-aware date/time/currency filters (see app.i18n.formatting) — e.g.
+# {{ show.date | format_date(locale) }}, {{ tt.price | format_currency(locale) }}.
+public_templates.env.filters["format_date"] = format_date
+public_templates.env.filters["format_time"] = format_time
+public_templates.env.filters["format_datetime"] = format_datetime
+public_templates.env.filters["format_currency"] = format_currency
 
 
 def with_query_param(request: Request, key: str, value: str) -> str:

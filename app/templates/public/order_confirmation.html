@@ -44,7 +44,7 @@
     </dd>
 
     <dt>{{ translate('public.order_confirmation.total_label', locale) }}</dt>
-    <dd>{{ order.total }}</dd>
+    <dd>{{ order.total | format_currency(locale) }}</dd>
   </dl>
 
   <h2>{{ translate('public.order_confirmation.tickets_heading', locale) }}</h2>
@@ -60,7 +60,7 @@
       {% for ticket in order.tickets %}
       <tr>
         <td>{{ ticket.ticket_type_name }}</td>
-        <td>{{ ticket.price }}</td>
+        <td>{{ ticket.price | format_currency(locale) }}</td>
       </tr>
       {% endfor %}
     </tbody>
