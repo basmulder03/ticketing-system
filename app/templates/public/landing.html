@@ -93,12 +93,35 @@
               {{ translate('public.landing.start_time_label', locale) }} {{ show.start_time | format_time(locale) }}
             </p>
             <div class="pub-venue-map">
+              {# security-reviewer (Milestone 2 pass 2): dropped
+                 allow-same-origin. The embedded origin
+                 (nominatim.openstreetmap.org) is genuinely cross-origin
+                 from this app's own domain, so the classic
+                 allow-scripts+allow-same-origin sandbox-escape (the framed
+                 document using same-origin DOM access to strip its own
+                 sandbox attribute via the parent document) doesn't apply
+                 here as-is — that requires the framed origin to MATCH the
+                 embedding page's origin. Still, allow-same-origin grants
+                 the iframe its own origin's cookies/localStorage for no
+                 functional benefit to us: Nominatim's search UI still
+                 renders (script execution, cross-origin fetch to its
+                 search API, and map-tile <img> loads all work fine from an
+                 opaque-origin sandboxed frame — none of those require
+                 same-origin treatment), so this is a free least-privilege
+                 reduction, not a functionality trade-off. No
+                 allow-top-navigation/allow-popups/allow-forms are granted
+                 either, so the frame can't hijack this page or submit
+                 anything on our domain regardless. Flagged as a one-time
+                 manual check for a human (does the Nominatim search UI
+                 still render/behave identically) since this repo's testing
+                 discipline treats visual/live-embed behavior as a manual
+                 checklist item, not something automated here. #}
               <iframe
                 class="pub-venue-map__frame"
                 title="{{ translate('public.landing.map_title', locale) }} — {{ show.venue_name }}"
                 loading="lazy"
                 referrerpolicy="no-referrer"
-                sandbox="allow-scripts allow-same-origin"
+                sandbox="allow-scripts"
                 src="https://nominatim.openstreetmap.org/ui/search.html?q={{ show.venue_address | urlencode }}"
               ></iframe>
             </div>
