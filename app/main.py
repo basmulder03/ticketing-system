@@ -28,6 +28,7 @@ from app.api.routes import (
     scan_shows,
     seo,
     shows,
+    stats,
     themes,
     ticket_types,
 )
@@ -67,6 +68,7 @@ def create_app() -> FastAPI:
     app.include_router(scan.router)
     app.include_router(scan_shows.router)
     app.include_router(seo.router)
+    app.include_router(stats.router)
 
     # Server-rendered backoffice HTML pages (Jinja2 + HTMX), added in
     # Milestone 1.5 by `frontend-theming` — see app/web/. Distinct from the
