@@ -40,6 +40,7 @@ from app.web.routes import events as web_events
 from app.web.routes import orders as web_orders
 from app.web.routes import public_site as web_public_site
 from app.web.routes import scan as web_scan
+from app.web.routes import stats as web_stats
 from app.web.routes import themes as web_themes
 
 
@@ -81,6 +82,7 @@ def create_app() -> FastAPI:
     app.include_router(web_email_templates.router)
     app.include_router(web_orders.router)
     app.include_router(web_scan.router)
+    app.include_router(web_stats.router)
 
     # Public-site HTML pages (Milestone 2, `frontend-theming`): themed
     # landing/preview pages, checkout form, order confirmation — see

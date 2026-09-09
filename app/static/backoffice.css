@@ -580,6 +580,99 @@ summary:focus-visible {
   border-bottom-color: var(--bo-color-primary);
 }
 
+/* Stats & Reporting dashboard (Milestone 8) — headline stat cards, one
+   column on mobile, a responsive row from tablet width up so the
+   brief's "usable on a tablet at minimum" requirement doesn't rely on
+   horizontal scrolling for the headline numbers. */
+
+.bo-stat-cards {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--bo-spacing-4);
+  margin-bottom: var(--bo-spacing-4);
+}
+
+@media (min-width: 768px) {
+  .bo-stat-cards {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.bo-stat-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--bo-spacing-1);
+  background: var(--bo-color-surface);
+  border: 1px solid var(--bo-color-border);
+  border-radius: var(--bo-radius);
+  padding: var(--bo-spacing-4);
+}
+
+.bo-stat-card__label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--bo-color-muted);
+}
+
+.bo-stat-card__value {
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+/* Online-vs-door revenue split: no charting dependency (this project has
+   none anywhere) — a plain proportional bar built from a percentage
+   width is enough to make the split scannable at a glance. */
+
+.bo-revenue-split {
+  display: flex;
+  flex-direction: column;
+  gap: var(--bo-spacing-3);
+}
+
+.bo-revenue-split__row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--bo-spacing-1);
+}
+
+.bo-revenue-split__label {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--bo-spacing-2);
+  font-weight: 600;
+}
+
+.bo-revenue-split__bar-track {
+  height: 0.75rem;
+  border-radius: 999px;
+  background: var(--bo-color-bg);
+  border: 1px solid var(--bo-color-border);
+  overflow: hidden;
+}
+
+.bo-revenue-split__bar {
+  height: 100%;
+  background: var(--bo-color-accent);
+  border-radius: 999px 0 0 999px;
+}
+
+/* Per-show breakdown (<details> per show, matching the Advanced-CSS/
+   plain-text-alternative disclosure pattern already used in the Theme
+   and Email template editors) — each show's own ticket-type table reuses
+   .bo-table-wrap's overflow-x:auto so a wide table degrades to a scroll
+   container rather than breaking layout at tablet width, same as every
+   other wide table in this backoffice. */
+
+.bo-panel details summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.bo-panel details summary + .bo-table-wrap {
+  margin-top: var(--bo-spacing-3);
+}
+
 .bo-code-block {
   background: #1f2320;
   color: #e6e6e2;

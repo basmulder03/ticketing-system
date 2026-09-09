@@ -1,0 +1,118 @@
+{% extends "backoffice/base.html" %}
+{% block title %}Stats — {{ event.name }} — Beacon Backoffice{% endblock %}
+{% block content %}
+<p class="bo-breadcrumb"><a href="/events">Events</a> / {{ event.name }}</p>
+<p class="bo-hint bo-hint--small">
+  <a href="/events/{{ event.id }}/theme">Theme</a> ·
+  <a href="/events/{{ event.id }}/email-templates">Email templates</a> ·
+  <a href="/events/{{ event.id }}/orders">Orders</a> ·
+  <a href="/events/{{ event.id }}/stats" aria-current="page">Stats</a>
+</p>
+<h1>Stats: {{ event.name }}</h1>
+<p class="bo-hint">
+  Sales per show/ticket type, revenue split online vs. door, and scan-in rate. "Sold" figures include
+  still-pending/door-reserved orders (matching the rest of the backoffice's "sold" counting); revenue figures only
+  count orders that have actually settled (<code>paid</code>) — the two will not add up to the same total while
+  this event has pending orders in flight, and that is expected.
+</p>
+
+{% if stats_error %}
+<div class="bo-banner bo-banner--error" role="alert">{{ stats_error }}</div>
+{% endif %}
+
+{% if stats %}
+{% set revenue_total = stats.revenue_total | float %}
+{% set sold_total = stats.sold_total %}
+{% set scanned_total = stats.scanned_total %}
+{% set scan_rate = ((scanned_total / sold_total * 100) if sold_total else 0) %}
+{% set payment_method_labels = {'mollie': 'Online (Mollie)', 'door': 'At the door'} %}
+
+<div class="bo-stat-cards">
+  <div class="bo-stat-card">
+    <span class="bo-stat-card__label">Gross revenue</span>
+    <span class="bo-stat-card__value">&euro;{{ '%.2f' % revenue_total }}</span>
+    <span class="bo-hint bo-hint--small">Gross revenue &mdash; Mollie's per-payment fees aren't tracked.</span>
+  </div>
+  <div class="bo-stat-card">
+    <span class="bo-stat-card__label">Sold</span>
+    <span class="bo-stat-card__value">{{ sold_total }}</span>
+    <span class="bo-hint bo-hint--small">Includes pending/door-reserved orders.</span>
+  </div>
+  <div class="bo-stat-card">
+    <span class="bo-stat-card__label">Scanned in</span>
+    <span class="bo-stat-card__value">{{ scanned_total }} / {{ sold_total }} ({{ '%.0f' % scan_rate }}%)</span>
+  </div>
+</div>
+
+<section class="bo-panel">
+  <h2>Revenue by payment method</h2>
+  <p class="bo-hint bo-hint--small">Settled (paid) revenue only, split by how the order was paid.</p>
+  <div class="bo-revenue-split">
+    {% for entry in stats.revenue_by_payment_method %}
+    {% set entry_revenue = entry.revenue | float %}
+    {% set pct = ((entry_revenue / revenue_total * 100) if revenue_total else 0) %}
+    <div class="bo-revenue-split__row">
+      <div class="bo-revenue-split__label">
+        <span>{{ payment_method_labels.get(entry.payment_method, entry.payment_method) }}</span>
+        <span class="bo-hint bo-hint--small">
+          {{ entry.order_count }} order{{ '' if entry.order_count == 1 else 's' }} &middot;
+          &euro;{{ '%.2f' % entry_revenue }}
+        </span>
+      </div>
+      <div class="bo-revenue-split__bar-track">
+        <div class="bo-revenue-split__bar" style="width: {{ '%.1f' % pct }}%"></div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="bo-panel">
+  <h2>Accounting export</h2>
+  <p class="bo-hint bo-hint--small">
+    One row per order (every status, unfiltered) with buyer/payment/invoice detail, for reconciling against
+    bank/Mollie statements.
+  </p>
+  <a class="bo-button bo-button--primary" href="/api/v1/events/{{ event.id }}/orders/export.csv">Download orders CSV</a>
+</section>
+
+<h2>Shows</h2>
+{% for show in stats.shows %}
+<section class="bo-panel">
+  <details open>
+    <summary>
+      {{ show.date }} &middot; {{ show.venue_name }}
+      <span class="bo-hint bo-hint--small">&mdash; {{ show.sold_total }} sold, {{ show.scanned_total }} scanned</span>
+    </summary>
+    <div class="bo-table-wrap">
+      <table class="bo-table bo-table--compact">
+        <thead>
+          <tr>
+            <th scope="col">Ticket type</th>
+            <th scope="col">Sold</th>
+            <th scope="col">Revenue</th>
+            <th scope="col">Scanned</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for ticket_type in show.ticket_types %}
+          <tr>
+            <td data-label="Ticket type">{{ ticket_type.name }}</td>
+            <td data-label="Sold">{{ ticket_type.sold }}</td>
+            <td data-label="Revenue">&euro;{{ '%.2f' % (ticket_type.revenue | float) }}</td>
+            <td data-label="Scanned">{{ ticket_type.scanned }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="4">No ticket types for this show.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </details>
+</section>
+{% else %}
+<p class="bo-hint">No shows yet for this event.</p>
+{% endfor %}
+
+{% endif %}
+{% endblock %}
