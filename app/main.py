@@ -39,6 +39,7 @@ from app.api.routes import (
 from app.core.config import get_settings
 from app.services.order_expiry import run_order_expiry_background_loop
 from app.web.deps import WebAuthRequired
+from app.web.routes import admin_users as web_admin_users
 from app.web.routes import agent_accounts as web_agent_accounts
 from app.web.routes import audit_log as web_audit_log
 from app.web.routes import auth as web_auth
@@ -121,6 +122,7 @@ def create_app() -> FastAPI:
     app.include_router(web_orders.router)
     app.include_router(web_scan.router)
     app.include_router(web_stats.router)
+    app.include_router(web_admin_users.router)
     app.include_router(web_agent_accounts.router)
     app.include_router(web_audit_log.router)
     app.include_router(web_shows.router)
