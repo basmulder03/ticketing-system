@@ -55,6 +55,16 @@ dev = [
     # this pip dependency alone.
     "playwright>=1.45,<2.0",
 ]
+loadtest = [
+    # Manual, occasional pre-launch operational tooling (Milestone 9: "load-
+    # test the sales-live moment") — deliberately its own optional-
+    # dependency group, not part of `dev`, since it's not something every
+    # contributor running pytest/mypy needs installed, and it never runs in
+    # CI (see scripts/loadtest/README.md). Install with
+    # `pip install -e ".[loadtest]"` only when you're actually about to run
+    # a load test.
+    "locust>=2.29,<3.0",
+]
 
 [tool.mypy]
 python_version = "3.12"
