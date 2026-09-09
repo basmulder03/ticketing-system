@@ -41,7 +41,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.services.checkout as checkout_module
-from app.models.enums import PaymentMethod, PublishStatus
+from app.models.enums import AdminRole, PaymentMethod, PublishStatus
 from app.models.event import Event
 from app.models.event_config import EventConfig
 from app.models.order import Order
@@ -574,3 +574,293 @@ async def test_resend_returns_409_flash_for_a_not_yet_paid_order(
     assert location.startswith(f"/events/{event.id}/orders?flash=")
     assert "flash_kind=error" in location
     assert "Only%20paid%20orders%20have%20a%20confirmation%20email%20to%20resend." in location
+
+
+# --- Erase buyer PII (post-Milestone-9 gap fill) ----------------------------
+#
+# ``POST /events/{event_id}/orders/{order_id}/erase-pii``
+# (``app.web.routes.orders.erase_order_pii_web``), the web-layer proxy to
+# the already-thoroughly-tested admin-only JSON API route
+# (``app.api.routes.orders.erase_pii`` — see
+# ``tests/integration/test_gdpr_erasure.py`` for the API route's own full
+# behavior/idempotency/audit coverage). These tests only cover what the
+# WEB layer adds on top: CSRF, flash messages (including the API's real
+# 409 retention-warning wording, surfaced verbatim), 404 handling, admin
+# scoping, and the template's conditional "erased" indicator.
+
+
+async def test_erase_pii_web_no_invoice_happy_path_redirects_with_success_flash(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    make_admin_user: Callable[..., Awaitable[SeededAdmin]],
+    make_event: Callable[..., Awaitable[Event]],
+    make_show: Callable[..., Awaitable[Show]],
+    make_ticket_type: Callable[..., Awaitable[TicketType]],
+    make_event_config: Callable[..., Awaitable[EventConfig]],
+) -> None:
+    await _api_login(client, await make_admin_user())
+    event_id, order_id = await _create_pending_door_order(
+        client, make_event, make_show, make_ticket_type, make_event_config
+    )
+    page = await client.get(f"/events/{event_id}/orders")
+    token = client.cookies.get(CSRF_COOKIE_NAME)
+    assert page.status_code == 200 and token
+    assert "Door Buyer" in page.text
+
+    response = await client.post(
+        f"/events/{event_id}/orders/{order_id}/erase-pii", data={"csrf_token": token}
+    )
+
+    assert response.status_code == 303
+    location = response.headers["location"]
+    assert location.startswith(f"/events/{event_id}/orders?flash=")
+    assert "flash_kind=success" in location
+    assert "Buyer%20details%20erased." in location
+
+    result = await db_session.execute(select(Order).where(Order.id == uuid.UUID(order_id)))
+    order = result.scalar_one()
+    assert order.buyer_name == "[erased]"
+    assert order.buyer_address == "[erased]"
+
+    after_page = await client.get(f"/events/{event_id}/orders")
+    assert after_page.status_code == 200
+    assert "Door Buyer" not in after_page.text
+    assert "Buyer details erased." in after_page.text
+
+
+async def test_erase_pii_web_invoiced_order_without_confirm_surfaces_the_real_api_warning(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+    make_admin_user: Callable[..., Awaitable[SeededAdmin]],
+    make_event: Callable[..., Awaitable[Event]],
+    make_show: Callable[..., Awaitable[Show]],
+    make_ticket_type: Callable[..., Awaitable[TicketType]],
+    make_event_config: Callable[..., Awaitable[EventConfig]],
+) -> None:
+    await _api_login(client, await make_admin_user())
+    event_id, order_id = await _create_paid_order(
+        client, db_session, monkeypatch, make_event, make_show, make_ticket_type, make_event_config
+    )
+    page = await client.get(f"/events/{event_id}/orders")
+    token = client.cookies.get(CSRF_COOKIE_NAME)
+    assert page.status_code == 200 and token
+
+    response = await client.post(
+        f"/events/{event_id}/orders/{order_id}/erase-pii", data={"csrf_token": token}
+    )
+
+    assert response.status_code == 303
+    location = response.headers["location"]
+    assert location.startswith(f"/events/{event_id}/orders?flash=")
+    assert "flash_kind=error" in location
+    # The real API 409 wording (app.api.routes.orders.erase_pii), not a
+    # generic message — asserting the actual sentence is surfaced.
+    assert (
+        "This%20order%20has%20an%20issued%20invoice." in location
+        or "This+order+has+an+issued+invoice." in location
+    )
+    assert "statutory%20accounting" in location or "statutory+accounting" in location
+    assert "Erase%20anyway" in location or "Erase+anyway" in location
+
+    result = await db_session.execute(select(Order).where(Order.id == uuid.UUID(order_id)))
+    order = result.scalar_one()
+    assert order.buyer_name == "Paid Buyer"  # untouched
+
+
+async def test_erase_pii_web_invoiced_order_with_confirm_succeeds(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+    make_admin_user: Callable[..., Awaitable[SeededAdmin]],
+    make_event: Callable[..., Awaitable[Event]],
+    make_show: Callable[..., Awaitable[Show]],
+    make_ticket_type: Callable[..., Awaitable[TicketType]],
+    make_event_config: Callable[..., Awaitable[EventConfig]],
+) -> None:
+    await _api_login(client, await make_admin_user())
+    event_id, order_id = await _create_paid_order(
+        client, db_session, monkeypatch, make_event, make_show, make_ticket_type, make_event_config
+    )
+    page = await client.get(f"/events/{event_id}/orders")
+    token = client.cookies.get(CSRF_COOKIE_NAME)
+    assert page.status_code == 200 and token
+
+    response = await client.post(
+        f"/events/{event_id}/orders/{order_id}/erase-pii",
+        data={"csrf_token": token, "confirm": "true"},
+    )
+
+    assert response.status_code == 303
+    location = response.headers["location"]
+    assert location.startswith(f"/events/{event_id}/orders?flash=")
+    assert "flash_kind=success" in location
+    assert "invoice%20was%20retained" in location or "invoice+was+retained" in location
+
+    result = await db_session.execute(select(Order).where(Order.id == uuid.UUID(order_id)))
+    order = result.scalar_one()
+    assert order.buyer_name == "[erased]"
+
+
+async def test_erase_pii_web_is_idempotent_on_an_already_erased_order(
+    client: AsyncClient,
+    make_admin_user: Callable[..., Awaitable[SeededAdmin]],
+    make_event: Callable[..., Awaitable[Event]],
+    make_show: Callable[..., Awaitable[Show]],
+    make_ticket_type: Callable[..., Awaitable[TicketType]],
+    make_event_config: Callable[..., Awaitable[EventConfig]],
+) -> None:
+    await _api_login(client, await make_admin_user())
+    event_id, order_id = await _create_pending_door_order(
+        client, make_event, make_show, make_ticket_type, make_event_config
+    )
+    page = await client.get(f"/events/{event_id}/orders")
+    token = client.cookies.get(CSRF_COOKIE_NAME)
+    assert page.status_code == 200 and token
+
+    first = await client.post(
+        f"/events/{event_id}/orders/{order_id}/erase-pii", data={"csrf_token": token}
+    )
+    assert first.status_code == 303
+    assert "flash_kind=success" in first.headers["location"]
+
+    second = await client.post(
+        f"/events/{event_id}/orders/{order_id}/erase-pii", data={"csrf_token": token}
+    )
+
+    assert second.status_code == 303
+    assert "flash_kind=success" in second.headers["location"]
+
+
+async def test_erase_pii_web_returns_404_flash_for_unknown_order(
+    client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]], make_event: Callable[..., Awaitable[Event]]
+) -> None:
+    await _api_login(client, await make_admin_user())
+    event = await make_event()
+    page = await client.get(f"/events/{event.id}/orders")
+    token = client.cookies.get(CSRF_COOKIE_NAME)
+    assert page.status_code == 200 and token
+
+    response = await client.post(
+        f"/events/{event.id}/orders/{uuid.uuid4()}/erase-pii", data={"csrf_token": token}
+    )
+
+    assert response.status_code == 303
+    location = response.headers["location"]
+    assert location.startswith(f"/events/{event.id}/orders?flash=")
+    assert "flash_kind=error" in location
+    assert "Order%20not%20found." in location
+
+
+async def test_erase_pii_web_returns_404_for_malformed_order_id(
+    client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]], make_event: Callable[..., Awaitable[Event]]
+) -> None:
+    await _api_login(client, await make_admin_user())
+    event = await make_event()
+    page = await client.get(f"/events/{event.id}/orders")
+    token = client.cookies.get(CSRF_COOKIE_NAME)
+    assert page.status_code == 200 and token
+
+    response = await client.post(
+        f"/events/{event.id}/orders/not-a-real-uuid/erase-pii", data={"csrf_token": token}
+    )
+
+    assert response.status_code == 303
+    location = response.headers["location"]
+    assert "flash_kind=error" in location
+    assert "Order%20not%20found." in location
+
+
+async def test_erase_pii_form_missing_csrf_is_rejected(
+    client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]], make_event: Callable[..., Awaitable[Event]]
+) -> None:
+    await _api_login(client, await make_admin_user())
+    event = await make_event()
+
+    response = await client.post(f"/events/{event.id}/orders/{uuid.uuid4()}/erase-pii", data={})
+
+    assert response.status_code == 422
+
+
+async def test_erase_pii_form_wrong_csrf_is_rejected_403(
+    client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]], make_event: Callable[..., Awaitable[Event]]
+) -> None:
+    await _api_login(client, await make_admin_user())
+    event = await make_event()
+    page = await client.get(f"/events/{event.id}/orders")
+    assert page.status_code == 200 and client.cookies.get(CSRF_COOKIE_NAME)
+
+    response = await client.post(
+        f"/events/{event.id}/orders/{uuid.uuid4()}/erase-pii", data={"csrf_token": "wrong-token"}
+    )
+
+    assert response.status_code == 403
+
+
+async def test_erase_pii_unauthenticated_redirects_to_login(
+    client: AsyncClient, make_event: Callable[..., Awaitable[Event]]
+) -> None:
+    event = await make_event()
+
+    response = await client.post(
+        f"/events/{event.id}/orders/{uuid.uuid4()}/erase-pii", data={"csrf_token": "irrelevant"}
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"].startswith("/login?next=")
+
+
+async def test_erase_pii_unreachable_by_scanner_role_session(
+    client: AsyncClient,
+    make_admin_user: Callable[..., Awaitable[SeededAdmin]],
+    make_event: Callable[..., Awaitable[Event]],
+) -> None:
+    """``require_web_admin`` excludes ``scanner``-role sessions (same
+    scoping every other backoffice web route in this module already uses —
+    see ``app/web/deps.py``): a scanner-role session hitting this action is
+    bounced to ``/login``, exactly like an unauthenticated visitor, not a
+    generic 403 (no shared web-layer scoping table exists to register this
+    in yet — see ``test_web_orders_routes.py``'s own module docstring)."""
+    seeded = await make_admin_user(role=AdminRole.SCANNER)
+    login = await client.post(
+        "/api/v1/auth/login", json={"email": seeded.user.email, "password": seeded.password}
+    )
+    assert login.status_code == 200
+    event = await make_event()
+
+    response = await client.post(
+        f"/events/{event.id}/orders/{uuid.uuid4()}/erase-pii", data={"csrf_token": "irrelevant"}
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"].startswith("/login?next=")
+
+
+async def test_erase_pii_action_hidden_and_replaced_by_indicator_once_erased(
+    client: AsyncClient,
+    make_admin_user: Callable[..., Awaitable[SeededAdmin]],
+    make_event: Callable[..., Awaitable[Event]],
+    make_show: Callable[..., Awaitable[Show]],
+    make_ticket_type: Callable[..., Awaitable[TicketType]],
+    make_event_config: Callable[..., Awaitable[EventConfig]],
+) -> None:
+    await _api_login(client, await make_admin_user())
+    event_id, order_id = await _create_pending_door_order(
+        client, make_event, make_show, make_ticket_type, make_event_config
+    )
+    page = await client.get(f"/events/{event_id}/orders")
+    token = client.cookies.get(CSRF_COOKIE_NAME)
+    assert page.status_code == 200 and token
+    erase_action = f'action="/events/{event_id}/orders/{order_id}/erase-pii"'
+    assert erase_action in page.text
+    assert "Buyer details erased." not in page.text
+
+    erase_response = await client.post(
+        f"/events/{event_id}/orders/{order_id}/erase-pii", data={"csrf_token": token}
+    )
+    assert erase_response.status_code == 303
+
+    after_page = await client.get(f"/events/{event_id}/orders")
+    assert after_page.status_code == 200
+    assert erase_action not in after_page.text
+    assert "Buyer details erased." in after_page.text

@@ -36,6 +36,23 @@
   </main>
 
   <script>
+    // Shared "are you sure?" guard for irreversible form actions (e.g. the
+    // Orders list's "Erase buyer PII" action — see
+    // app/templates/backoffice/orders_list.html). Any <form> carrying a
+    // data-confirm="..." attribute gets that exact text shown in a native
+    // confirm() dialog before it's allowed to submit; cancelling the dialog
+    // cancels the submission. Delegated on document (same pattern as the
+    // click listeners below) so any current or future form can opt in just
+    // by adding the attribute, with no per-page JS required.
+    document.addEventListener("submit", function (event) {
+      var form = event.target;
+      if (!(form instanceof HTMLFormElement)) return;
+      var message = form.getAttribute("data-confirm");
+      if (message && !window.confirm(message)) {
+        event.preventDefault();
+      }
+    });
+
     // Keeps each color swatch's visible hex readout in sync with its
     // <input type="color">. Deliberately not HTMX's job (no server round
     // trip needed for this) and not a framework — a few lines of vanilla

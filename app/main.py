@@ -8,6 +8,9 @@ the public read/checkout routes (``app.api.routes.public``) and the
 ``/sitemap.xml``/``/robots.txt`` SEO routes (``app.api.routes.seo``).
 """
 
+import asyncio
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import quote
 
@@ -33,6 +36,7 @@ from app.api.routes import (
     ticket_types,
 )
 from app.core.config import get_settings
+from app.services.order_expiry import run_order_expiry_background_loop
 from app.web.deps import WebAuthRequired
 from app.web.routes import auth as web_auth
 from app.web.routes import email_templates as web_email_templates
@@ -44,6 +48,31 @@ from app.web.routes import stats as web_stats
 from app.web.routes import themes as web_themes
 
 
+@asynccontextmanager
+async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Starts/stops the in-process stale-Order-expiry background loop
+    (``app.services.order_expiry.run_order_expiry_background_loop``)
+    alongside the app process itself.
+
+    This is the ONLY background task this app runs today — see that
+    module's docstring for why an in-process loop exists at all (no
+    external scheduler/cron infra is assumed to be set up yet). Started as
+    a plain ``asyncio.create_task`` (no extra job-queue library — KISS, one
+    lightweight periodic task doesn't warrant one) and stopped cleanly on
+    shutdown: the ``stop_event`` is set first so the loop can finish its
+    current sleep/sweep and return on its own, then this awaits the task
+    directly rather than cancelling it, so an in-flight DB sweep is never
+    torn down mid-transaction.
+    """
+    stop_event = asyncio.Event()
+    task = asyncio.create_task(run_order_expiry_background_loop(stop_event=stop_event))
+    try:
+        yield
+    finally:
+        stop_event.set()
+        await task
+
+
 def create_app() -> FastAPI:
     """Build and configure the FastAPI application instance."""
     settings = get_settings()
@@ -52,6 +81,7 @@ def create_app() -> FastAPI:
         title="Beacon",
         description="Self-hosted, generic event ticketing platform.",
         version="0.1.0",
+        lifespan=_lifespan,
     )
 
     app.include_router(auth.router)

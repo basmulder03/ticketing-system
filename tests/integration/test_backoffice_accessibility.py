@@ -72,6 +72,7 @@ from app.models.show import Show
 from app.models.theme import Theme
 from app.models.ticket import Ticket
 from app.models.ticket_type import TicketType
+from app.web.csrf import CSRF_COOKIE_NAME
 from tests.integration.conftest import (
     SeededAdmin,
     apply_set_cookie_headers,
@@ -170,6 +171,83 @@ async def test_orders_list_page_with_no_orders_has_no_axe_violations(
 
     violations = await run_axe(axe_page, f"/events/{event.id}/orders")
 
+    assert violations == [], format_axe_violations(violations)
+
+
+async def test_orders_list_page_with_erased_and_invoiced_orders_has_no_axe_violations(
+    axe_page: Page,
+    client: AsyncClient,
+    make_admin_user: Callable[..., Awaitable[SeededAdmin]],
+    make_event: Callable[..., Awaitable[Event]],
+    make_show: Callable[..., Awaitable[Show]],
+    make_ticket_type: Callable[..., Awaitable[TicketType]],
+    make_event_config: Callable[..., Awaitable[EventConfig]],
+) -> None:
+    """Post-Milestone-9 GDPR erasure UI (see ``app/templates/backoffice/
+    orders_list.html``'s ``data-confirm`` forms and
+    ``app/templates/backoffice/base.html``'s delegated submit listener,
+    added in commit 1be315c): two rows this suite's other Orders tests
+    don't otherwise reach —
+
+    1. A ``paid`` order that has NOT been erased yet: renders three danger/
+       non-danger forms side by side ("Resend confirmation email", "Erase
+       buyer PII", and — because it has an issued invoice — "Erase anyway
+       (has an invoice)"). ``test_orders_list_page_has_no_axe_violations``
+       above incidentally already exercises this combination via its own
+       paid order, but this test seeds it explicitly so it survives even if
+       that test's shape changes.
+    2. The SAME order after actually calling the real erase-pii web route
+       (not a hand-seeded ``buyer_name`` — exercising the real
+       redirect-then-reload path) — the "Buyer details erased." plain-text
+       indicator branch, which no existing axe test reaches at all.
+
+    axe-core cannot evaluate the ``window.confirm()`` dialog itself (it's
+    OS/browser chrome, not page DOM) — see this milestone's
+    accessibility-auditor handoff for why that's fine here and what remains
+    a manual-only check.
+    """
+    await _login_and_apply_session_cookie(axe_page, client, make_admin_user)
+
+    event = await make_event(status=PublishStatus.PUBLISHED, name="Erasure A11y Event")
+    show = await make_show(event_id=event.id, status=PublishStatus.PUBLISHED)
+    ticket_type = await make_ticket_type(show_id=show.id, quantity_available=5)
+    await make_event_config(event_id=event.id, enabled_payment_methods=[PaymentMethod.DOOR])
+
+    checkout = await client.post(
+        "/api/v1/public/checkout",
+        json={
+            "buyer_name": "Erasure Buyer",
+            "buyer_email": f"erasure-{uuid.uuid4().hex}@example.test",
+            "buyer_address": "1 Test Street",
+            "language": "en",
+            "payment_method": "door",
+            "items": [{"ticket_type_id": str(ticket_type.id), "quantity": 1}],
+        },
+    )
+    assert checkout.status_code == 201, checkout.text
+    order_id = checkout.json()["id"]
+    mark_paid = await client.post(f"/api/v1/orders/{order_id}/mark-paid", json={"method_label": "cash"})
+    assert mark_paid.status_code == 200, mark_paid.text
+
+    orders_url = f"/events/{event.id}/orders"
+
+    # Branch 1: paid + invoiced + not-yet-erased — both erase forms visible.
+    violations = await run_axe(axe_page, orders_url)
+    assert violations == [], format_axe_violations(violations)
+
+    # Branch 2: same order, actually erased via the real web route (not a
+    # hand-seeded buyer_name) — the "Buyer details erased." indicator.
+    page = await client.get(orders_url)
+    assert page.status_code == 200
+    csrf_token = client.cookies.get(CSRF_COOKIE_NAME)
+    assert csrf_token
+    erase = await client.post(
+        f"/events/{event.id}/orders/{order_id}/erase-pii",
+        data={"csrf_token": csrf_token, "confirm": "true"},
+    )
+    assert erase.status_code == 303, erase.text
+
+    violations = await run_axe(axe_page, orders_url)
     assert violations == [], format_axe_violations(violations)
 
 

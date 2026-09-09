@@ -279,19 +279,22 @@ async def test_release_order_stock_is_a_no_op_on_a_non_pending_order(
     assert await _audit_count(db_session, action="order.expired", target_id=order.id) == 0
 
 
-async def test_release_order_stock_is_a_no_op_on_a_pending_door_order(
+async def test_release_order_stock_can_expire_a_pending_door_order(
     db_session: AsyncSession,
     make_event: Callable[..., Awaitable[Event]],
     make_show: Callable[..., Awaitable[Show]],
     make_ticket_type: Callable[..., Awaitable[TicketType]],
     make_event_config: Callable[..., Awaitable[EventConfig]],
 ) -> None:
-    """``release_order_stock`` is Mollie-webhook-specific — a ``door``
-    order never has a Mollie payment to fail/expire/cancel, so it should
-    never reach this function in production, but if it ever did (e.g. a
-    future refactor wiring it up by mistake), it must be a safe no-op here
-    too, exactly like any other non-``PENDING`` status — see
-    ``app.services.order_payment.release_order_stock``'s docstring."""
+    """As of ``app.services.order_expiry`` (the stale-order sweep), a
+    ``pending_door`` order IS a legitimate ``release_order_stock`` target —
+    a door reservation for a Show that has already happened and was never
+    paid/collected is swept the same way a lapsed Mollie ``pending`` order
+    is, just on a different (show-date-based, not fixed-TTL) policy. See
+    ``app.services.order_payment.release_order_stock``'s and
+    ``app.services.order_expiry``'s module docstrings. This replaces the
+    old Milestone 6 assumption that ``release_order_stock`` would never be
+    called for a ``pending_door`` order at all."""
     order, _ = await _make_pending_order(db_session, make_event, make_show, make_ticket_type, make_event_config)
     order.status = OrderStatus.PENDING_DOOR
     await db_session.commit()
@@ -301,12 +304,12 @@ async def test_release_order_stock_is_a_no_op_on_a_pending_door_order(
         order_id=order.id,
         new_status=OrderStatus.EXPIRED,
         principal=SYSTEM_PRINCIPAL,
-        reason="should never be called for a pending_door order",
+        reason="pending_door order swept after its show's start time passed",
     )
     await db_session.commit()
 
-    assert result.status == OrderStatus.PENDING_DOOR
-    assert await _audit_count(db_session, action="order.expired", target_id=order.id) == 0
+    assert result.status == OrderStatus.EXPIRED
+    assert await _audit_count(db_session, action="order.expired", target_id=order.id) == 1
 
 
 async def test_release_order_stock_never_downgrades_an_already_paid_order(

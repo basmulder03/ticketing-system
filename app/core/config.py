@@ -90,6 +90,39 @@ class Settings(BaseSettings):
     bounding abuse (e.g. someone scripting signature-guessing attempts
     against ``verify_ticket_token``) — see ``app.core.rate_limit.scan_rate_limiter``."""
 
+    pending_order_ttl_hours: int = 6
+    """Max age (hours) a Mollie-method ``pending`` Order is allowed to sit
+    unresolved before ``app.services.order_expiry`` sweeps it to ``expired``,
+    releasing its reserved stock. Exists because a buyer who opens the
+    Mollie checkout page and abandons the browser tab produces no webhook
+    delivery at all — Mollie's OWN payment session eventually expires on
+    Mollie's side, but this app is never told, so without a sweep the Order
+    (and the stock its Tickets hold) would sit ``pending`` forever, which
+    for a limited-capacity show shows up as phantom "sold out" state from
+    checkouts nobody ever completed.
+
+    6 hours is deliberately generous relative to how long a real Mollie
+    checkout session is actually open for (Mollie's own iDEAL/card sessions
+    typically expire in well under an hour), so this can never race a
+    buyer who is genuinely still mid-checkout, even accounting for someone
+    stepping away and coming back — while still being short enough that a
+    single popular/limited-capacity on-sale moment (the scenario this exists
+    to protect) doesn't stay artificially "sold out" for long. A named,
+    tunable setting rather than a hardcoded constant so an operator can
+    shorten it for a high-demand on-sale without a code change; see
+    ``app.services.order_expiry`` for the full sweep logic."""
+
+    pending_door_order_sweep_interval_minutes: int = 20
+    """How often the in-process background sweep
+    (``app.services.order_expiry.run_order_expiry_background_loop``) runs,
+    in minutes. Applies to BOTH the ``pending_order_ttl_hours`` sweep and the
+    ``pending_door`` show-has-passed sweep — one shared interval for one
+    shared loop. 20 minutes is frequent enough that a stale reservation
+    doesn't hold phantom stock for long, without being aggressive enough to
+    put meaningful load on the DB from a single-process background poll;
+    see that module's docstring for the "why a background loop AND a
+    standalone script" reasoning."""
+
     public_base_url: str = "http://localhost:8000"
     """Canonical public base URL used to build absolute links in
     ``sitemap.xml``/``robots.txt`` (Milestone 2) and, in later milestones,
