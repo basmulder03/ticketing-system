@@ -1,0 +1,136 @@
+/* Large-display "beamer" view (Milestone 9): a dedicated, chrome-free,
+ * full-screen page meant to be projected in a venue lobby/church hall or
+ * left open unattended on a TV -- see PROJECT_BRIEF.md's Responsive &
+ * Multi-Device section. Deliberately its own stylesheet, separate from
+ * public.css/scan.css/backoffice.css: this page has exactly one job (be
+ * legible from across a room on a projector/TV), so it gets rules built
+ * for that specific viewing distance rather than inheriting a normal-
+ * distance, interactive page's look.
+ *
+ * High contrast is HARDCODED here, not sourced from the Event Theme's
+ * primary/secondary colors (unlike public.css, which does pull from
+ * them) -- see app.web.public_context.build_beamer_theme_css's docstring
+ * for the full reasoning. Only two Theme fields are honored here:
+ * font-family (via --beacon-color-accent's sibling font-family rule,
+ * see that same function) and accent_color, and the latter is used ONLY
+ * on `.beamer-page__accent-bar`, a purely decorative element with no
+ * legibility requirement of its own -- never as a text/background color
+ * on a legibility-critical element (the event name, venue, or countdown
+ * digits always stay near-white on near-black, guaranteed high contrast,
+ * regardless of the Theme's own colors).
+ *
+ * Mobile-first: base rules below are already legible on a phone (e.g. a
+ * staff member previewing this URL before actually projecting it), but
+ * the primary target is a large TV/projector (~1920x1080 and up) --
+ * `clamp()` is used throughout instead of a breakpoint ladder so the
+ * countdown digits stay the dominant element of the viewport at every
+ * size without a fixed set of steps, and stay full-viewport/non-
+ * scrolling (`overflow: hidden`) at all of them -- this is a glance-
+ * from-across-the-room display, never something a viewer scrolls.
+ */
+
+* {
+  box-sizing: border-box;
+}
+
+/* The countdown/doors-open toggle below (app/static/beamer.js) relies on
+ * the plain HTML `hidden` attribute, but `.beamer-countdown` further down
+ * sets its own `display: flex` -- an authored class rule with higher
+ * specificity than the UA stylesheet's `[hidden] { display: none }`,
+ * which would otherwise silently override it and leave a "hidden"
+ * countdown still visible. This rule wins over that class rule (same
+ * specificity, declared later + `!important`) so `hidden` always actually
+ * hides the element, regardless of what else the element's class sets. */
+[hidden] {
+  display: none !important;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: #05070a;
+  color: #ffffff;
+  overflow: hidden;
+}
+
+body {
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.beamer-page {
+  min-height: 100vh;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 4vh 4vw;
+  gap: 2vh;
+}
+
+.beamer-page__logo {
+  max-height: 12vh;
+  max-width: 40vw;
+  object-fit: contain;
+}
+
+.beamer-page__event {
+  font-size: clamp(2rem, 6vw, 5rem);
+  font-weight: 700;
+  line-height: 1.1;
+  margin: 0;
+  /* Long event names must still fit on one line at the smallest viewport
+   * this is realistically opened at without wrapping into the venue name
+   * below -- allowed to shrink further than the clamp() minimum for that
+   * one edge case rather than overflow. */
+  max-width: 90vw;
+}
+
+.beamer-page__accent-bar {
+  width: min(50vw, 20rem);
+  height: 0.4rem;
+  border-radius: 999px;
+  background: var(--beacon-color-accent, #ffd166);
+}
+
+.beamer-page__venue {
+  font-size: clamp(1.25rem, 3vw, 2.5rem);
+  margin: 0;
+  color: #d7dde3;
+}
+
+.beamer-countdown {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1vh;
+}
+
+.beamer-countdown__label,
+.beamer-doors-open {
+  font-size: clamp(1.5rem, 4vw, 3rem);
+  font-weight: 600;
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #f2f5f7;
+}
+
+.beamer-countdown__value {
+  /* The single most important element on this screen -- dominant over
+   * every other piece of text, per this milestone's brief ("the
+   * countdown/time numbers should dominate the viewport"). */
+  font-size: clamp(4rem, 16vw, 14rem);
+  font-weight: 800;
+  line-height: 1;
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.beamer-doors-open {
+  font-size: clamp(2.5rem, 7vw, 6rem);
+}

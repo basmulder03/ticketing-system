@@ -25,6 +25,11 @@
   <link rel="stylesheet" href="/static/public.css">
   {% block theme_style %}{% endblock %}
   {% block extra_head %}{% endblock %}
+  {# countdown.js must load (and its `defer`red script run) before
+     public.js, which reads window.BeaconCountdown -- both are `defer`, so
+     document order is enough to guarantee that (see
+     app/static/countdown.js's module comment). #}
+  <script src="/static/countdown.js" defer></script>
   <script src="/static/public.js" defer></script>
 </head>
 <body>

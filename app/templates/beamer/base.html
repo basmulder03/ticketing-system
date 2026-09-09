@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="{{ locale }}">
+<head>
+  <meta charset="utf-8">
+  {# Pinch-zoom deliberately left enabled (no maximum-scale/user-scalable=no),
+     same reasoning as app/templates/scan/base.html: never disable WCAG 1.4.4
+     (Resize Text), even on a page mainly meant to be viewed from across a
+     room rather than zoomed. #}
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  {# Always noindex/nofollow, published Event or not: this is a utility
+     display meant to be left open unattended on one specific screen, never
+     a page worth surfacing in search results — same rationale as
+     app/templates/scan/base.html's own always-on noindex, just applied here
+     for "not useful to index" rather than "internal tool". #}
+  <meta name="robots" content="noindex, nofollow">
+  <title>{% block title %}{{ translate('app.name', locale) }}{% endblock %}</title>
+  <link rel="stylesheet" href="/static/beamer.css">
+  {% block theme_style %}{% endblock %}
+  {# Loaded in this order deliberately: countdown.js defines
+     window.BeaconCountdown before beamer.js's DOMContentLoaded handler
+     reads it -- both are `defer`, so they still run in document order
+     (see app/static/countdown.js's module comment). #}
+  <script src="/static/countdown.js" defer></script>
+  <script src="/static/beamer.js" defer></script>
+</head>
+<body class="beamer-body">
+  {# Deliberately no header/nav/footer/skip-link chrome here at all (unlike
+     app/templates/public/base.html) -- per PROJECT_BRIEF.md's Responsive &
+     Multi-Device section, this view must have "no interactive elements or
+     navigation chrome". There is exactly one block of content and nothing
+     to skip past. #}
+  {% block body %}{% endblock %}
+</body>
+</html>

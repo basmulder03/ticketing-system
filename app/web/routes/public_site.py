@@ -3,7 +3,10 @@
 submission, and the order confirmation page. Milestone 3 adds: redirecting
 the buyer to Mollie's hosted checkout when the JSON checkout API just
 created a real Mollie payment for their order (see
-``_handle_checkout_submission`` below).
+``_handle_checkout_submission`` below). Milestone 9 adds: the large-display
+"beamer/TV" countdown view (``public_beamer_page``/``preview_beamer_page``),
+a dedicated chrome-free page for one Show, reusing the same slug/token
+resolution as the landing page.
 
 Every route here proxies in-process to the existing public JSON API
 (``app.api.routes.public``) via ``app.web.public_api_client`` — no
@@ -32,6 +35,7 @@ from app.web.order_confirmation import read_order_confirmation, stash_order_conf
 from app.web.public_api_client import public_api_client
 from app.web.public_context import (
     LOCALE_COOKIE_NAME,
+    build_beamer_theme_css,
     build_event_json_ld,
     build_public_theme_css,
     build_share_urls,
@@ -95,6 +99,49 @@ def _default_selected_show_id(request: Request, event: dict[str, Any]) -> str | 
                 return str(show["id"])
 
     return event["shows"][0]["id"] if event["shows"] else None
+
+
+def _default_beamer_show_id(event: dict[str, Any]) -> str | None:
+    """Which Show the large-display "beamer" view (``_render_beamer``)
+    defaults to when its caller gives no explicit ``?show=`` query param:
+    the soonest Show whose doors time hasn't passed yet, or — once every
+    Show under this Event has already opened its doors — the most
+    recently-started one, so an unattended screen still has something
+    sensible to display instead of the page erroring out the moment the
+    last performance's doors open. Returns ``None`` only when the Event
+    has no Shows at all.
+
+    Deliberately time-based ("next upcoming"), unlike
+    ``_default_selected_show_id``'s "first Show in the list" fallback for
+    the landing page's ticket picker — the landing page always shows every
+    Show as an explicit choice for the buyer to pick from, so its default
+    only decides which panel opens first; the beamer view shows exactly
+    one Show with no picker at all, so its default has to pick the Show a
+    lobby screen would actually want counting down to *right now*.
+
+    Compares against naive local time to match ``Show.date``/
+    ``doors_time``'s own naive-local-time storage (see
+    ``app.models.show.Show``'s docstring: this app assumes every venue is
+    in the same timezone, so there is no tz-aware datetime to compare
+    against here) — the same assumption every other reader of these two
+    fields already makes, e.g. ``app/templates/public/landing.html``'s
+    ``format_time``/``format_date`` filters.
+    """
+    if not event["shows"]:
+        return None
+
+    def doors_at(show: dict[str, Any]) -> datetime:
+        return datetime.fromisoformat(f"{show['date']}T{show['doors_time']}")
+
+    # Deliberately naive/local (see docstring above) -- Show.date/doors_time
+    # have no tz of their own to compare against, unlike every other
+    # datetime in this codebase (which is why this needs a noqa here and
+    # nowhere else).
+    now = datetime.now()  # noqa: DTZ005
+    upcoming = sorted((s for s in event["shows"] if doors_at(s) >= now), key=doors_at)
+    if upcoming:
+        return str(upcoming[0]["id"])
+    return str(max(event["shows"], key=doors_at)["id"])
 
 
 def _render_landing(
@@ -195,6 +242,110 @@ async def preview_landing_page(request: Request, token: str) -> Response:
     )
     _set_locale_cookie(response, locale)
     return response
+
+
+def _render_beamer(request: Request, event: dict[str, Any], show: dict[str, Any], *, locale: str) -> Response:
+    """Render the large-display "beamer" view (Milestone 9 — see
+    PROJECT_BRIEF.md's Responsive & Multi-Device section) for one
+    already-resolved ``show`` under ``event``.
+
+    Deliberately minimal compared to ``_render_landing``: this page has no
+    checkout/share/SEO/JSON-LD context at all, so only the handful of
+    values ``app/templates/beamer/show.html`` actually renders are built
+    here — the Event's name, this Show's venue name, an ISO
+    ``date``+``doors_time`` string for the client-side countdown script to
+    parse, whether that deadline has already passed (so the initial
+    server-rendered state is correct even with JS disabled, same
+    progressive-enhancement principle as ``_render_landing``'s
+    ``sales_live_now``), and the Theme's beamer-safe CSS (see
+    ``build_beamer_theme_css`` for why this is NOT the same ``theme_css``
+    ``_render_landing`` builds).
+    """
+    theme = event.get("theme")
+    doors_at_raw = f"{show['date']}T{show['doors_time']}"
+    # Deliberately naive/local, same rationale as _default_beamer_show_id.
+    doors_passed = datetime.fromisoformat(doors_at_raw) <= datetime.now()  # noqa: DTZ005
+
+    context = {
+        "event": event,
+        "show": show,
+        "locale": locale,
+        "venue_name": show["venue_name"],
+        "doors_at_raw": doors_at_raw,
+        "doors_passed": doors_passed,
+        "theme_css": build_beamer_theme_css(theme),
+        "logo_url": theme.get("logo_url") if theme else None,
+    }
+    return public_templates.TemplateResponse(request, "beamer/show.html", context)
+
+
+async def _handle_beamer_page(request: Request, *, slug: str | None, token: str | None) -> Response:
+    """Shared implementation behind ``public_beamer_page``/
+    ``preview_beamer_page`` (exactly one of ``slug``/``token`` is given) —
+    mirrors ``_handle_checkout_submission``'s same slug-vs-token sharing
+    pattern in this module. Resolves the Event, then the Show to display
+    (an explicit ``?show=`` query param if it names a real Show under this
+    Event, else ``_default_beamer_show_id``'s "next upcoming" choice), and
+    404s (same shape/response as the landing page's own 404) if either
+    lookup comes up empty — including an Event with zero Shows at all,
+    since there is nothing for this view to count down to.
+    """
+    locale = resolve_locale(request)
+    event, _fetch_status = await _fetch_event(request, slug=slug, token=token)
+
+    show = None
+    if event is not None:
+        requested_show_id = request.query_params.get("show")
+        show = _find_show(event, requested_show_id) if requested_show_id else None
+        if show is None:
+            show = _find_show(event, _default_beamer_show_id(event))
+
+    if event is None or show is None:
+        response = _not_found_response(request, locale)
+    else:
+        response = _render_beamer(request, event, show, locale=locale)
+    _set_locale_cookie(response, locale)
+    return response
+
+
+@router.get("/e/{slug}/beamer", response_model=None)
+async def public_beamer_page(request: Request, slug: str) -> Response:
+    """The large-display ("beamer/TV") countdown view for a published
+    Event — a dedicated, chrome-free, full-screen page meant to be
+    projected in a venue lobby (or left open unattended on a TV), showing
+    a live countdown to one Show's doors time, the Event name, and that
+    Show's venue name (see ``app/templates/beamer/show.html``). Per
+    PROJECT_BRIEF.md's Responsive & Multi-Device section: "reachable via
+    its own URL so it can be left open on a screen unattended".
+
+    Which Show it counts down to: an explicit ``?show=<id>`` query param
+    naming a Show under this Event, else the soonest upcoming Show (see
+    ``_default_beamer_show_id``). There is deliberately no separate
+    show-picker page for this view (unlike ``/scan/pick`` in
+    ``app.web.routes.scan``): the intended usage is one screen, left open,
+    pointed at one specific performance — an operator wanting a different
+    Show for the same Event just appends ``?show=`` to this same URL.
+
+    404s (same response shape as ``public_landing_page``) for a draft
+    Event, an unknown slug, an Event with no Shows, or a ``?show=`` id
+    that isn't a (published) Show under this Event — so a URL/query guess
+    can't distinguish those reasons, same rationale as the landing page.
+    """
+    return await _handle_beamer_page(request, slug=slug, token=None)
+
+
+@router.get("/preview/{token}/beamer", response_model=None)
+async def preview_beamer_page(request: Request, token: str) -> Response:
+    """The unguessable-preview-token variant of ``public_beamer_page`` —
+    reachable via an Event's ``preview_token`` (see
+    ``app.models.event.Event.preview_token``) the same way
+    ``preview_landing_page`` is, so a stakeholder testing a draft (or
+    already-published) Event before launch can also test-drive its beamer
+    view ahead of time. Every Show under the Event is eligible here
+    (draft or published — matching ``preview_landing_page``'s own
+    ``published_only=False`` behavior), not just published ones.
+    """
+    return await _handle_beamer_page(request, slug=None, token=token)
 
 
 def _translate_checkout_error(status_code: int, detail: str, locale: str) -> str:
