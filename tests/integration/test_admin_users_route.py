@@ -120,6 +120,29 @@ async def test_self_deactivation_is_rejected_with_409(
     assert still_works.status_code == 200
 
 
+async def test_self_deactivation_guard_is_not_bypassable_via_uuid_case(
+    client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]]
+) -> None:
+    """security-reviewer finding: the self-deactivation guard used to
+    compare the raw path-segment string against ``str(principal.id)``
+    before any DB lookup normalized it — ``str(uuid.UUID(...))`` always
+    lowercases, so sending the caller's own id with any hex letter
+    uppercased made the string comparison say "a different account" while
+    the DB lookup still resolved to the SAME account, bypassing the guard
+    entirely. Reproduced directly before the fix (200 instead of 409)."""
+    seeded = await make_admin_user()
+    await _login(client, seeded)
+
+    uppercased_own_id = str(seeded.user.id).upper()
+    assert uppercased_own_id != str(seeded.user.id)  # sanity: this id has at least one hex letter
+
+    response = await client.post(f"/api/v1/admin/admin-users/{uppercased_own_id}/deactivate")
+
+    assert response.status_code == 409
+    still_works = await client.get("/api/v1/auth/me")
+    assert still_works.status_code == 200
+
+
 async def test_deactivating_a_different_account_succeeds(
     client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]]
 ) -> None:
@@ -258,6 +281,38 @@ async def test_self_reset_without_current_password_is_rejected_401(
     )
 
     assert response.status_code == 401
+
+
+async def test_self_reset_current_password_gate_is_not_bypassable_via_uuid_case(
+    client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]]
+) -> None:
+    """security-reviewer finding, sibling to the self-deactivation bypass
+    above: ``is_self_reset`` used to compare the raw path-segment string
+    against ``str(principal.id)`` before normalization — uppercasing any
+    hex letter in the caller's OWN id made the check say "not a self-reset"
+    (skipping the current_password requirement entirely) while the DB
+    lookup still resolved to the caller's own account. This defeated the
+    exact protection the gate exists for: a hijacked session cookie could
+    silently rotate the account's own password with zero proof of
+    current-password knowledge. Reproduced directly before the fix (200
+    instead of 401, with no current_password supplied at all)."""
+    seeded = await make_admin_user()
+    await _login(client, seeded)
+
+    uppercased_own_id = str(seeded.user.id).upper()
+    assert uppercased_own_id != str(seeded.user.id)  # sanity: this id has at least one hex letter
+
+    response = await client.post(
+        f"/api/v1/admin/admin-users/{uppercased_own_id}/reset-password",
+        json={"new_password": "a-brand-new-password"},
+    )
+
+    assert response.status_code == 401
+    # The original password must still work -- the reset must not have applied.
+    still_the_old_password = await client.post(
+        "/api/v1/auth/login", json={"email": seeded.user.email, "password": seeded.password}
+    )
+    assert still_the_old_password.status_code == 200
 
 
 async def test_self_reset_with_wrong_current_password_is_rejected_401(

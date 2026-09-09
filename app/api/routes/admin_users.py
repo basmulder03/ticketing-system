@@ -163,14 +163,28 @@ async def deactivate_admin_user(
     an already-inactive account is a no-op (no duplicate audit entry) rather
     than an error, matching ``agent_accounts.revoke_agent_account``'s
     idempotency.
+
+    The self-account check compares ``admin.id`` (the resolved ``uuid.UUID``
+    from the DB row, via :func:`_get_admin_user_or_404`) against
+    ``principal.id`` — both real ``UUID`` objects, compared AFTER lookup.
+    Security-reviewer finding: this used to compare the raw, un-normalized
+    ``admin_user_id`` path string against ``str(principal.id)`` BEFORE any
+    lookup — ``str(uuid.UUID(...))`` always normalizes to lowercase, but the
+    client-supplied path segment doesn't, so sending the caller's own id
+    with any hex letter uppercased made the string comparison say "a
+    different account" while the DB lookup (case-insensitive
+    ``uuid.UUID(raw)`` parsing) resolved to the SAME account — letting an
+    admin bypass this guard entirely via a trivial case change. Reproduced
+    directly before this fix. Comparing parsed ``UUID`` objects, not raw
+    strings, closes this for good (no normalization step to get wrong).
     """
-    if admin_user_id == str(principal.id):
+    admin = await _get_admin_user_or_404(session, admin_user_id)
+    if admin.id == principal.id:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="You cannot deactivate your own admin account.",
         )
 
-    admin = await _get_admin_user_or_404(session, admin_user_id)
     if admin.is_active:
         admin.is_active = False
         await record_audit_entry(
@@ -239,9 +253,24 @@ async def reset_admin_user_password(
 
     Never logs the old or new password; the audit entry records only which
     account was affected.
+
+    ``is_self_reset`` compares the resolved ``admin.id`` (a real
+    ``uuid.UUID``, from :func:`_get_admin_user_or_404`) against
+    ``principal.id`` — both ``UUID`` objects, never raw strings.
+    Security-reviewer finding: comparing the raw ``admin_user_id`` path
+    string against ``str(principal.id)`` (fixed here) let an admin reset
+    their OWN password with no ``current_password`` at all by uppercasing
+    any hex letter in their own id — the string comparison said "not a
+    self-reset" (skipping the current-password requirement entirely) while
+    the DB lookup still resolved to the caller's own account. This defeated
+    the exact protection this check exists for: a hijacked/stolen session
+    cookie could silently rotate the account's own password with zero
+    proof of current-password knowledge. Reproduced directly before this
+    fix. See :func:`deactivate_admin_user` for the sibling instance of the
+    same bug, fixed the same way.
     """
     admin = await _get_admin_user_or_404(session, admin_user_id)
-    is_self_reset = admin_user_id == str(principal.id)
+    is_self_reset = admin.id == principal.id
 
     if is_self_reset and (
         body.current_password is None or not verify_password(body.current_password, admin.hashed_password)
