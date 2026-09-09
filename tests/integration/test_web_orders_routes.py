@@ -422,6 +422,124 @@ async def test_resend_returns_404_flash_for_unknown_order(
     assert "Order%20not%20found." in response.headers["location"]
 
 
+# --- Mark-as-paid: return_to (Milestone 7) ----------------------------------
+#
+# app.web.routes.orders.mark_order_paid_web's return_to field, added so the
+# scanning app's unpaid-result screen (app.web.routes.scan) can render this
+# same form inline and land the admin back there afterward. Guarded by
+# _safe_return_to, mirroring app.web.routes.auth._safe_next's exact
+# adversarial-input list (see tests/unit/test_web_auth_next_guard.py) but
+# parameterized on this route's own default (the Orders list) rather than
+# "/events". No prior test in this file exercised mark_order_paid_web's own
+# POST behavior at all (only the labeled-fields GET-rendering test above),
+# so the plain default-fallback case is covered here too, not just return_to.
+
+
+async def test_mark_paid_with_no_return_to_falls_back_to_the_orders_list(
+    client: AsyncClient,
+    make_admin_user: Callable[..., Awaitable[SeededAdmin]],
+    make_event: Callable[..., Awaitable[Event]],
+    make_show: Callable[..., Awaitable[Show]],
+    make_ticket_type: Callable[..., Awaitable[TicketType]],
+    make_event_config: Callable[..., Awaitable[EventConfig]],
+) -> None:
+    await _api_login(client, await make_admin_user())
+    event_id, order_id = await _create_pending_door_order(
+        client, make_event, make_show, make_ticket_type, make_event_config
+    )
+    page = await client.get(f"/events/{event_id}/orders")
+    token = client.cookies.get(CSRF_COOKIE_NAME)
+    assert page.status_code == 200 and token
+
+    response = await client.post(
+        f"/events/{event_id}/orders/{order_id}/mark-paid",
+        data={"csrf_token": token, "method_label": "cash"},
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"].startswith(f"/events/{event_id}/orders?flash=")
+
+
+async def test_mark_paid_with_a_safe_same_site_return_to_is_honored(
+    client: AsyncClient,
+    make_admin_user: Callable[..., Awaitable[SeededAdmin]],
+    make_event: Callable[..., Awaitable[Event]],
+    make_show: Callable[..., Awaitable[Show]],
+    make_ticket_type: Callable[..., Awaitable[TicketType]],
+    make_event_config: Callable[..., Awaitable[EventConfig]],
+) -> None:
+    await _api_login(client, await make_admin_user())
+    event_id, order_id = await _create_pending_door_order(
+        client, make_event, make_show, make_ticket_type, make_event_config
+    )
+    page = await client.get(f"/events/{event_id}/orders")
+    token = client.cookies.get(CSRF_COOKIE_NAME)
+    assert page.status_code == 200 and token
+
+    show_result = await client.get(f"/api/v1/events/{event_id}/shows")
+    assert show_result.status_code == 200
+    show_id = show_result.json()[0]["id"]
+    return_to = f"/scan/{show_id}"
+
+    response = await client.post(
+        f"/events/{event_id}/orders/{order_id}/mark-paid",
+        data={"csrf_token": token, "method_label": "cash", "return_to": return_to},
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"].startswith(f"{return_to}?flash=")
+
+
+async def test_mark_paid_with_an_absolute_url_return_to_is_rejected(
+    client: AsyncClient,
+    make_admin_user: Callable[..., Awaitable[SeededAdmin]],
+    make_event: Callable[..., Awaitable[Event]],
+    make_show: Callable[..., Awaitable[Show]],
+    make_ticket_type: Callable[..., Awaitable[TicketType]],
+    make_event_config: Callable[..., Awaitable[EventConfig]],
+) -> None:
+    await _api_login(client, await make_admin_user())
+    event_id, order_id = await _create_pending_door_order(
+        client, make_event, make_show, make_ticket_type, make_event_config
+    )
+    page = await client.get(f"/events/{event_id}/orders")
+    token = client.cookies.get(CSRF_COOKIE_NAME)
+    assert page.status_code == 200 and token
+
+    response = await client.post(
+        f"/events/{event_id}/orders/{order_id}/mark-paid",
+        data={"csrf_token": token, "method_label": "cash", "return_to": "http://evil.example.com/steal"},
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"].startswith(f"/events/{event_id}/orders?flash=")
+
+
+async def test_mark_paid_with_a_protocol_relative_return_to_is_rejected(
+    client: AsyncClient,
+    make_admin_user: Callable[..., Awaitable[SeededAdmin]],
+    make_event: Callable[..., Awaitable[Event]],
+    make_show: Callable[..., Awaitable[Show]],
+    make_ticket_type: Callable[..., Awaitable[TicketType]],
+    make_event_config: Callable[..., Awaitable[EventConfig]],
+) -> None:
+    await _api_login(client, await make_admin_user())
+    event_id, order_id = await _create_pending_door_order(
+        client, make_event, make_show, make_ticket_type, make_event_config
+    )
+    page = await client.get(f"/events/{event_id}/orders")
+    token = client.cookies.get(CSRF_COOKIE_NAME)
+    assert page.status_code == 200 and token
+
+    response = await client.post(
+        f"/events/{event_id}/orders/{order_id}/mark-paid",
+        data={"csrf_token": token, "method_label": "cash", "return_to": "//evil.example.com"},
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"].startswith(f"/events/{event_id}/orders?flash=")
+
+
 async def test_resend_returns_409_flash_for_a_not_yet_paid_order(
     client: AsyncClient,
     monkeypatch: pytest.MonkeyPatch,

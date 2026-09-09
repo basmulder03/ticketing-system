@@ -27,6 +27,7 @@ from urllib.parse import quote
 from httpx import AsyncClient
 
 from app.core.security import ADMIN_SESSION_COOKIE_NAME
+from app.models.enums import AdminRole
 from app.models.event import Event
 from app.services.contrast import check_theme_contrast
 from app.web.csrf import CSRF_COOKIE_NAME
@@ -331,6 +332,82 @@ async def test_already_authenticated_visitor_is_bounced_off_the_login_form(
 
     assert response.status_code == 303
     assert response.headers["location"] == "/events"
+
+
+# --- Scanner-role login default redirect (Milestone 7) ---
+#
+# app.web.routes.auth._apply_role_default: a scanner-role session landing on
+# this module's own "/events" default (i.e. no explicit ?next= was given)
+# is retargeted to the show-picker ("/scan") instead, since "/events" is
+# unreachable for that role (require_web_admin excludes scanner-role — see
+# app/web/deps.py). An admin-role login must see no change in behavior, and
+# an explicit ?next= for either role must still be honored exactly as
+# before (the existing _safe_next guard, untouched by this change).
+
+
+async def test_scanner_login_with_no_explicit_next_lands_on_scan_not_events(
+    client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]]
+) -> None:
+    seeded = await make_admin_user(role=AdminRole.SCANNER)
+    token = await _get_csrf_token(client)
+
+    response = await client.post(
+        "/login", data={"email": seeded.user.email, "password": seeded.password, "csrf_token": token}
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/scan"
+
+
+async def test_admin_login_with_no_explicit_next_still_lands_on_events(
+    client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]]
+) -> None:
+    """No-regression check: the scanner-only retarget must not change the
+    pre-existing admin-role default."""
+    seeded = await make_admin_user(role=AdminRole.ADMIN)
+    token = await _get_csrf_token(client)
+
+    response = await client.post(
+        "/login", data={"email": seeded.user.email, "password": seeded.password, "csrf_token": token}
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/events"
+
+
+async def test_scanner_login_with_explicit_next_is_still_honored(
+    client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]], make_event: Callable[..., Awaitable[Event]]
+) -> None:
+    """A scanner-role login with an explicit, safe ?next= is NOT overridden
+    by the /scan retarget — that only applies when no next was requested
+    (see _apply_role_default's docstring: "/events" is reused as the "no
+    explicit next" sentinel, so an *explicit* non-"/events" next always
+    passes through untouched regardless of role)."""
+    seeded = await make_admin_user(role=AdminRole.SCANNER)
+    event = await make_event()
+    token = await _get_csrf_token(client)
+    safe_path = f"/events/{event.id}/theme"
+
+    response = await client.post(
+        "/login", data={"email": seeded.user.email, "password": seeded.password, "csrf_token": token, "next": safe_path}
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == safe_path
+
+
+async def test_admin_login_with_explicit_next_is_still_honored(
+    client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]]
+) -> None:
+    seeded = await make_admin_user(role=AdminRole.ADMIN)
+    token = await _get_csrf_token(client)
+
+    response = await client.post(
+        "/login", data={"email": seeded.user.email, "password": seeded.password, "csrf_token": token, "next": "/scan"}
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/scan"
 
 
 # --- Theme editor page: warning banner ---
