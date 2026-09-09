@@ -13,17 +13,10 @@ tricky" by this branch's task brief — the template's conditional
 self-row logic (no deactivate action on your own row, ``current_password``
 only on your own row's reset-password form).
 
-**Real bug, inherited from the API layer, NOT worked around here:** the
-duplicate-email test below is marked ``xfail(strict=True)`` — see ``tests/
-integration/test_admin_users_route.py``'s module docstring for the full
-root-cause (``create_admin_user``'s ``session.flush()`` ordering means a
-duplicate email raises an unhandled 500, not the intended 409, so this
-web-layer proxy has no clean error to surface as a flash either).
 """
 
 from collections.abc import Awaitable, Callable
 
-import pytest
 from httpx import AsyncClient
 
 from app.models.enums import AdminRole
@@ -70,14 +63,6 @@ async def test_create_admin_user_happy_path_redirects_with_success_flash(
     assert "new-admin@example.test" in list_page.text
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Real bug inherited from the API layer: create_admin_user's "
-        "session.flush() ordering makes a duplicate email raise an "
-        "unhandled 500 instead of a clean 409. See test_admin_users_route.py."
-    ),
-)
 async def test_create_admin_user_duplicate_email_surfaces_the_real_409_message(
     client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]]
 ) -> None:

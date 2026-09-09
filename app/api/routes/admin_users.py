@@ -87,14 +87,36 @@ async def create_admin_user(
     route's lookup (``AdminUser.email == body.email.lower()`` in
     ``app.api.routes.auth``) and ``scripts/seed.py``'s existing
     convention — otherwise an account created here with mixed-case email
-    could silently never be able to log in. Uniqueness is enforced by the
-    DB's unique constraint on ``email``, translated to a clean 409 via
-    :func:`commit_or_conflict` rather than a raw 500 on the resulting
-    ``IntegrityError``. The plaintext password is hashed immediately and
-    never stored, logged, returned, or included in the audit detail.
+    could silently never be able to log in.
+
+    Uniqueness is checked explicitly with a pre-insert ``SELECT`` (matching
+    ``app.api.routes.events.create_event``'s established convention) rather
+    than relying solely on the DB's unique constraint on ``email`` —
+    load-bearing, not a stylistic choice: the audit entry below needs
+    ``admin.id``, which only exists after a ``flush()``, and a flush sends
+    the INSERT to Postgres immediately rather than deferring it to
+    ``commit()`` — so a bare insert-then-flush would raise
+    ``IntegrityError`` right there at ``flush()`` time, ESCAPING
+    :func:`commit_or_conflict`'s try/except entirely (that only wraps the
+    later ``commit()`` call, never reached in that failure path) and
+    surfacing as an unhandled 500 instead of a clean 409. Reproduced and
+    confirmed directly before this fix. ``commit_or_conflict`` is still
+    kept on the final commit below as defense in depth against a genuine
+    race between this check and the insert (two concurrent creates for the
+    same email) — the explicit pre-check is what makes the common,
+    non-racing case return a clean 409, not a crash. The plaintext
+    password is hashed immediately and never stored, logged, returned, or
+    included in the audit detail.
     """
+    email = body.email.lower()
+    existing = await session.execute(select(AdminUser).where(AdminUser.email == email))
+    if existing.scalar_one_or_none() is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="An admin user with this email already exists."
+        )
+
     admin = AdminUser(
-        email=body.email.lower(),
+        email=email,
         hashed_password=hash_password(body.password),
         role=body.role,
     )

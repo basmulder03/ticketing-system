@@ -16,27 +16,23 @@ next request** (``test_deactivated_account_cannot_log_in`` /
 — proving ``app.api.deps._load_admin_principal``'s claimed re-check, not
 just trusting its docstring. Both hold up under direct testing.
 
-**Real bug found while writing this file, flagged for backend-builder, NOT
-worked around here:** ``create_admin_user`` (``app.api.routes.admin_users``)
-calls ``session.flush()`` to populate ``admin.id`` for the audit-log entry
-*before* ``commit_or_conflict``'s try/except runs — but the INSERT (and any
+**Real bug found while writing this file, fixed in the same change that
+removed the ``xfail`` markers below:** ``create_admin_user``
+(``app.api.routes.admin_users``) used to call ``session.flush()`` to
+populate ``admin.id`` for the audit-log entry *before*
+``commit_or_conflict``'s try/except ran — but the INSERT (and any
 unique-constraint violation on ``email``) is actually executed by that
 early ``flush()``, not by the later ``commit()``. A duplicate email
-therefore raises an unhandled ``IntegrityError`` straight through to a raw
-500, never reaching ``commit_or_conflict``'s 409 translation at all. Every
-other create route with a uniqueness constraint in this codebase
-(``app.api.routes.events.create_event``, e.g.) avoids this by pre-checking
-uniqueness with an explicit ``SELECT`` before insert, specifically because
-of this exact flush-vs-commit ordering hazard — ``create_admin_user`` is
-the one route that doesn't follow that convention. The two tests below
-that exercise this path are marked ``xfail(strict=True)`` so this stays
-visible in CI (a strict-xfail flips to a hard failure the moment the bug is
-fixed, forcing the marker to be removed) rather than silently skipped.
+therefore raised an unhandled ``IntegrityError`` straight through to a raw
+500, never reaching ``commit_or_conflict``'s 409 translation at all. Fixed
+by pre-checking uniqueness with an explicit ``SELECT`` before insert,
+matching ``app.api.routes.events.create_event``'s established convention —
+see that function's docstring for the full explanation of why this
+ordering matters.
 """
 
 from collections.abc import Awaitable, Callable
 
-import pytest
 from httpx import AsyncClient
 
 from app.models.enums import AdminRole
@@ -70,18 +66,6 @@ async def test_create_admin_user_lowercases_email_and_never_returns_the_password
     assert "hashed_password" not in body
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Real bug: create_admin_user's session.flush() (to populate admin.id "
-        "for the audit entry) executes the INSERT before commit_or_conflict's "
-        "try/except runs, so a duplicate email's IntegrityError escapes as an "
-        "unhandled 500 instead of the intended 409. See this module's "
-        "docstring. Remove this marker once app.api.routes.admin_users."
-        "create_admin_user pre-checks email uniqueness the way "
-        "app.api.routes.events.create_event pre-checks slug uniqueness."
-    ),
-)
 async def test_create_admin_user_duplicate_email_returns_409(
     client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]]
 ) -> None:
