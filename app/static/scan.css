@@ -21,7 +21,14 @@
   --scan-border: #2a333d;
   --scan-text: #f2f5f7;
   --scan-muted: #9aa7b1;
-  --scan-accent: #4c8dff;
+  /* #4c8dff (the original choice here) only reaches 3.2:1 against white
+   * text/on-white focus contexts -- below WCAG AA's 4.5:1 for normal text,
+   * which matters here because this token is used as an actual button
+   * background with white text (the manual-entry "Check code" button) and
+   * as the skip-link's background, not just as a decorative accent. This
+   * darker shade keeps the same hue but clears 4.5:1 (~5.97:1) against
+   * white. See accessibility-auditor Milestone 7 pass. */
+  --scan-accent: #1d5bd6;
 
   /* Outcome colors -- deliberately not just five hues: each state below
    * also gets a distinct icon glyph and shape (border-radius/clip-path),
@@ -42,6 +49,45 @@
 }
 
 * { box-sizing: border-box; }
+
+/* Visible keyboard focus everywhere (WCAG 2.4.7) -- never suppressed
+ * without a replacement, matching backoffice.css's/public.css's own
+ * global `:focus-visible` rule. This page's backgrounds vary far more
+ * than either of those (dark page chrome, light `.scan-btn--light`
+ * buttons, and four different fully-saturated result-overlay colors), so
+ * a single flat outline color can't clear 3:1 (WCAG 1.4.11) against all
+ * of them -- a white outline ring plus a dark "halo" shadow does: the
+ * white ring reads clearly against every dark/saturated surface here,
+ * and the dark halo reads clearly against the one light surface
+ * (`.scan-btn--light`), where a plain white ring would be invisible. */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible {
+  outline: 3px solid #fff;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 5px rgba(0, 0, 0, 0.65);
+}
+
+/* Same visually-hidden-but-still-announced utility as
+ * public.css's `.pub-visually-hidden` / backoffice.css's
+ * `.bo-visually-hidden` -- used for the persistent scan-result live
+ * region (see scan.html / scan.js), which must never be `hidden` or
+ * `display:none` itself (only its text content changes) for screen
+ * readers to reliably announce it. */
+.scan-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
 
 html, body {
   height: 100%;
@@ -126,7 +172,11 @@ body.scan-body {
   color: var(--scan-text);
 }
 .scan-btn--small {
-  min-height: 2.5rem;
+  /* 2.75rem = 44px, the WCAG 2.5.5 / mobile-platform-guidance minimum tap
+   * target -- was 2.5rem (40px), under that minimum (used for the header
+   * "Log out" button and the manual-entry "Check code" button, both real
+   * one-handed-at-the-door tap targets, not just desktop chrome). */
+  min-height: 2.75rem;
   padding: 0.45rem 0.8rem;
   font-size: 0.9rem;
 }
@@ -231,7 +281,11 @@ body.scan-body {
   margin-bottom: 0.75rem;
 }
 .scan-show-banner__event {
+  /* Now the page's <h1> (see scan.html) -- reset the browser default
+   * heading margin so promoting it from <strong> doesn't shift layout. */
+  margin: 0;
   font-size: 1.1rem;
+  font-weight: 700;
 }
 .scan-show-banner__meta {
   color: var(--scan-muted);
@@ -388,7 +442,12 @@ body.scan-body {
   line-height: 1.5;
 }
 .scan-result__details dt {
-  color: rgba(255, 255, 255, 0.75);
+  /* 0.75 alpha only reached ~4.42:1 against the `unpaid` (amber)
+   * overlay's ".scan-result__details" panel background -- just under
+   * WCAG AA's 4.5:1 for this normal-size (0.8rem) text. 0.9 clears
+   * 4.5:1 against every overlay color this panel is used on (pass/
+   * unpaid/fail/network_error backgrounds all checked). */
+  color: rgba(255, 255, 255, 0.9);
   font-size: 0.8rem;
   text-transform: uppercase;
   letter-spacing: 0.03em;
@@ -429,6 +488,14 @@ body.scan-body {
   max-width: 30rem;
   width: 100%;
   text-align: left;
+}
+/* This form only ever renders on the `unpaid` (amber) overlay -- the
+ * general `.scan-hint` color (--scan-muted, tuned for the app's dark
+ * neutral background) only reaches ~2.76:1 there, well under AA's 4.5:1.
+ * Scoped override instead of changing `.scan-hint` globally (which is
+ * fine everywhere else it's actually used). */
+.scan-mark-paid .scan-hint {
+  color: rgba(255, 255, 255, 0.9);
 }
 .scan-mark-paid h2 {
   margin: 0 0 0.5rem;

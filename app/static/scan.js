@@ -38,8 +38,26 @@
   var canvas = document.getElementById("scan-canvas");
   var statusText = document.getElementById("scan-status-text");
   var overlay = document.getElementById("scan-overlay");
+  var announcer = document.getElementById("scan-result-announcer");
   var manualForm = document.getElementById("scan-manual-form");
   var manualInput = document.getElementById("scan-manual-input");
+
+  // Screen-reader announcements for scan results go through this
+  // persistent, never-hidden live region, NOT `#scan-overlay` itself (see
+  // that element's docstring in scan.html for why). Clearing the text
+  // first and setting it a tick later (rather than assigning it directly)
+  // guarantees a fresh, announceable mutation even when two consecutive
+  // scans produce the identical wording (e.g. two "Already scanned"
+  // results in a row) -- screen readers only announce a live region on a
+  // text *change*, so setting the exact same string twice in the same
+  // tick would otherwise silently announce nothing the second time.
+  function announce(text) {
+    if (!announcer) return;
+    announcer.textContent = "";
+    window.setTimeout(function () {
+      announcer.textContent = text;
+    }, 30);
+  }
 
   var canvasCtx = canvas ? canvas.getContext("2d", { willReadFrequently: true }) : null;
 
@@ -65,6 +83,7 @@
     overlay.hidden = true;
     overlay.className = "scan-overlay";
     overlay.innerHTML = "";
+    if (announcer) announcer.textContent = "";
     state = "scanning";
     setStatus("Point the camera at the ticket QR code.");
   }
@@ -165,10 +184,13 @@
     state = "checking";
     overlay.className = "scan-overlay scan-overlay--checking";
     overlay.innerHTML = "";
-    overlay.appendChild(el("div", "scan-spinner"));
+    var spinner = el("div", "scan-spinner");
+    spinner.setAttribute("aria-hidden", "true"); // purely decorative; "Checking…" text is the real status
+    overlay.appendChild(spinner);
     overlay.appendChild(el("p", "scan-result__heading", "Checking…"));
     overlay.hidden = false;
     setStatus("Checking ticket…");
+    announce("Checking ticket…");
   }
 
   // Distinct FOURTH-ish visual language from every confident outcome: a
@@ -182,14 +204,12 @@
     overlay.className = "scan-overlay scan-overlay--network_error";
     overlay.innerHTML = "";
     var icon = el("div", "scan-result__icon");
+    icon.setAttribute("aria-hidden", "true"); // decorative glyph; heading/message text carry the meaning
     icon.appendChild(el("span", "scan-result__icon-glyph", "?"));
     overlay.appendChild(icon);
     overlay.appendChild(el("p", "scan-result__heading", "Connection issue"));
-    overlay.appendChild(el(
-      "p",
-      "scan-result__message",
-      "Could not confirm this scan (" + reason + "). This is NOT a pass or a fail — please retry."
-    ));
+    var networkMessage = "Could not confirm this scan (" + reason + "). This is NOT a pass or a fail — please retry.";
+    overlay.appendChild(el("p", "scan-result__message", networkMessage));
     var actions = el("div", "scan-result__actions");
     var retryBtn = el("button", "scan-btn scan-btn--light", "Retry this scan");
     retryBtn.type = "button";
@@ -204,6 +224,7 @@
     overlay.appendChild(actions);
     overlay.hidden = false;
     setStatus("Connection issue — retry or scan a different ticket.");
+    announce("Connection issue. " + networkMessage);
     // Deliberately no auto-resume timer: brief requires resuming
     // automatically "once dismissed" for this state specifically, i.e.
     // only after an explicit staff action, not on a fixed delay (unlike
@@ -226,6 +247,7 @@
     overlay.innerHTML = "";
 
     var icon = el("div", "scan-result__icon");
+    icon.setAttribute("aria-hidden", "true"); // decorative glyph; heading/message text carry the meaning
     icon.appendChild(el("span", "scan-result__icon-glyph", meta.glyph));
     overlay.appendChild(icon);
     overlay.appendChild(el("p", "scan-result__heading", meta.heading));
@@ -285,6 +307,7 @@
 
     overlay.hidden = false;
     setStatus(meta.heading);
+    announce(meta.heading + ". " + data.message);
   }
 
   function submitToken(token) {

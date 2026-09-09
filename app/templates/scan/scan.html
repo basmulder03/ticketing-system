@@ -7,7 +7,14 @@
 
 <main id="scan-main" class="scan-main scan-main--scanner">
   <div class="scan-show-banner">
-    <strong class="scan-show-banner__event">{{ show.event_name }}</strong>
+    {# This page previously had NO heading at all (a <strong>, not a real
+       heading tag) -- promoted to <h1> so the page has a correct, sensible
+       heading hierarchy (accessibility-auditor Milestone 7 pass): this
+       page's <h1> (what/whom is being scanned) -> the mark-as-paid
+       fragment's <h2> "Resolve payment" (scan.js) is the only other
+       heading on this page, so h1 -> h2 stays a valid, non-skipping
+       hierarchy. #}
+    <h1 class="scan-show-banner__event">{{ show.event_name }}</h1>
     <span class="scan-show-banner__meta">{{ show.date }} &middot; doors {{ show.doors_time[:5] }} &middot; {{ show.venue_name }}</span>
   </div>
 
@@ -29,10 +36,26 @@
   </details>
 
   {# Full-screen result overlay -- built/shown/hidden entirely by scan.js.
-     aria-live="assertive" so a screen reader announces each result
-     immediately (this is a time-critical door-entry decision, not a
-     background update). #}
-  <div id="scan-overlay" class="scan-overlay" hidden aria-live="assertive"></div>
+     Deliberately NOT itself an aria-live region: scan.js populates its
+     content via appendChild while it's still `hidden`, then flips
+     `hidden` to false as the very last step -- the well-documented
+     "populate then unhide" anti-pattern, where several screen readers
+     never announce anything because the content mutations happened
+     before the region existed/was visible in the accessibility tree, and
+     un-hiding an already-populated subtree isn't reliably treated as a
+     live-region "update" either. Announcements instead come from the
+     persistent `#scan-result-announcer` below, which is never hidden and
+     only ever has its text content changed -- the same pattern this
+     project's public site already uses (`pub-presale-announcer` /
+     `pub-copy-announcer` in app/templates/public/*.html). #}
+  <div id="scan-overlay" class="scan-overlay" hidden></div>
+  {# `role="alert"` implies aria-live="assertive" + aria-atomic="true" on
+     its own (no need to also set aria-live explicitly, which would be a
+     slightly contradictory pairing with alert's own implicit-assertive
+     semantics) -- same role this milestone already uses for the show-
+     picker's `.scan-banner--error` (scan/picker.html), for the same
+     "time-critical, must interrupt" reason. #}
+  <p id="scan-result-announcer" class="scan-visually-hidden" role="alert"></p>
 </main>
 
 <script>
