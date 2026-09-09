@@ -11,6 +11,7 @@
       <tr>
         <th scope="col">Name</th>
         <th scope="col">Status</th>
+        <th scope="col"><span class="bo-visually-hidden">Shows</span></th>
         <th scope="col"><span class="bo-visually-hidden">Theme</span></th>
         <th scope="col"><span class="bo-visually-hidden">Email templates</span></th>
         <th scope="col"><span class="bo-visually-hidden">Orders</span></th>
@@ -23,6 +24,7 @@
       <tr>
         <td data-label="Name">{{ event.name }}</td>
         <td data-label="Status"><span class="bo-badge bo-badge--{{ event.status }}">{{ event.status }}</span></td>
+        <td data-label="Shows"><a class="bo-button bo-button--small" href="/events/{{ event.id }}/shows">Shows</a></td>
         <td data-label="Theme"><a class="bo-button bo-button--small" href="/events/{{ event.id }}/theme">Edit theme</a></td>
         <td data-label="Email templates"><a class="bo-button bo-button--small" href="/events/{{ event.id }}/email-templates">Email templates</a></td>
         <td data-label="Orders"><a class="bo-button bo-button--small" href="/events/{{ event.id }}/orders">Orders</a></td>
@@ -35,7 +37,7 @@
         </td>
       </tr>
       {% else %}
-      <tr><td colspan="7">No events yet.</td></tr>
+      <tr><td colspan="8">No events yet.</td></tr>
       {% endfor %}
     </tbody>
   </table>

@@ -277,9 +277,15 @@ summary:focus-visible {
 .bo-field input[type="email"],
 .bo-field input[type="password"],
 .bo-field input[type="file"],
+.bo-field input[type="number"],
+.bo-field input[type="date"],
+.bo-field input[type="time"],
 .bo-field select,
 .bo-field textarea,
-.bo-inline-form input[type="text"] {
+.bo-inline-form input[type="text"],
+.bo-inline-form input[type="number"],
+.bo-inline-form input[type="date"],
+.bo-inline-form input[type="time"] {
   border: 1px solid var(--bo-color-border);
   border-radius: var(--bo-radius);
   padding: var(--bo-spacing-2) var(--bo-spacing-3);
@@ -288,13 +294,45 @@ summary:focus-visible {
   color: var(--bo-color-text);
 }
 
-.bo-inline-form input[type="text"] {
-  /* Compact sizing for inline-form text inputs (e.g. the Orders list
-     mark-as-paid action, Milestone 6) — same visual style as .bo-field
-     inputs above, but narrower since they share a table cell with a
-     submit button rather than a full-width form column. */
+.bo-inline-form input[type="text"],
+.bo-inline-form input[type="number"],
+.bo-inline-form input[type="date"],
+.bo-inline-form input[type="time"] {
+  /* Compact sizing for inline-form text/number/date/time inputs (e.g. the
+     Orders list mark-as-paid action, Milestone 6; the Shows/TicketTypes
+     management page's per-row edit forms) — same visual style as .bo-field
+     inputs above, but narrower since they share a table cell with a submit
+     button rather than a full-width form column. */
   width: 9rem;
   font-size: 0.85rem;
+}
+
+.bo-inline-form input[type="number"] {
+  width: 6rem;
+}
+
+.bo-checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--bo-spacing-2);
+  font-weight: 600;
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.bo-field-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--bo-spacing-4);
+}
+
+.bo-checkbox-row {
+  display: block;
+  margin-bottom: var(--bo-spacing-1);
+}
+
+.bo-field-row > .bo-field {
+  flex: 1 1 12rem;
 }
 
 .bo-field textarea {
@@ -487,6 +525,39 @@ summary:focus-visible {
 .bo-badge--expired {
   background: var(--bo-color-danger-bg);
   color: var(--bo-color-danger);
+}
+
+/* AgentAccount active/revoked badges (app.models.agent_account.AgentAccount.is_active) */
+
+.bo-badge--active {
+  background: var(--bo-color-success-bg);
+  color: var(--bo-color-success-text);
+}
+
+.bo-badge--revoked {
+  background: var(--bo-color-danger-bg);
+  color: var(--bo-color-danger);
+}
+
+/* Audit-log actor-type badges (app.models.enums.ActorType). Kept as their
+   own dedicated palette rather than reused from the status badges above —
+   correctly distinguishing human/agent/system actors is called out
+   explicitly in AuditLogEntry's docstring as mattering enough to warrant
+   its own visual treatment, not just any neutral badge. */
+
+.bo-badge--human {
+  background: var(--bo-color-info-bg);
+  color: var(--bo-color-info-text);
+}
+
+.bo-badge--ai_agent {
+  background: var(--bo-color-success-bg);
+  color: var(--bo-color-success-text);
+}
+
+.bo-badge--system {
+  background: #ece9e4;
+  color: var(--bo-color-muted);
 }
 
 /* Images */

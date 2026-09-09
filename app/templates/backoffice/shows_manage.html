@@ -1,0 +1,232 @@
+{% extends "backoffice/base.html" %}
+{% block title %}Shows — {{ event.name }} — Beacon Backoffice{% endblock %}
+{% block content %}
+<p class="bo-breadcrumb"><a href="/events">Events</a> / {{ event.name }}</p>
+<p class="bo-hint bo-hint--small">
+  <a href="/events/{{ event.id }}/theme">Theme</a> ·
+  <a href="/events/{{ event.id }}/email-templates">Email templates</a> ·
+  <a href="/events/{{ event.id }}/orders">Orders</a> ·
+  <a href="/events/{{ event.id }}/stats">Stats</a> ·
+  <a href="/events/{{ event.id }}/shows" aria-current="page">Shows</a>
+</p>
+<h1>Shows: {{ event.name }}</h1>
+<p class="bo-hint">
+  Every show (performance date/time + venue) under this event, and — nested under each one — its ticket types.
+  A ticket type only ever exists under a show, so both are managed together here. "Remaining" reflects live
+  stock (quantity available minus tickets already sold), same figure the public checkout page enforces.
+</p>
+
+{% if shows_error %}
+<div class="bo-banner bo-banner--error" role="alert">{{ shows_error }}</div>
+{% endif %}
+
+<section class="bo-panel">
+  <h2>Add a show</h2>
+  <form method="post" action="/events/{{ event.id }}/shows">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="bo-field-row">
+      <div class="bo-field">
+        <label for="new-show-date">Date</label>
+        <input id="new-show-date" type="date" name="date" required>
+      </div>
+      <div class="bo-field">
+        <label for="new-show-doors">Doors time</label>
+        <input id="new-show-doors" type="time" name="doors_time" required>
+      </div>
+      <div class="bo-field">
+        <label for="new-show-start">Start time</label>
+        <input id="new-show-start" type="time" name="start_time" required>
+      </div>
+    </div>
+    <div class="bo-field-row">
+      <div class="bo-field">
+        <label for="new-show-venue-name">Venue name</label>
+        <input id="new-show-venue-name" type="text" name="venue_name" required maxlength="255">
+      </div>
+      <div class="bo-field">
+        <label for="new-show-capacity">Capacity</label>
+        <input id="new-show-capacity" type="number" min="1" name="capacity" required>
+      </div>
+      <div class="bo-field">
+        <label for="new-show-status">Status</label>
+        <select id="new-show-status" name="status">
+          {% for value, label in status_choices %}
+          <option value="{{ value }}" {% if value == 'draft' %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <div class="bo-field">
+      <label for="new-show-venue-address">Venue address</label>
+      <textarea id="new-show-venue-address" name="venue_address" rows="2" required></textarea>
+    </div>
+    <button type="submit" class="bo-button bo-button--primary">Add show</button>
+  </form>
+</section>
+
+{% for show in shows %}
+<section class="bo-panel">
+  <details {% if show.id == open_show_id %}open{% endif %}>
+    <summary>
+      {{ show.date }} &middot; {{ show.venue_name }}
+      <span class="bo-badge bo-badge--{{ show.status }}">{{ show.status }}</span>
+      <span class="bo-hint bo-hint--small">&mdash; {{ show.ticket_types | length }} ticket type{{ '' if show.ticket_types | length == 1 else 's' }}</span>
+    </summary>
+
+    <h3>Edit show</h3>
+    <form method="post" action="/events/{{ event.id }}/shows/{{ show.id }}/edit">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="orig_date" value="{{ show.date }}">
+      <input type="hidden" name="orig_doors_time" value="{{ show.doors_time[:5] }}">
+      <input type="hidden" name="orig_start_time" value="{{ show.start_time[:5] }}">
+      <input type="hidden" name="orig_venue_name" value="{{ show.venue_name }}">
+      <input type="hidden" name="orig_venue_address" value="{{ show.venue_address }}">
+      <input type="hidden" name="orig_capacity" value="{{ show.capacity }}">
+      <input type="hidden" name="orig_status" value="{{ show.status }}">
+
+      <div class="bo-field-row">
+        <div class="bo-field">
+          <label for="date-{{ show.id }}">Date</label>
+          <input id="date-{{ show.id }}" type="date" name="date" value="{{ show.date }}" required>
+        </div>
+        <div class="bo-field">
+          <label for="doors-{{ show.id }}">Doors time</label>
+          <input id="doors-{{ show.id }}" type="time" name="doors_time" value="{{ show.doors_time[:5] }}" required>
+        </div>
+        <div class="bo-field">
+          <label for="start-{{ show.id }}">Start time</label>
+          <input id="start-{{ show.id }}" type="time" name="start_time" value="{{ show.start_time[:5] }}" required>
+        </div>
+      </div>
+      <div class="bo-field-row">
+        <div class="bo-field">
+          <label for="venue-name-{{ show.id }}">Venue name</label>
+          <input id="venue-name-{{ show.id }}" type="text" name="venue_name" value="{{ show.venue_name }}" required maxlength="255">
+        </div>
+        <div class="bo-field">
+          <label for="capacity-{{ show.id }}">Capacity</label>
+          <input id="capacity-{{ show.id }}" type="number" min="1" name="capacity" value="{{ show.capacity }}" required>
+        </div>
+        <div class="bo-field">
+          <label for="status-{{ show.id }}">Status</label>
+          <select id="status-{{ show.id }}" name="status">
+            {% for value, label in status_choices %}
+            <option value="{{ value }}" {% if show.status == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="bo-field">
+        <label for="venue-address-{{ show.id }}">Venue address</label>
+        <textarea id="venue-address-{{ show.id }}" name="venue_address" rows="2" required>{{ show.venue_address }}</textarea>
+      </div>
+      <button type="submit" class="bo-button bo-button--small">Save show</button>
+    </form>
+
+    <form method="post" action="/events/{{ event.id }}/shows/{{ show.id }}/delete" class="bo-inline-form"
+          data-confirm="Delete this show and all of its ticket types? This cannot be undone. If any ticket type has purchased tickets, deletion will be blocked instead.">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit" class="bo-button bo-button--small bo-button--danger">Delete show</button>
+    </form>
+
+    <h3>Ticket types</h3>
+    <div class="bo-table-wrap">
+      <table class="bo-table bo-table--compact">
+        <caption class="bo-visually-hidden">Ticket types for {{ show.date }} &middot; {{ show.venue_name }}</caption>
+        <thead>
+          <tr>
+            <th scope="col">Name</th>
+            <th scope="col">Price</th>
+            <th scope="col">Fee included</th>
+            <th scope="col">Quantity available</th>
+            <th scope="col">Remaining</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for ticket_type in show.ticket_types %}
+          <tr>
+            <td data-label="Name">{{ ticket_type.name }}</td>
+            <td data-label="Price">&euro;{{ '%.2f' % (ticket_type.price | float) }}</td>
+            <td data-label="Fee included">{{ 'Yes' if ticket_type.service_fee_included else 'No' }}</td>
+            <td data-label="Quantity available">{{ ticket_type.quantity_available }}</td>
+            <td data-label="Remaining">{{ ticket_type.remaining }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5">No ticket types yet for this show.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% for ticket_type in show.ticket_types %}
+    <details>
+      <summary>Edit &ldquo;{{ ticket_type.name }}&rdquo;</summary>
+      <form method="post" action="/events/{{ event.id }}/shows/{{ show.id }}/ticket-types/{{ ticket_type.id }}/edit">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="orig_name" value="{{ ticket_type.name }}">
+        <input type="hidden" name="orig_price" value="{{ ticket_type.price }}">
+        <input type="hidden" name="orig_quantity_available" value="{{ ticket_type.quantity_available }}">
+        <input type="hidden" name="orig_service_fee_included" value="{{ 'true' if ticket_type.service_fee_included else 'false' }}">
+        <div class="bo-field-row">
+          <div class="bo-field">
+            <label for="tt-name-{{ ticket_type.id }}">Name</label>
+            <input id="tt-name-{{ ticket_type.id }}" type="text" name="name" value="{{ ticket_type.name }}" required maxlength="255">
+          </div>
+          <div class="bo-field">
+            <label for="tt-price-{{ ticket_type.id }}">Price (&euro;)</label>
+            <input id="tt-price-{{ ticket_type.id }}" type="number" step="0.01" min="0" name="price" value="{{ ticket_type.price }}" required>
+          </div>
+          <div class="bo-field">
+            <label for="tt-qty-{{ ticket_type.id }}">Quantity available</label>
+            <input id="tt-qty-{{ ticket_type.id }}" type="number" min="0" name="quantity_available" value="{{ ticket_type.quantity_available }}" required>
+          </div>
+          <div class="bo-field">
+            <label class="bo-checkbox-label">
+              <input type="checkbox" name="service_fee_included" {% if ticket_type.service_fee_included %}checked{% endif %}>
+              Price includes service fee
+            </label>
+          </div>
+        </div>
+        <button type="submit" class="bo-button bo-button--small">Save ticket type</button>
+      </form>
+      <form method="post" action="/events/{{ event.id }}/shows/{{ show.id }}/ticket-types/{{ ticket_type.id }}/delete" class="bo-inline-form"
+            data-confirm="Delete the &quot;{{ ticket_type.name }}&quot; ticket type? This cannot be undone. If it has any purchased tickets, deletion will be blocked instead.">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" class="bo-button bo-button--small bo-button--danger">Delete ticket type</button>
+      </form>
+    </details>
+    {% endfor %}
+
+    <details>
+      <summary>Add a ticket type</summary>
+      <form method="post" action="/events/{{ event.id }}/shows/{{ show.id }}/ticket-types">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="bo-field-row">
+          <div class="bo-field">
+            <label for="new-tt-name-{{ show.id }}">Name</label>
+            <input id="new-tt-name-{{ show.id }}" type="text" name="name" required maxlength="255" placeholder="e.g. Adult">
+          </div>
+          <div class="bo-field">
+            <label for="new-tt-price-{{ show.id }}">Price (&euro;)</label>
+            <input id="new-tt-price-{{ show.id }}" type="number" step="0.01" min="0" name="price" required>
+          </div>
+          <div class="bo-field">
+            <label for="new-tt-qty-{{ show.id }}">Quantity available</label>
+            <input id="new-tt-qty-{{ show.id }}" type="number" min="0" name="quantity_available" required>
+          </div>
+          <div class="bo-field">
+            <label class="bo-checkbox-label">
+              <input type="checkbox" name="service_fee_included" checked>
+              Price includes service fee
+            </label>
+          </div>
+        </div>
+        <button type="submit" class="bo-button bo-button--small bo-button--primary">Add ticket type</button>
+      </form>
+    </details>
+  </details>
+</section>
+{% else %}
+<p class="bo-hint">No shows yet for this event &mdash; add one above.</p>
+{% endfor %}
+{% endblock %}
