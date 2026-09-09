@@ -1,0 +1,197 @@
+{% extends "backoffice/base.html" %}
+{% block title %}Settings — {{ event.name }} — Beacon Backoffice{% endblock %}
+{% block content %}
+<p class="bo-breadcrumb"><a href="/events">Events</a> / {{ event.name }}</p>
+<p class="bo-hint bo-hint--small">
+  <a href="/events/{{ event.id }}/edit">Edit event</a> ·
+  <a href="/events/{{ event.id }}/shows">Shows</a> ·
+  <a href="/events/{{ event.id }}/config" aria-current="page">Settings</a> ·
+  <a href="/events/{{ event.id }}/theme">Theme</a> ·
+  <a href="/events/{{ event.id }}/email-templates">Email templates</a> ·
+  <a href="/events/{{ event.id }}/orders">Orders</a> ·
+  <a href="/events/{{ event.id }}/stats">Stats</a>
+</p>
+<h1>Settings: {{ event.name }}</h1>
+
+<section class="bo-panel">
+  <h2>Copy settings from another event</h2>
+  {% if other_events %}
+  <form method="post" action="/events/{{ event.id }}/config/copy-from" class="bo-inline-form bo-inline-form--wrap">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label for="source_event_id" class="bo-visually-hidden">Source event</label>
+    <select id="source_event_id" name="source_event_id" required>
+      {% for other in other_events %}
+      <option value="{{ other.id }}">{{ other.name }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="bo-button">Copy settings here</button>
+  </form>
+  <p class="bo-hint bo-hint--small">Copies every field on this page, including secrets, from the selected
+    event. Overwrites this event's current settings.</p>
+  {% else %}
+  <p class="bo-hint bo-hint--small">No other events exist yet to copy settings from.</p>
+  {% endif %}
+</section>
+
+<form method="post" action="/events/{{ event.id }}/config">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+  <section class="bo-panel">
+    <h2>SMTP (outgoing email)</h2>
+    <div class="bo-field-row">
+      <div class="bo-field">
+        <label for="smtp_host">Host</label>
+        <input type="text" id="smtp_host" name="smtp_host" value="{{ config.smtp_host if config else '' }}">
+      </div>
+      <div class="bo-field">
+        <label for="smtp_port">Port</label>
+        <input type="number" id="smtp_port" name="smtp_port" min="1" max="65535"
+               value="{{ config.smtp_port if config and config.smtp_port else '' }}">
+      </div>
+      <div class="bo-field">
+        <label for="smtp_encryption">Encryption</label>
+        <select id="smtp_encryption" name="smtp_encryption">
+          {% for value, label in smtp_encryption_choices %}
+          <option value="{{ value }}"
+            {% if (config and config.smtp_encryption == value) or (not config and value == 'none') %}selected{% endif %}>
+            {{ label }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <div class="bo-field-row">
+      <div class="bo-field">
+        <label for="smtp_username">Username</label>
+        <input type="text" id="smtp_username" name="smtp_username" value="{{ config.smtp_username if config else '' }}">
+      </div>
+      <div class="bo-field">
+        <label for="smtp_password">Password</label>
+        <input type="password" id="smtp_password" name="smtp_password" autocomplete="new-password"
+               placeholder="{{ 'A password is currently set — leave blank to keep it' if config and config.smtp_password_is_set else 'No password set' }}">
+        <label class="bo-hint bo-hint--small">
+          <input type="checkbox" name="clear_smtp_password" value="true"> Clear this password
+        </label>
+      </div>
+    </div>
+    <div class="bo-field-row">
+      <div class="bo-field">
+        <label for="sender_name">Sender name</label>
+        <input type="text" id="sender_name" name="sender_name" value="{{ config.sender_name if config else '' }}">
+      </div>
+      <div class="bo-field">
+        <label for="sender_email">Sender email</label>
+        <input type="email" id="sender_email" name="sender_email" value="{{ config.sender_email if config else '' }}">
+      </div>
+    </div>
+    <div class="bo-inline-form bo-inline-form--wrap">
+      <label for="test_email_recipient" class="bo-visually-hidden">Test email recipient</label>
+      <input type="email" id="test_email_recipient" form="test-email-form" name="recipient" placeholder="you@example.com" required>
+    </div>
+  </section>
+
+  <section class="bo-panel">
+    <h2>Mollie (online payment)</h2>
+    <div class="bo-field">
+      <label for="mollie_mode">Active mode</label>
+      <select id="mollie_mode" name="mollie_mode">
+        {% for value, label in mollie_mode_choices %}
+        <option value="{{ value }}"
+          {% if (config and config.mollie_mode == value) or (not config and value == 'test') %}selected{% endif %}>
+          {{ label }}
+        </option>
+        {% endfor %}
+      </select>
+      <p class="bo-hint bo-hint--small">Which key is actually used to create real payments. Keep this on Test
+        until you're ready to switch this event over to live, real-money payments.</p>
+    </div>
+    <div class="bo-field-row">
+      <div class="bo-field">
+        <label for="mollie_test_api_key">Test API key</label>
+        <input type="password" id="mollie_test_api_key" name="mollie_test_api_key" autocomplete="new-password"
+               placeholder="{{ 'A test key is currently set — leave blank to keep it' if config and config.mollie_test_api_key_is_set else 'No test key set' }}">
+        <label class="bo-hint bo-hint--small">
+          <input type="checkbox" name="clear_mollie_test_api_key" value="true"> Clear this key
+        </label>
+      </div>
+      <div class="bo-field">
+        <label for="mollie_live_api_key">Live API key</label>
+        <input type="password" id="mollie_live_api_key" name="mollie_live_api_key" autocomplete="new-password"
+               placeholder="{{ 'A live key is currently set — leave blank to keep it' if config and config.mollie_live_api_key_is_set else 'No live key set' }}">
+        <label class="bo-hint bo-hint--small">
+          <input type="checkbox" name="clear_mollie_live_api_key" value="true"> Clear this key
+        </label>
+      </div>
+    </div>
+    <div class="bo-inline-form bo-inline-form--wrap">
+      <label for="test_mollie_environment" class="bo-visually-hidden">Environment to test</label>
+      <select id="test_mollie_environment" form="test-mollie-form" name="environment">
+        <option value="test">Test</option>
+        <option value="live">Live</option>
+      </select>
+    </div>
+  </section>
+
+  <section class="bo-panel">
+    <h2>Payment methods</h2>
+    <p class="bo-hint bo-hint--small">Which payment methods buyers can choose at checkout for this event.</p>
+    {% for value, label in payment_method_choices %}
+    <label class="bo-hint bo-checkbox-row">
+      <input type="checkbox" name="enabled_payment_methods" value="{{ value }}"
+             {% if config and value in config.enabled_payment_methods %}checked{% endif %}>
+      {{ label }}
+    </label>
+    {% endfor %}
+  </section>
+
+  <section class="bo-panel">
+    <h2>Sales timing</h2>
+    <div class="bo-field">
+      <label for="sales_live_at">Sales go live at (UTC)</label>
+      <input type="datetime-local" id="sales_live_at" name="sales_live_at"
+             value="{{ config.sales_live_at[:16] if config and config.sales_live_at else '' }}">
+      <p class="bo-hint bo-hint--small">Checkout is blocked until this moment. Leave blank for no restriction
+        (sales open as soon as the event/show is published).</p>
+    </div>
+  </section>
+
+  <section class="bo-panel">
+    <h2>Invoice details</h2>
+    <div class="bo-field-row">
+      <div class="bo-field">
+        <label for="invoice_company_name">Company name</label>
+        <input type="text" id="invoice_company_name" name="invoice_company_name"
+               value="{{ config.invoice_company_name if config else '' }}">
+      </div>
+      <div class="bo-field">
+        <label for="invoice_company_vat_number">VAT number</label>
+        <input type="text" id="invoice_company_vat_number" name="invoice_company_vat_number"
+               value="{{ config.invoice_company_vat_number if config else '' }}">
+      </div>
+    </div>
+    <div class="bo-field">
+      <label for="invoice_company_address">Company address</label>
+      <textarea id="invoice_company_address" name="invoice_company_address" rows="3">{{ config.invoice_company_address if config else '' }}</textarea>
+    </div>
+    <div class="bo-field">
+      <label for="invoice_number_prefix">Invoice number prefix</label>
+      <input type="text" id="invoice_number_prefix" name="invoice_number_prefix"
+             value="{{ config.invoice_number_prefix if config else '' }}" placeholder="e.g. INV-2026-">
+    </div>
+  </section>
+
+  <button type="submit" class="bo-button bo-button--primary">Save settings</button>
+</form>
+
+<form id="test-email-form" method="post" action="/events/{{ event.id }}/config/test-email" hidden>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+</form>
+<p><button type="submit" form="test-email-form" class="bo-button bo-button--small">Send test email</button>
+  <span class="bo-hint bo-hint--small">Uses the currently SAVED SMTP settings — save first if you just changed them.</span></p>
+
+<form id="test-mollie-form" method="post" action="/events/{{ event.id }}/config/test-mollie" hidden>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+</form>
+<p><button type="submit" form="test-mollie-form" class="bo-button bo-button--small">Test Mollie connection</button>
+  <span class="bo-hint bo-hint--small">Uses the currently SAVED Mollie key — save first if you just changed it.</span></p>
+{% endblock %}
