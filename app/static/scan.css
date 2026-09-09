@@ -1,0 +1,467 @@
+/* Scanning app styles (Milestone 7): a deliberately separate, minimal-
+ * chrome stylesheet from backoffice.css/public.css -- this UI's usage
+ * context (a phone held one-handed at a dim venue entrance) is narrow
+ * enough that sharing the backoffice's light, desktop-oriented look would
+ * work against it. Dark background by default (less glare-inducing at a
+ * dim door than a bright white admin theme); result states below use
+ * large, fully saturated color blocks precisely so they read correctly
+ * even on a washed-out phone screen in bright daylight too.
+ *
+ * Mobile-first: the base rules below target a phone in portrait
+ * (~375px+); the only breakpoint added is a width cap for the rare case
+ * this is opened on a tablet/desktop for testing -- there is no dedicated
+ * large-display treatment here (that's the public site's concern, not
+ * this narrow staff tool's, per PROJECT_BRIEF.md's Responsive & Multi-
+ * Device section).
+ */
+
+:root {
+  --scan-bg: #0b0f14;
+  --scan-surface: #161d24;
+  --scan-border: #2a333d;
+  --scan-text: #f2f5f7;
+  --scan-muted: #9aa7b1;
+  --scan-accent: #4c8dff;
+
+  /* Outcome colors -- deliberately not just five hues: each state below
+   * also gets a distinct icon glyph and shape (border-radius/clip-path),
+   * never color alone, for colorblind users and pure glare legibility. */
+  --scan-pass-bg: #0f7a3d;
+  --scan-pass-fg: #ffffff;
+  --scan-unpaid-bg: #b45f06;
+  --scan-unpaid-fg: #ffffff;
+  --scan-fail-bg: #9c1c1c;
+  --scan-fail-fg: #ffffff;
+  --scan-network-bg: #2a3a66;
+  --scan-network-fg: #ffffff;
+  --scan-checking-bg: #1c2733;
+  --scan-checking-fg: #ffffff;
+
+  --scan-radius: 10px;
+  --scan-tap-min: 3rem; /* ~48px, WCAG 2.5.5-friendly minimum tap target */
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+}
+
+body.scan-body {
+  margin: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--scan-bg);
+  color: var(--scan-text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.scan-skip-link {
+  position: absolute;
+  left: -999px;
+  top: 0;
+  background: var(--scan-accent);
+  color: #fff;
+  padding: 0.5rem 1rem;
+  z-index: 100;
+}
+.scan-skip-link:focus {
+  left: 0.5rem;
+  top: 0.5rem;
+}
+
+/* ---------- Header ---------- */
+
+.scan-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: var(--scan-surface);
+  border-bottom: 1px solid var(--scan-border);
+  flex-wrap: wrap;
+}
+.scan-header__back {
+  color: var(--scan-text);
+  text-decoration: none;
+  font-weight: 600;
+  padding: 0.5rem 0.25rem;
+  min-height: var(--scan-tap-min);
+  display: inline-flex;
+  align-items: center;
+}
+.scan-header__brand {
+  font-weight: 700;
+}
+.scan-header__account {
+  color: var(--scan-muted);
+  font-size: 0.85rem;
+  margin-left: auto;
+}
+.scan-header__logout {
+  margin: 0;
+}
+
+/* ---------- Buttons ---------- */
+
+.scan-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--scan-tap-min);
+  padding: 0.65rem 1.1rem;
+  font-size: 1rem;
+  font-weight: 700;
+  border-radius: var(--scan-radius);
+  border: 2px solid transparent;
+  background: var(--scan-accent);
+  color: #fff;
+  cursor: pointer;
+}
+.scan-btn--ghost {
+  background: transparent;
+  border-color: var(--scan-border);
+  color: var(--scan-text);
+}
+.scan-btn--small {
+  min-height: 2.5rem;
+  padding: 0.45rem 0.8rem;
+  font-size: 0.9rem;
+}
+.scan-btn--light {
+  background: #fff;
+  color: #111;
+}
+.scan-btn--outline-light {
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.7);
+  color: #fff;
+}
+.scan-btn + .scan-btn {
+  margin-left: 0.5rem;
+}
+
+/* ---------- Layout / main ---------- */
+
+.scan-main {
+  padding: 1rem;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.scan-hint {
+  color: var(--scan-muted);
+  line-height: 1.4;
+}
+
+.scan-banner {
+  padding: 0.75rem 1rem;
+  border-radius: var(--scan-radius);
+  margin-bottom: 1rem;
+  font-weight: 600;
+}
+.scan-banner--error {
+  background: #3a1414;
+  color: #ffb4b4;
+  border: 1px solid #6b2323;
+}
+
+/* ---------- Show picker ---------- */
+
+.scan-picker__title {
+  font-size: 1.4rem;
+  margin: 0.5rem 0;
+}
+
+.scan-show-list {
+  list-style: none;
+  margin: 1rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.scan-show-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 1rem 1.1rem;
+  min-height: 4.5rem;
+  background: var(--scan-surface);
+  border: 1px solid var(--scan-border);
+  border-radius: var(--scan-radius);
+  color: var(--scan-text);
+  text-decoration: none;
+}
+.scan-show-card:active {
+  background: #1e2731;
+}
+.scan-show-card__event {
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+.scan-show-card__date,
+.scan-show-card__venue {
+  color: var(--scan-muted);
+  font-size: 0.95rem;
+}
+
+.scan-badge {
+  align-self: flex-start;
+  margin-top: 0.35rem;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+}
+.scan-badge--muted {
+  background: #2a333d;
+  color: var(--scan-muted);
+}
+
+/* ---------- Scan page ---------- */
+
+.scan-show-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin-bottom: 0.75rem;
+}
+.scan-show-banner__event {
+  font-size: 1.1rem;
+}
+.scan-show-banner__meta {
+  color: var(--scan-muted);
+  font-size: 0.9rem;
+}
+
+.scan-camera {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  max-height: 60vh;
+  background: #000;
+  border-radius: var(--scan-radius);
+  overflow: hidden;
+}
+.scan-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.scan-camera__frame {
+  position: absolute;
+  inset: 10%;
+  border: 3px solid rgba(255, 255, 255, 0.55);
+  border-radius: 12px;
+  pointer-events: none;
+}
+
+.scan-status-text {
+  text-align: center;
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0.85rem 0;
+  min-height: 1.6rem;
+}
+
+.scan-manual {
+  margin: 0.5rem 0 1rem;
+  color: var(--scan-muted);
+}
+.scan-manual summary {
+  cursor: pointer;
+  padding: 0.5rem 0;
+  min-height: var(--scan-tap-min);
+  display: flex;
+  align-items: center;
+}
+.scan-manual__form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: flex-end;
+  margin-top: 0.5rem;
+}
+.scan-manual__form label {
+  display: block;
+  width: 100%;
+  font-size: 0.85rem;
+  margin-bottom: 0.25rem;
+}
+.scan-manual__form input[type="text"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: var(--scan-tap-min);
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--scan-radius);
+  border: 1px solid var(--scan-border);
+  background: var(--scan-surface);
+  color: var(--scan-text);
+  font-size: 1rem;
+}
+
+/* ---------- Result overlay ---------- */
+
+.scan-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 1.5rem;
+  padding-top: calc(1.5rem + env(safe-area-inset-top));
+  padding-bottom: calc(1.5rem + env(safe-area-inset-bottom));
+  text-align: center;
+  color: #fff;
+}
+.scan-overlay[hidden] {
+  display: none;
+}
+
+.scan-overlay--checking { background: var(--scan-checking-bg); }
+.scan-overlay--pass { background: var(--scan-pass-bg); }
+.scan-overlay--unpaid { background: var(--scan-unpaid-bg); }
+.scan-overlay--already_scanned,
+.scan-overlay--wrong_show,
+.scan-overlay--invalid { background: var(--scan-fail-bg); }
+.scan-overlay--network_error { background: var(--scan-network-bg); }
+
+/* Fail sub-states get their own shape so staff can tell them apart even
+ * though all three share the same danger-red hue (brief: "Fail states
+ * should be visually distinguishable from each other"). */
+.scan-overlay--already_scanned .scan-result__icon { border-radius: 50%; }
+.scan-overlay--wrong_show .scan-result__icon { border-radius: 12px; transform: rotate(45deg); }
+.scan-overlay--wrong_show .scan-result__icon-glyph { display: inline-block; transform: rotate(-45deg); }
+.scan-overlay--invalid .scan-result__icon { clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%); }
+
+.scan-result__icon {
+  width: 6.5rem;
+  height: 6.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.16);
+  border: 3px solid rgba(255, 255, 255, 0.85);
+  font-size: 3.4rem;
+  line-height: 1;
+  font-weight: 900;
+}
+.scan-overlay--pass .scan-result__icon,
+.scan-overlay--unpaid .scan-result__icon,
+.scan-overlay--checking .scan-result__icon {
+  border-radius: 50%;
+}
+.scan-overlay--unpaid .scan-result__icon {
+  border-radius: 12px;
+}
+
+.scan-result__heading {
+  font-size: 1.9rem;
+  font-weight: 800;
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.scan-result__message {
+  font-size: 1.15rem;
+  font-weight: 600;
+  margin: 0;
+  max-width: 30rem;
+}
+
+.scan-result__details {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: var(--scan-radius);
+  padding: 0.85rem 1.1rem;
+  font-size: 1rem;
+  max-width: 30rem;
+  width: 100%;
+  text-align: left;
+  line-height: 1.5;
+}
+.scan-result__details dt {
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-top: 0.5rem;
+}
+.scan-result__details dt:first-child { margin-top: 0; }
+.scan-result__details dd {
+  margin: 0 0 0.15rem;
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+
+.scan-result__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.6rem;
+  margin-top: 0.25rem;
+}
+
+.scan-spinner {
+  width: 3.4rem;
+  height: 3.4rem;
+  border-radius: 50%;
+  border: 5px solid rgba(255, 255, 255, 0.25);
+  border-top-color: #fff;
+  animation: scan-spin 0.8s linear infinite;
+}
+@keyframes scan-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Mark-as-paid inline form (admin-only, injected on the unpaid result) */
+.scan-mark-paid {
+  background: rgba(0, 0, 0, 0.22);
+  border-radius: var(--scan-radius);
+  padding: 1rem;
+  max-width: 30rem;
+  width: 100%;
+  text-align: left;
+}
+.scan-mark-paid h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.05rem;
+}
+.scan-mark-paid label {
+  display: block;
+  font-size: 0.85rem;
+  margin: 0.5rem 0 0.2rem;
+}
+.scan-mark-paid input[type="text"] {
+  width: 100%;
+  min-height: var(--scan-tap-min);
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font-size: 1rem;
+}
+.scan-mark-paid input[type="text"]::placeholder {
+  color: rgba(255, 255, 255, 0.55);
+}
+.scan-mark-paid button[type="submit"] {
+  margin-top: 0.75rem;
+  width: 100%;
+}
+
+@media (min-width: 640px) {
+  .scan-main {
+    padding: 1.5rem;
+  }
+  .scan-camera {
+    max-height: 50vh;
+  }
+}

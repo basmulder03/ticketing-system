@@ -1,0 +1,55 @@
+{% extends "scan/base.html" %}
+{% block title %}Scanning — {{ show.event_name }} — Beacon Scan{% endblock %}
+{% block body %}
+{% with back_url = "/scan", back_label = "Shows" %}
+{% include "scan/_header.html" %}
+{% endwith %}
+
+<main id="scan-main" class="scan-main scan-main--scanner">
+  <div class="scan-show-banner">
+    <strong class="scan-show-banner__event">{{ show.event_name }}</strong>
+    <span class="scan-show-banner__meta">{{ show.date }} &middot; doors {{ show.doors_time[:5] }} &middot; {{ show.venue_name }}</span>
+  </div>
+
+  <div class="scan-camera" id="scan-camera">
+    <video id="scan-video" class="scan-video" playsinline muted autoplay></video>
+    <canvas id="scan-canvas" class="scan-canvas" hidden></canvas>
+    <div class="scan-camera__frame" aria-hidden="true"></div>
+  </div>
+
+  <p id="scan-status-text" class="scan-status-text" role="status" aria-live="polite">Starting camera&hellip;</p>
+
+  <details class="scan-manual">
+    <summary>Enter code manually</summary>
+    <form id="scan-manual-form" class="scan-manual__form">
+      <label for="scan-manual-input">Ticket code (from the QR payload)</label>
+      <input type="text" id="scan-manual-input" name="token" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <button type="submit" class="scan-btn scan-btn--small">Check code</button>
+    </form>
+  </details>
+
+  {# Full-screen result overlay -- built/shown/hidden entirely by scan.js.
+     aria-live="assertive" so a screen reader announces each result
+     immediately (this is a time-critical door-entry decision, not a
+     background update). #}
+  <div id="scan-overlay" class="scan-overlay" hidden aria-live="assertive"></div>
+</main>
+
+<script>
+  // Opaque, non-user-authored values only (UUIDs / CSRF token) -- never
+  // interpolate free-text fields (event name, venue, buyer name, etc.)
+  // into this inline script; those are rendered as normal auto-escaped
+  // HTML text elsewhere, or inserted via textContent from scan.js, never
+  // via innerHTML/string-built markup.
+  window.SCAN_CONFIG = {
+    showId: "{{ show.id }}",
+    eventId: "{{ show.event_id }}",
+    scanEndpoint: "/api/v1/shows/{{ show.id }}/scan",
+    isAdmin: {{ "true" if principal.role == "admin" else "false" }},
+    csrfToken: "{{ csrf_token }}",
+    returnTo: "/scan/{{ show.id }}"
+  };
+</script>
+<script src="/static/vendor/jsqr.min.js" defer></script>
+<script src="/static/scan.js" defer></script>
+{% endblock %}

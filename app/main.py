@@ -25,6 +25,7 @@ from app.api.routes import (
     orders,
     public,
     scan,
+    scan_shows,
     seo,
     shows,
     themes,
@@ -37,6 +38,7 @@ from app.web.routes import email_templates as web_email_templates
 from app.web.routes import events as web_events
 from app.web.routes import orders as web_orders
 from app.web.routes import public_site as web_public_site
+from app.web.routes import scan as web_scan
 from app.web.routes import themes as web_themes
 
 
@@ -63,6 +65,7 @@ def create_app() -> FastAPI:
     app.include_router(orders.list_router)
     app.include_router(public.router)
     app.include_router(scan.router)
+    app.include_router(scan_shows.router)
     app.include_router(seo.router)
 
     # Server-rendered backoffice HTML pages (Jinja2 + HTMX), added in
@@ -75,6 +78,7 @@ def create_app() -> FastAPI:
     app.include_router(web_themes.router)
     app.include_router(web_email_templates.router)
     app.include_router(web_orders.router)
+    app.include_router(web_scan.router)
 
     # Public-site HTML pages (Milestone 2, `frontend-theming`): themed
     # landing/preview pages, checkout form, order confirmation — see

@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  {# Pinch-zoom deliberately left enabled (no maximum-scale/user-scalable=no)
+     -- disabling it would fail WCAG 1.4.4 (Resize Text) for a low-vision
+     staff member trying to read a result at the door. #}
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#101418">
+  <title>{% block title %}Scan — Beacon{% endblock %}</title>
+  <link rel="stylesheet" href="/static/scan.css">
+</head>
+<body class="scan-body">
+  <a class="scan-skip-link" href="#scan-main">Skip to main content</a>
+  {% block body %}{% endblock %}
+</body>
+</html>

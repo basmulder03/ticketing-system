@@ -11,7 +11,7 @@ human loads in a browser, not API calls.
 from fastapi import Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import Principal, get_current_principal, require_admin
+from app.api.deps import Principal, get_current_principal, require_admin, require_scanner_or_admin
 from app.db.session import get_session
 
 
@@ -37,5 +37,31 @@ async def require_web_admin(request: Request, session: AsyncSession = Depends(ge
     try:
         principal = await get_current_principal(request, session)
         return await require_admin(principal)
+    except HTTPException as exc:
+        raise WebAuthRequired(next_path=str(request.url.path)) from exc
+
+
+async def require_web_scanner_or_admin(
+    request: Request, session: AsyncSession = Depends(get_session)
+) -> Principal:
+    """Dependency for the scanning-app HTML pages (Milestone 7): a valid
+    admin session is required, and — unlike :func:`require_web_admin` — a
+    ``scanner``-role admin session is accepted too.
+
+    This is the web-layer counterpart to ``app.api.deps.
+    require_scanner_or_admin`` (same underlying role check, reused here
+    rather than reimplemented), exactly mirroring how
+    :func:`require_web_admin` wraps ``app.api.deps.require_admin``: only
+    the auth-failure -> redirect-to-login translation is added here, no new
+    auth logic. Deliberately still excludes agent principals (agents never
+    reach any HTML page, scanner or backoffice). Every other backoffice
+    page keeps using :func:`require_web_admin`, which keeps excluding
+    scanner-role sessions — this dependency exists only for the show-picker
+    (``GET /scan``) and camera-scanning (``GET /scan/{show_id}``) pages
+    added in ``app.web.routes.scan``.
+    """
+    try:
+        principal = await get_current_principal(request, session)
+        return await require_scanner_or_admin(principal)
     except HTTPException as exc:
         raise WebAuthRequired(next_path=str(request.url.path)) from exc
