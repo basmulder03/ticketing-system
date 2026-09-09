@@ -45,6 +45,29 @@
   display: none !important;
 }
 
+/* Screen-reader-only announcer for the countdown -> "doors open" state
+ * change (see beamer/show.html and app/static/beamer.js) -- same
+ * off-screen-clip technique as app/static/public.css's
+ * `.pub-visually-hidden` (Milestone 2's countdown state-change announcer),
+ * duplicated here rather than shared since this page deliberately never
+ * loads public.css (see this file's own module comment: entirely separate
+ * stylesheet). Not applied to the ticking countdown value itself -- only
+ * to this one state-change announcement -- for the same reason
+ * public.js's pre-sale countdown doesn't mark its own ticking value
+ * `aria-live`: announcing every second would be unusable noise for a
+ * screen reader. */
+.beamer-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 html,
 body {
   margin: 0;

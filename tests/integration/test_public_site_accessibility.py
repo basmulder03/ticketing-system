@@ -258,6 +258,84 @@ async def test_not_found_page_has_no_axe_violations(axe_page: Page) -> None:
     assert violations == [], format_axe_violations(violations)
 
 
+# --- Milestone 9: privacy policy page --------------------------------------
+#
+# GDPR-conscious Security & Ops requirement's "privacy policy page" — plain
+# content, no Theme involved at all (see
+# app/templates/public/privacy_policy.html's module docstring: the copy
+# itself is placeholder text flagged separately for legal review, out of
+# scope here — this test only covers markup/structure).
+
+
+async def test_privacy_policy_page_has_no_axe_violations(axe_page: Page) -> None:
+    violations = await run_axe(axe_page, "/privacy")
+    assert violations == [], format_axe_violations(violations)
+
+
+# --- Milestone 9: large-display "beamer/TV" countdown view -----------------
+#
+# app.web.public_context.build_beamer_theme_css's docstring explicitly asks
+# for an accessibility-auditor pass to confirm its hardcoded near-black/
+# near-white contrast reasoning holds — see this milestone's
+# accessibility-auditor handoff for the actual computed contrast ratios
+# (all comfortably above AA's 4.5:1/3:1 thresholds). Unlike the landing
+# page, ``color-contrast`` is NOT disabled here: the Theme's ``accent_color``
+# only ever reaches a purely decorative, ``aria-hidden`` element
+# (``.beamer-page__accent-bar``) with no text of its own, so real per-event
+# theme colors can never trip axe's text-contrast check on this page — a
+# full, unmodified axe run is both possible and meaningful here.
+
+
+async def test_beamer_page_before_doors_time_has_no_axe_violations(
+    axe_page: Page,
+    make_event: Callable[..., Awaitable[Event]],
+    make_show: Callable[..., Awaitable[Show]],
+    make_theme: Callable[..., Awaitable[Theme]],
+) -> None:
+    """The ticking-countdown render path: doors time is in the future, so
+    ``#beamer-countdown`` is visible and ``#beamer-doors-open`` is
+    ``hidden`` — with a real Theme (accent color + font + logo) applied, so
+    the logo's alt text and the accent-color custom property both get
+    exercised."""
+    event = await make_event(status=PublishStatus.PUBLISHED, name="Beamer A11y Event")
+    await make_show(
+        event_id=event.id,
+        status=PublishStatus.PUBLISHED,
+        date=datetime.now(UTC).date() + timedelta(days=30),
+        venue_name="Het Kruispunt",
+    )
+    await make_theme(
+        event_id=event.id, accent_color="#ff00ff", font_choice=ThemeFont.LORA, status=PublishStatus.PUBLISHED
+    )
+
+    violations = await run_axe(axe_page, f"/e/{event.slug}/beamer")
+
+    assert violations == [], format_axe_violations(violations)
+
+
+async def test_beamer_page_after_doors_time_has_no_axe_violations(
+    axe_page: Page,
+    make_event: Callable[..., Awaitable[Event]],
+    make_show: Callable[..., Awaitable[Show]],
+) -> None:
+    """The "doors are open" standing-message render path: doors time is
+    already in the past, so ``#beamer-doors-open`` is visible and
+    ``#beamer-countdown`` is ``hidden`` — a distinct branch from the test
+    above, with no Theme at all (``logo_url`` is ``None``, exercising the
+    "no logo" branch of ``beamer/show.html``)."""
+    event = await make_event(status=PublishStatus.PUBLISHED, name="Doors Open Beamer Event")
+    await make_show(
+        event_id=event.id,
+        status=PublishStatus.PUBLISHED,
+        date=datetime.now(UTC).date() - timedelta(days=1),
+        venue_name="De Kapel",
+    )
+
+    violations = await run_axe(axe_page, f"/e/{event.slug}/beamer")
+
+    assert violations == [], format_axe_violations(violations)
+
+
 # --- Keyboard navigability: real Tab-key traversal of the checkout form ---
 
 

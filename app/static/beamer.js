@@ -16,6 +16,7 @@
     var countdownEl = document.getElementById("beamer-countdown");
     var valueEl = document.getElementById("beamer-countdown-value");
     var doorsOpenEl = document.getElementById("beamer-doors-open");
+    var announcerEl = document.getElementById("beamer-doors-announcer");
     if (!root || !countdownEl || !valueEl || !doorsOpenEl || !window.BeaconCountdown) return;
 
     var doorsAtRaw = root.getAttribute("data-doors-at");
@@ -27,6 +28,7 @@
     var unitHours = countdownEl.getAttribute("data-unit-hours") || "h";
     var unitMinutes = countdownEl.getAttribute("data-unit-minutes") || "m";
     var unitSeconds = countdownEl.getAttribute("data-unit-seconds") || "s";
+    var liveAnnouncement = countdownEl.getAttribute("data-live-announcement") || "";
 
     window.BeaconCountdown.start(
       doorsAt,
@@ -43,6 +45,7 @@
         // than a negative/broken countdown".
         countdownEl.hidden = true;
         doorsOpenEl.hidden = false;
+        if (announcerEl && liveAnnouncement) announcerEl.textContent = liveAnnouncement;
       }
     );
   }
