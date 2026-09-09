@@ -112,6 +112,16 @@ docker-compose — they're a named Docker volume (`beacon_uploads`), not a
 bind-mounted path, specifically so they never land in the git working
 tree at all.
 
+## Load-testing the sales-live moment
+
+Separate from the automated test suite: `scripts/loadtest/` has a
+Locust-based load test for `POST /api/v1/public/checkout` against a real
+running instance, for a human operator to run before a real event's
+sales-live moment (Milestone 9). Not wired into CI — it's a manual,
+occasional operational exercise, not a correctness test. See
+[`scripts/loadtest/README.md`](./scripts/loadtest/README.md) for setup and
+how to interpret results.
+
 ## Getting started
 
 See the [README](./README.md#quickstart) for how to bring up the full local
