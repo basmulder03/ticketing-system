@@ -76,6 +76,8 @@
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
               <button type="submit" class="bo-button bo-button--small bo-button--danger">Deactivate</button>
             </form>
+            {% else %}
+            <span class="bo-hint bo-hint--small">You can't deactivate your own account.</span>
             {% endif %}
           {% else %}
           <form method="post" action="/admin-users/{{ account.id }}/reactivate" class="bo-inline-form">
