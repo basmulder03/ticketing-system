@@ -65,6 +65,7 @@ def create_app() -> FastAPI:
     app.include_router(email_templates.router)
     app.include_router(orders.router)
     app.include_router(orders.list_router)
+    app.include_router(orders.show_router)
     app.include_router(public.router)
     app.include_router(scan.router)
     app.include_router(scan_shows.router)

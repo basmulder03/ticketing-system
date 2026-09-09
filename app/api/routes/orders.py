@@ -5,13 +5,20 @@ an Order is financial/buyer-PII data, not the "content-type data" (events,
 shows, ticket types, theme fields, email template content) the brief
 scopes agent keys to.
 
-Two routers in this module, both admin-only, split by URL shape rather
+Three routers in this module, all admin-only, split by URL shape rather
 than by concern: ``router`` (flat ``/api/v1/orders/{order_id}/...``) for
-actions addressed by order id alone (resend, invoice download,
-Milestone 6's manual mark-as-paid, Milestone 9's PII erasure);
+actions addressed by order id alone (resend, invoice download, ticket
+download, Milestone 6's manual mark-as-paid, Milestone 9's PII erasure);
 ``list_router`` (nested ``/api/v1/events/{event_id}/orders``) for listing
-an Event's orders, mirroring Show/TicketType's nested-under-Event pattern.
-Added alongside the Milestone 4 backoffice Orders view
+an Event's orders, mirroring Show/TicketType's nested-under-Event pattern;
+and (Milestone 9) ``show_router`` (flat ``/api/v1/shows/{show_id}/...``)
+for the batch ticket-print action, addressed by Show id rather than Order
+id since it spans every paid Order of one Show. ``show_router`` lives here
+rather than in ``app.api.routes.shows`` because it returns Order-derived
+data (buyer names, ticket contents) — the same financial/PII scoping
+reason the other two routers are ``require_admin`` rather than the
+``require_admin_or_agent`` every other Show/Event route uses. Added
+alongside the Milestone 4 backoffice Orders view
 (``app.web.routes.orders``), which needs somewhere to actually source
 order data from — stats/filtering is Milestone 8 scope.
 """
@@ -28,7 +35,9 @@ from app.db.session import get_session
 from app.models.enums import OrderStatus
 from app.models.event import Event
 from app.models.order import Order
+from app.models.show import Show
 from app.models.ticket import Ticket
+from app.models.ticket_type import TicketType
 from app.schemas.order import (
     ErasePiiRequest,
     ErasePiiResponse,
@@ -43,9 +52,11 @@ from app.services.invoicing import issue_invoice_for_order
 from app.services.order_payment import mark_order_paid
 from app.services.stock import InsufficientStockError, TicketTypeNotFoundError
 from app.services.ticket_delivery import send_order_confirmation_email, sign_order_tickets
+from app.services.ticket_pdf import render_tickets_pdf, render_tickets_pdf_batch
 
 router = APIRouter(prefix="/api/v1/orders", tags=["orders"])
 list_router = APIRouter(prefix="/api/v1/events/{event_id}/orders", tags=["orders"])
+show_router = APIRouter(prefix="/api/v1/shows", tags=["orders"])
 
 
 async def _order_to_out(session: AsyncSession, order: Order) -> OrderOut:
@@ -355,4 +366,156 @@ async def download_invoice_pdf(
         content=pdf_bytes,
         media_type="application/pdf",
         headers={"Content-Disposition": f'inline; filename="invoice-{order.id}.pdf"'},
+    )
+
+
+@router.get("/{order_id}/tickets.pdf")
+async def download_tickets_pdf(
+    order_id: str,
+    principal: Principal = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> Response:
+    """Direct backoffice PDF download/re-download of an Order's Ticket PDF
+    — the standalone-download counterpart to :func:`download_invoice_pdf`
+    above, closing a gap flagged (not fixed) in Milestones 4/5's PRs: until
+    now the ticket PDF only ever existed as an email attachment (see
+    ``app.services.ticket_delivery``), with no way to fetch it again from
+    the backoffice without triggering a resend.
+
+    Admin-only (financial/buyer-PII data, not agent-key content-management
+    scope, same as every other route in this module). 404s if the Order
+    doesn't exist, or if it has no *signed* Tickets yet — i.e. it isn't
+    ``paid`` — mirroring :func:`download_invoice_pdf`'s "no invoice yet"
+    404 exactly (an Order's Tickets are only ever signed by
+    ``app.services.ticket_delivery.sign_order_tickets`` at payment
+    confirmation, never speculatively, so "no signed tickets" and "not
+    paid" are the same condition in practice). Re-renders fresh on every
+    call from the Order's own stored Ticket rows (same "render on demand,
+    don't persist PDF bytes" pattern as the invoice download route and the
+    email-attachment path) rather than caching PDF bytes anywhere.
+
+    Filename (``tickets-{order_id}.pdf``) deliberately matches the exact
+    string already used for this same PDF as an EMAIL attachment (see
+    ``app.services.ticket_delivery.send_order_confirmation_email``), for
+    consistency between the two delivery paths.
+    """
+    parsed_id = parse_uuid_or_404(order_id, detail="Order not found.")
+    result = await session.execute(
+        select(Order)
+        .where(Order.id == parsed_id)
+        .options(
+            selectinload(Order.event).selectinload(Event.theme),
+            selectinload(Order.tickets).selectinload(Ticket.ticket_type).selectinload(TicketType.show),
+        )
+    )
+    order = result.scalar_one_or_none()
+    if order is None or order.event is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found.")
+    if not order.tickets or any(ticket.qr_token is None for ticket in order.tickets):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No signed tickets have been issued for this order yet.",
+        )
+
+    tickets = list(order.tickets)
+    show = tickets[0].ticket_type.show
+    ticket_types_by_id = {str(ticket.ticket_type_id): ticket.ticket_type for ticket in tickets}
+
+    pdf_bytes = render_tickets_pdf(
+        order=order,
+        tickets=tickets,
+        ticket_types_by_id=ticket_types_by_id,
+        show=show,
+        event=order.event,
+        theme=order.event.theme,
+        locale=order.language,
+    )
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="tickets-{order.id}.pdf"'},
+    )
+
+
+@show_router.get("/{show_id}/tickets-batch.pdf")
+async def download_show_tickets_batch_pdf(
+    show_id: str,
+    principal: Principal = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> Response:
+    """Batch-print action: one combined PDF containing every ``paid``
+    Order's Ticket pages for the given Show — per PROJECT_BRIEF.md's
+    Printing section ("a batch-print action for multiple/all orders of a
+    show, e.g. printing a full run ahead of an event, or reprinting for
+    someone who lost their ticket"). See
+    ``app.services.ticket_pdf.render_tickets_pdf_batch`` for why this is
+    one combined document (not N separate per-order downloads) and how it
+    is built (no new PDF-merge dependency — the existing ``weasyprint``
+    "many page-break sections in one HTML string" approach already used for
+    N tickets within one Order generalizes cleanly to N tickets across many
+    Orders).
+
+    Admin-only, same financial/PII scoping as ``router``/``list_router``
+    above (see this module's docstring for why this route lives here
+    rather than under ``app.api.routes.shows``).
+
+    404s if the Show doesn't exist, or if it has no ``paid`` Order with
+    signed Tickets at all (nothing to print — mirrors
+    :func:`download_invoice_pdf`/:func:`download_tickets_pdf`'s "nothing to
+    download yet" 404). Orders that are ``paid`` but (unexpectedly) still
+    have an unsigned Ticket for this Show are skipped individually rather
+    than failing the whole batch, per the brief's "skip, don't error"
+    framing — this should not happen in practice (Tickets are signed
+    atomically with the payment-confirmation transaction), so it is treated
+    as defensive skip-and-continue, not a silent data-quality guarantee.
+    """
+    parsed_show_id = parse_uuid_or_404(show_id, detail="Show not found.")
+    show_result = await session.execute(
+        select(Show).where(Show.id == parsed_show_id).options(selectinload(Show.event).selectinload(Event.theme))
+    )
+    show = show_result.scalar_one_or_none()
+    if show is None or show.event is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Show not found.")
+
+    orders_result = await session.execute(
+        select(Order)
+        .join(Ticket, Ticket.order_id == Order.id)
+        .join(TicketType, TicketType.id == Ticket.ticket_type_id)
+        .where(TicketType.show_id == show.id, Order.status == OrderStatus.PAID)
+        .options(selectinload(Order.tickets).selectinload(Ticket.ticket_type))
+        .order_by(Order.created_at)
+        .distinct()
+    )
+    orders = orders_result.scalars().unique().all()
+
+    orders_with_tickets: list[tuple[Order, list[Ticket], dict[str, TicketType]]] = []
+    for order in orders:
+        # An Order's Tickets can only ever belong to one Show (checkout
+        # enforces this — see app.models.order.Order's docstring), so this
+        # filter is defensive rather than load-bearing; it also guards
+        # against selecting an Order via the JOIN above whose OTHER
+        # tickets (there are none, by that same constraint) might not
+        # belong to this Show.
+        show_tickets = [ticket for ticket in order.tickets if ticket.ticket_type.show_id == show.id]
+        if not show_tickets or any(ticket.qr_token is None for ticket in show_tickets):
+            continue
+        ticket_types_by_id = {str(ticket.ticket_type_id): ticket.ticket_type for ticket in show_tickets}
+        orders_with_tickets.append((order, show_tickets, ticket_types_by_id))
+
+    if not orders_with_tickets:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No paid orders with issued tickets for this show yet.",
+        )
+
+    pdf_bytes = render_tickets_pdf_batch(
+        orders_with_tickets=orders_with_tickets,
+        show=show,
+        event=show.event,
+        theme=show.event.theme,
+    )
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="tickets-batch-{show.id}.pdf"'},
     )

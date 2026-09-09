@@ -6,10 +6,15 @@ Renders every ``Ticket`` belonging to a paid ``Order`` into ONE multi-page
 PDF (one ticket per page) — attached once to the confirmation email rather
 than as N separate attachments. Sized/margined for reliable print output
 (a real page size with sane margins, a QR code large enough to scan
-reliably off paper) per the brief's "print-friendly view" requirement;
-batch-print across many orders and a standalone backoffice re-print/
-download route are out of this milestone's scope (flagged for a later
-milestone/`frontend-theming`).
+reliably off paper) per the brief's "print-friendly view" requirement.
+
+Milestone 9 adds :func:`render_tickets_pdf_batch`, which generalizes the
+exact same "N page-break sections in one HTML string" approach to MANY
+Orders at once, for the backoffice's batch-print action
+(``GET /api/v1/shows/{show_id}/tickets-batch.pdf``, see
+``app.api.routes.shows``) — see that function's docstring for why one
+combined PDF (not N separate downloads, not a PDF-merge dependency) is the
+right shape.
 
 Always uses the Event's Theme FIXED fields (colors/logo/font) — NEVER
 ``Theme.custom_css`` — per the brief's Event & Theming section: "ticket/
@@ -47,7 +52,7 @@ from app.models.ticket import Ticket
 from app.models.ticket_type import TicketType
 from app.services.theme_preview import FONT_STACKS
 
-__all__ = ["logo_data_uri", "qr_data_uri", "render_tickets_pdf"]
+__all__ = ["logo_data_uri", "qr_data_uri", "render_tickets_pdf", "render_tickets_pdf_batch"]
 
 _DEFAULT_FONT_STACK = "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
 _DEFAULT_PRIMARY = "#1a1a1a"
@@ -155,6 +160,92 @@ def _ticket_page_html(
 """
 
 
+def _resolve_theme_fields(theme: Theme | None) -> tuple[str, str, str, str, str | None]:
+    """Shared theme-field resolution (fixed fields only, never
+    ``custom_css`` — see this module's docstring) used by both
+    :func:`render_tickets_pdf` and :func:`render_tickets_pdf_batch`, so the
+    two never drift on how an absent Theme degrades to defaults.
+
+    Returns ``(primary, secondary, accent, font_stack, logo_uri)``.
+    """
+    primary = theme.primary_color if theme is not None else _DEFAULT_PRIMARY
+    secondary = theme.secondary_color if theme is not None else _DEFAULT_SECONDARY
+    accent = theme.accent_color if theme is not None else _DEFAULT_ACCENT
+    font_stack = FONT_STACKS.get(theme.font_choice, _DEFAULT_FONT_STACK) if theme is not None else _DEFAULT_FONT_STACK
+    logo_uri = logo_data_uri(theme)
+    return primary, secondary, accent, font_stack, logo_uri
+
+
+def _order_pages_html(
+    *,
+    order: Order,
+    tickets: list[Ticket],
+    ticket_types_by_id: dict[str, TicketType],
+    show: Show,
+    event: Event,
+    logo_uri: str | None,
+    primary: str,
+    accent: str,
+    locale: str,
+) -> str:
+    """Render one Order's Tickets as concatenated ticket-page HTML
+    fragments (one ``<section class="ticket-page">`` per Ticket, via
+    :func:`_ticket_page_html`), all labeled/date-formatted in ``locale``.
+
+    Extracted so :func:`render_tickets_pdf` (one Order) and
+    :func:`render_tickets_pdf_batch` (many Orders, each keeping its own
+    buyer's ``language``) share the exact same per-ticket rendering rather
+    than duplicating this loop.
+    """
+    return "\n".join(
+        _ticket_page_html(
+            ticket=ticket,
+            ticket_type=ticket_types_by_id[str(ticket.ticket_type_id)],
+            order=order,
+            show=show,
+            event=event,
+            logo_uri=logo_uri,
+            primary=primary,
+            accent=accent,
+            locale=locale,
+        )
+        for ticket in tickets
+    )
+
+
+def _wrap_document(
+    *, pages_html: str, event: Event, primary: str, secondary: str, font_stack: str, locale: str
+) -> bytes:
+    """Wrap already-rendered ticket-page HTML fragments in one A5,
+    print-margined ``weasyprint`` document and return the PDF bytes.
+
+    Shared by :func:`render_tickets_pdf` and :func:`render_tickets_pdf_batch`
+    — the batch case simply hands this a longer ``pages_html`` string
+    (every Order's pages concatenated), which is all "one combined PDF
+    across many Orders" actually requires: ``weasyprint`` renders however
+    many ``page-break-after`` sections are present in the one HTML string
+    into one PDF, with no per-Order document boundary needed.
+    """
+    document_html = f"""<!DOCTYPE html>
+<html lang="{_esc(locale)}">
+<head>
+<meta charset="utf-8" />
+<title>{_esc(event.name)} — tickets</title>
+<style>
+  @page {{ size: A5; margin: 12mm; }}
+  body {{ font-family: {font_stack}; color: {primary}; background: {secondary}; margin: 0; }}
+  .ticket-page:last-of-type {{ page-break-after: auto; }}
+</style>
+</head>
+<body>
+{pages_html}
+</body>
+</html>
+"""
+    pdf_bytes: bytes = HTML(string=document_html).write_pdf()
+    return pdf_bytes
+
+
 def render_tickets_pdf(
     *,
     order: Order,
@@ -174,42 +265,92 @@ def render_tickets_pdf(
     ``app.services.ticket_delivery.sign_order_tickets`` first; a ticket
     must never be printed/emailed without a scannable code.
     """
-    primary = theme.primary_color if theme is not None else _DEFAULT_PRIMARY
-    secondary = theme.secondary_color if theme is not None else _DEFAULT_SECONDARY
-    accent = theme.accent_color if theme is not None else _DEFAULT_ACCENT
-    font_stack = FONT_STACKS.get(theme.font_choice, _DEFAULT_FONT_STACK) if theme is not None else _DEFAULT_FONT_STACK
-    logo_uri = logo_data_uri(theme)
+    primary, secondary, accent, font_stack, logo_uri = _resolve_theme_fields(theme)
+    pages = _order_pages_html(
+        order=order,
+        tickets=tickets,
+        ticket_types_by_id=ticket_types_by_id,
+        show=show,
+        event=event,
+        logo_uri=logo_uri,
+        primary=primary,
+        accent=accent,
+        locale=locale,
+    )
+    return _wrap_document(
+        pages_html=pages, event=event, primary=primary, secondary=secondary, font_stack=font_stack, locale=locale
+    )
 
+
+def render_tickets_pdf_batch(
+    *,
+    orders_with_tickets: list[tuple[Order, list[Ticket], dict[str, TicketType]]],
+    show: Show,
+    event: Event,
+    theme: Theme | None,
+) -> bytes:
+    """Render ONE combined PDF containing every signed Ticket across
+    MULTIPLE Orders for the same Show — backs the backoffice's batch-print
+    action per PROJECT_BRIEF.md's Printing section ("a batch-print action
+    for multiple/all orders of a show ... printing a full run ahead of an
+    event, or reprinting for someone who lost their ticket").
+
+    Deliberately a single multi-page PDF, not N separate per-order
+    downloads: a browser print dialog against dozens of separate files is
+    not what "batch print ahead of an event" needs — staff want one
+    document they can send to a printer once. This reuses the exact same
+    mechanism :func:`render_tickets_pdf` already uses to put N tickets from
+    ONE Order on N pages of one PDF (``page-break-after`` CSS across
+    concatenated HTML sections in a single ``weasyprint`` document),
+    generalized here to concatenate pages across MANY Orders instead of
+    just one. No PDF-merge dependency (e.g. ``pypdf``) was added or is
+    needed: ``weasyprint`` renders as many page-break sections as the input
+    HTML string contains into one PDF regardless of which Order each
+    section's data came from, so "combine many orders' tickets" is just
+    "build a longer HTML string", not a binary-PDF-merge problem.
+
+    Each Order's Tickets are rendered using THAT Order's own ``language``
+    (not one shared locale) — an entry in ``orders_with_tickets`` is
+    ``(order, tickets, ticket_types_by_id)`` exactly like the parameters
+    :func:`render_tickets_pdf` takes for a single Order, so buyers who
+    checked out in different languages still get correctly localized
+    labels/date formatting on their own pages within the same combined
+    document.
+
+    Raises ``ValueError`` (via ``_ticket_page_html``) if any Ticket among
+    ``orders_with_tickets`` has no signed ``qr_token`` — callers (see
+    ``app.api.routes.shows.download_batch_tickets_pdf``) are expected to
+    filter ``orders_with_tickets`` down to Orders whose Tickets are already
+    signed (i.e. ``paid`` Orders) themselves, so an unsigned Ticket reaching
+    here means a genuine bug worth surfacing loudly rather than silently
+    producing an incomplete printout.
+
+    Returns a valid (near-empty) PDF if ``orders_with_tickets`` is empty —
+    never raises just for having nothing to render; the caller is expected
+    to show a "nothing to print" message instead of calling this in that
+    case.
+    """
+    primary, secondary, accent, font_stack, logo_uri = _resolve_theme_fields(theme)
     pages = "\n".join(
-        _ticket_page_html(
-            ticket=ticket,
-            ticket_type=ticket_types_by_id[str(ticket.ticket_type_id)],
+        _order_pages_html(
             order=order,
+            tickets=tickets,
+            ticket_types_by_id=ticket_types_by_id,
             show=show,
             event=event,
             logo_uri=logo_uri,
             primary=primary,
             accent=accent,
-            locale=locale,
+            locale=order.language,
         )
-        for ticket in tickets
+        for order, tickets, ticket_types_by_id in orders_with_tickets
     )
-
-    document_html = f"""<!DOCTYPE html>
-<html lang="{_esc(locale)}">
-<head>
-<meta charset="utf-8" />
-<title>{_esc(event.name)} — tickets</title>
-<style>
-  @page {{ size: A5; margin: 12mm; }}
-  body {{ font-family: {font_stack}; color: {primary}; background: {secondary}; margin: 0; }}
-  .ticket-page:last-of-type {{ page-break-after: auto; }}
-</style>
-</head>
-<body>
-{pages}
-</body>
-</html>
-"""
-    pdf_bytes: bytes = HTML(string=document_html).write_pdf()
-    return pdf_bytes
+    # The document-level `<html lang>` is a single attribute that can't
+    # represent a mix of Orders' languages at once (each page's own content
+    # is already correctly localized via `_order_pages_html` above) — best
+    # effort, defaults to the first Order's language, or "en" if there is
+    # nothing to render.
+    doc_locale = orders_with_tickets[0][0].language if orders_with_tickets else "en"
+    return _wrap_document(
+        pages_html=pages, event=event, primary=primary, secondary=secondary, font_stack=font_stack, locale=doc_locale
+    )

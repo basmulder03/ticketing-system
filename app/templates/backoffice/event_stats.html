@@ -84,6 +84,11 @@
       {{ show.date }} &middot; {{ show.venue_name }}
       <span class="bo-hint bo-hint--small">&mdash; {{ show.sold_total }} sold, {{ show.scanned_total }} scanned</span>
     </summary>
+    <p class="bo-hint bo-hint--small">
+      <a href="/api/v1/shows/{{ show.id }}/tickets-batch.pdf" class="bo-button bo-button--small" target="_blank" rel="noopener">Batch print tickets</a>
+      &mdash; one combined PDF of every paid order's tickets for this show (e.g. to print a full run ahead of the
+      event); orders without paid/issued tickets yet are skipped.
+    </p>
     <div class="bo-table-wrap">
       <table class="bo-table bo-table--compact">
         <caption class="bo-visually-hidden">Ticket types for {{ show.date }} &middot; {{ show.venue_name }}</caption>
