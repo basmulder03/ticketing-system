@@ -23,6 +23,13 @@ Covers every route currently declared with ``Depends(require_admin)``:
   - POST   /api/v1/orders/{order_id}/mark-paid (Milestone 6: manual
     mark-as-paid mutates an Order's payment status, the most sensitive
     financial action in this module — admin-only, not agent scope)
+  - GET    /api/v1/events/{event_id}/stats (Milestone 8: sales/revenue
+    dashboard figures are financial data — admin-only, matching every
+    other financial route above — see ``app.api.routes.stats`` module
+    docstring)
+  - GET    /api/v1/events/{event_id}/orders/export.csv (Milestone 8: same
+    reasoning — per-order financial detail for accounting export,
+    admin-only)
 
 If a future route adds ``Depends(require_admin)``, add it to
 ``ADMIN_GATED_ROUTES`` below so this test keeps covering the full set.
@@ -74,6 +81,18 @@ ADMIN_GATED_ROUTES: list[tuple[str, str, str, dict[str, str] | None]] = [
         "POST",
         f"/api/v1/orders/{_PLACEHOLDER_ORDER_ID}/mark-paid",
         {"method_label": "test"},
+    ),
+    (
+        "get_event_stats",
+        "GET",
+        f"/api/v1/events/{_PLACEHOLDER_EVENT_ID}/stats",
+        None,
+    ),
+    (
+        "export_orders_csv",
+        "GET",
+        f"/api/v1/events/{_PLACEHOLDER_EVENT_ID}/orders/export.csv",
+        None,
     ),
 ]
 

@@ -15,6 +15,7 @@
         <th scope="col"></th>
         <th scope="col"></th>
         <th scope="col"></th>
+        <th scope="col"></th>
       </tr>
     </thead>
     <tbody>
@@ -25,6 +26,7 @@
         <td data-label="Theme"><a class="bo-button bo-button--small" href="/events/{{ event.id }}/theme">Edit theme</a></td>
         <td data-label="Email templates"><a class="bo-button bo-button--small" href="/events/{{ event.id }}/email-templates">Email templates</a></td>
         <td data-label="Orders"><a class="bo-button bo-button--small" href="/events/{{ event.id }}/orders">Orders</a></td>
+        <td data-label="Stats"><a class="bo-button bo-button--small" href="/events/{{ event.id }}/stats">Stats</a></td>
         <td data-label="Preview link">
           <button type="button" class="bo-button bo-button--small bo-button--ghost bo-copy-link"
                   data-copy-value="{{ public_base_url }}/preview/{{ event.preview_token }}">
@@ -33,7 +35,7 @@
         </td>
       </tr>
       {% else %}
-      <tr><td colspan="6">No events yet.</td></tr>
+      <tr><td colspan="7">No events yet.</td></tr>
       {% endfor %}
     </tbody>
   </table>
