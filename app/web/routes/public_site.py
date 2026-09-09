@@ -365,6 +365,28 @@ async def submit_preview_checkout(request: Request, token: str) -> Response:
     return await _handle_checkout_submission(request, slug=None, token=token)
 
 
+@router.get("/privacy", response_model=None)
+async def privacy_policy(request: Request) -> Response:
+    """The public privacy policy page (Milestone 9's GDPR-conscious
+    requirement — see PROJECT_BRIEF.md's Security & Ops section).
+
+    Deliberately NOT Event-scoped/themed (unlike ``public_landing_page``):
+    a privacy policy describes this whole deployment's data handling, not
+    any one Event, so it renders through the same shared public template
+    environment (``app.core.public_templating``) with no ``theme_css``/
+    per-Event context — the same "plain page" shape as
+    ``public/not_found.html``. Its actual content is placeholder text (see
+    ``app/templates/public/privacy_policy.html``); this route only wires
+    it up, it makes no claim about the content's legal accuracy.
+    """
+    locale = resolve_locale(request)
+    return public_templates.TemplateResponse(
+        request,
+        "public/privacy_policy.html",
+        {"locale": locale},
+    )
+
+
 @router.get("/order-confirmation/{order_id}", response_model=None)
 async def order_confirmation(request: Request, order_id: str) -> Response:
     """The post-checkout confirmation page. Only ever renders real order

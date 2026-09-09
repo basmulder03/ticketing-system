@@ -1,0 +1,52 @@
+{% extends "public/base.html" %}
+{# Milestone 9 — GDPR-conscious Security & Ops requirement (PROJECT_BRIEF.md):
+   "privacy policy page". This content is PLACEHOLDER text, not this
+   organization's real, legally-reviewed privacy policy — see the notice
+   block below and app/services/gdpr.py's module docstring for the
+   surrounding reasoning. Deliberately plain/hardcoded English copy (not
+   routed through app.i18n's translate()) since it is explicitly meant to
+   be replaced wholesale before launch, not maintained/translated as-is;
+   flagged to content-i18n to give this real, translated copy once an
+   organizer supplies their own reviewed policy text. #}
+{% block title %}Privacy Policy{% endblock %}
+{% block content %}
+<section class="pub-plain-section">
+  <h1>Privacy Policy</h1>
+
+  <p role="note" style="border: 2px solid; padding: 0.75em 1em; font-weight: bold;">
+    [PLACEHOLDER &mdash; this page is generic example text shipped with the ticketing platform.
+    It is NOT this organization's actual, reviewed privacy policy. Replace this entire page with
+    your own policy, ideally reviewed by someone with legal knowledge of GDPR/AVG obligations in
+    your jurisdiction, before relying on it or going live.]
+  </p>
+
+  <h2>What we collect</h2>
+  <p>
+    When you buy a ticket, we collect the name, email address, and (billing) address you provide
+    at checkout, along with which tickets you purchased and how you paid.
+  </p>
+
+  <h2>Why we collect it</h2>
+  <p>
+    We use this information to fulfil your order: to issue your ticket(s), send you an order
+    confirmation and any invoice by email, and — if required by local tax law — to include on the
+    invoice itself.
+  </p>
+
+  <h2>How long we keep it</h2>
+  <p>
+    We keep order and buyer information for as long as needed to fulfil your order and to meet our
+    own legal obligations, including statutory accounting/tax retention periods for invoices
+    (commonly several years, depending on jurisdiction). Outside of an issued invoice's retention
+    requirement, we aim to keep no more personal data than necessary.
+  </p>
+
+  <h2>Requesting deletion</h2>
+  <p>
+    You may ask us to erase the personal details attached to your order. Where an order has an
+    invoice already issued against it, we may need to retain the buyer name/address on that invoice
+    to meet our own accounting/tax obligations, even after erasing it elsewhere; we'll let you know
+    if that applies to your request. To make a request, contact the event organizer directly.
+  </p>
+</section>
+{% endblock %}

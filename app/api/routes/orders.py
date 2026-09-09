@@ -8,12 +8,12 @@ scopes agent keys to.
 Two routers in this module, both admin-only, split by URL shape rather
 than by concern: ``router`` (flat ``/api/v1/orders/{order_id}/...``) for
 actions addressed by order id alone (resend, invoice download,
-Milestone 6's manual mark-as-paid); ``list_router`` (nested
-``/api/v1/events/{event_id}/orders``) for listing an Event's orders,
-mirroring Show/TicketType's nested-under-Event pattern. Added alongside
-the Milestone 4 backoffice Orders view (``app.web.routes.orders``), which
-needs somewhere to actually source order data from — stats/filtering is
-Milestone 8 scope.
+Milestone 6's manual mark-as-paid, Milestone 9's PII erasure);
+``list_router`` (nested ``/api/v1/events/{event_id}/orders``) for listing
+an Event's orders, mirroring Show/TicketType's nested-under-Event pattern.
+Added alongside the Milestone 4 backoffice Orders view
+(``app.web.routes.orders``), which needs somewhere to actually source
+order data from — stats/filtering is Milestone 8 scope.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -29,7 +29,15 @@ from app.models.enums import OrderStatus
 from app.models.event import Event
 from app.models.order import Order
 from app.models.ticket import Ticket
-from app.schemas.order import MarkOrderPaidRequest, MarkOrderPaidResponse, OrderOut, TicketOut
+from app.schemas.order import (
+    ErasePiiRequest,
+    ErasePiiResponse,
+    MarkOrderPaidRequest,
+    MarkOrderPaidResponse,
+    OrderOut,
+    TicketOut,
+)
+from app.services.gdpr import erase_order_pii
 from app.services.invoice_pdf import render_invoice_pdf
 from app.services.invoicing import issue_invoice_for_order
 from app.services.order_payment import mark_order_paid
@@ -226,6 +234,78 @@ async def mark_paid(
 
     order_out = await _order_to_out(session, result.order)
     return MarkOrderPaidResponse(already_paid=result.already_paid, order=order_out)
+
+
+@router.post("/{order_id}/erase-pii")
+async def erase_pii(
+    order_id: str,
+    body: ErasePiiRequest,
+    principal: Principal = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> ErasePiiResponse:
+    """Anonymize this Order's buyer-identifying fields (name/email/address)
+    on request — the admin-facing "deletion-on-request" action from
+    PROJECT_BRIEF.md's GDPR-conscious Security & Ops requirement.
+
+    This is a deliberately narrower operation than "delete the order": the
+    Order row, its Tickets, and any issued Invoice are all left in place
+    (accounting/stats integrity — ticket counts and revenue figures must
+    stay correct); only ``buyer_name``/``buyer_email``/``buyer_address``
+    are overwritten with fixed placeholders. See ``app.services.gdpr`` for
+    the full mechanism and the idempotency/audit-log details.
+
+    Invoice-retention friction (the one non-obvious rule in this route):
+    Dutch/EU tax law typically requires invoices — commonly including the
+    customer's name/address — to be retained for a statutory period (often
+    seven years in NL). This app has no way to know an individual
+    organizer's actual retention obligations, so it does not decide this
+    for them either way:
+
+    - If this Order has NO issued Invoice, erasure proceeds immediately,
+      no confirmation required — there is no retention document to
+      conflict with.
+    - If this Order HAS an issued Invoice, erasure requires
+      ``body.confirm is True``; without it, this returns 409 with a
+      message about the invoice-retention consideration (not a rejection
+      of the erasure request itself) so the admin can make an informed,
+      explicit choice rather than the software silently blocking (which
+      could leave a genuine deletion request unfulfilled) or silently
+      erasing (which could put the organizer in breach of their own
+      invoice-retention obligations).
+
+    Idempotent: calling this again on an already-erased Order (with or
+    without ``confirm``, since an erased Order's own Invoice, if any, is
+    untouched and still present) just re-applies the same placeholders
+    harmlessly — never an error.
+
+    404s if the Order doesn't exist, matching every other route in this
+    module.
+    """
+    parsed_id = parse_uuid_or_404(order_id, detail="Order not found.")
+    result = await session.execute(
+        select(Order).where(Order.id == parsed_id).options(selectinload(Order.invoice))
+    )
+    order = result.scalar_one_or_none()
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found.")
+
+    had_invoice = order.invoice is not None
+    if had_invoice and not body.confirm:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "This order has an issued invoice. Invoices (which may include the buyer's name and "
+                "address) are typically subject to statutory accounting/tax retention periods — verify "
+                "your own invoice-retention obligations before erasing this order's buyer details. "
+                "Resubmit with confirm: true to proceed anyway."
+            ),
+        )
+
+    await erase_order_pii(session, order=order, principal=principal)
+    await session.commit()
+
+    order_out = await _order_to_out(session, order)
+    return ErasePiiResponse(order=order_out, had_invoice=had_invoice)
 
 
 @router.get("/{order_id}/invoice.pdf")

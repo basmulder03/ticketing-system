@@ -55,6 +55,10 @@
 
   <footer class="pub-chrome-footer">
     <p>{{ translate('app.name', locale) }}</p>
+    {# Placeholder link text, not routed through translate() — see
+       app/templates/public/privacy_policy.html's own header comment;
+       flagged to content-i18n for real translated copy. #}
+    <p><a href="/privacy">Privacy Policy</a></p>
   </footer>
 </body>
 </html>
