@@ -2,13 +2,17 @@
 {% block title %}Shows — {{ event.name }} — Beacon Backoffice{% endblock %}
 {% block content %}
 <p class="bo-breadcrumb"><a href="/events">Events</a> / {{ event.name }}</p>
+<nav aria-label="Event section">
 <p class="bo-hint bo-hint--small">
+  <a href="/events/{{ event.id }}/edit">Edit event</a> ·
+  <a href="/events/{{ event.id }}/shows" aria-current="page">Shows</a> ·
+  <a href="/events/{{ event.id }}/config">Settings</a> ·
   <a href="/events/{{ event.id }}/theme">Theme</a> ·
   <a href="/events/{{ event.id }}/email-templates">Email templates</a> ·
   <a href="/events/{{ event.id }}/orders">Orders</a> ·
-  <a href="/events/{{ event.id }}/stats">Stats</a> ·
-  <a href="/events/{{ event.id }}/shows" aria-current="page">Shows</a>
+  <a href="/events/{{ event.id }}/stats">Stats</a>
 </p>
+</nav>
 <h1>Shows: {{ event.name }}</h1>
 <p class="bo-hint">
   Every show (performance date/time + venue) under this event, and — nested under each one — its ticket types.
