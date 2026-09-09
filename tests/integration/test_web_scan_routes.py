@@ -92,7 +92,7 @@ async def test_scanner_role_can_reach_picker_and_scan_page(
     make_event_config: Callable[..., Awaitable[EventConfig]],
 ) -> None:
     await _api_login(client, await make_admin_user(role=AdminRole.SCANNER))
-    event, show = await _setup_show(make_event, make_show, make_ticket_type, make_event_config)
+    _event, show = await _setup_show(make_event, make_show, make_ticket_type, make_event_config)
 
     picker_response = await client.get("/scan")
     scan_response = await client.get(f"/scan/{show.id}")
@@ -111,7 +111,7 @@ async def test_admin_role_can_reach_picker_and_scan_page(
     make_event_config: Callable[..., Awaitable[EventConfig]],
 ) -> None:
     await _api_login(client, await make_admin_user(role=AdminRole.ADMIN))
-    event, show = await _setup_show(make_event, make_show, make_ticket_type, make_event_config)
+    _event, show = await _setup_show(make_event, make_show, make_ticket_type, make_event_config)
 
     picker_response = await client.get("/scan")
     scan_response = await client.get(f"/scan/{show.id}")
@@ -155,7 +155,7 @@ async def test_scan_page_is_admin_flag_is_true_for_admin_role(
     make_event_config: Callable[..., Awaitable[EventConfig]],
 ) -> None:
     await _api_login(client, await make_admin_user(role=AdminRole.ADMIN))
-    event, show = await _setup_show(make_event, make_show, make_ticket_type, make_event_config)
+    _event, show = await _setup_show(make_event, make_show, make_ticket_type, make_event_config)
 
     response = await client.get(f"/scan/{show.id}")
 
@@ -172,7 +172,7 @@ async def test_scan_page_is_admin_flag_is_false_for_scanner_role(
     make_event_config: Callable[..., Awaitable[EventConfig]],
 ) -> None:
     await _api_login(client, await make_admin_user(role=AdminRole.SCANNER))
-    event, show = await _setup_show(make_event, make_show, make_ticket_type, make_event_config)
+    _event, show = await _setup_show(make_event, make_show, make_ticket_type, make_event_config)
 
     response = await client.get(f"/scan/{show.id}")
 
@@ -192,7 +192,7 @@ async def test_picker_lists_a_near_term_show(
     make_event_config: Callable[..., Awaitable[EventConfig]],
 ) -> None:
     await _api_login(client, await make_admin_user(role=AdminRole.SCANNER))
-    event, show = await _setup_show(make_event, make_show, make_ticket_type, make_event_config)
+    _event, show = await _setup_show(make_event, make_show, make_ticket_type, make_event_config)
 
     response = await client.get("/scan")
 

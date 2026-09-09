@@ -35,6 +35,7 @@ import uuid
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from typing import Any
 
 import pytest
 from httpx import AsyncClient
@@ -135,7 +136,7 @@ async def _paid_ticket(
     return event, show, order_id, ticket_id, admin
 
 
-async def _scan(client: AsyncClient, show_id: uuid.UUID | str, token: str) -> tuple[int, dict[str, object]]:
+async def _scan(client: AsyncClient, show_id: uuid.UUID | str, token: str) -> tuple[int, dict[str, Any]]:
     response = await client.post(f"/api/v1/shows/{show_id}/scan", json={"token": token})
     return response.status_code, response.json()
 
@@ -169,7 +170,7 @@ async def test_pass_scans_and_completes_entry_with_one_audit_entry(
     make_ticket_type: Callable[..., Awaitable[TicketType]],
     make_event_config: Callable[..., Awaitable[EventConfig]],
 ) -> None:
-    event, show, order_id, ticket_id, admin = await _paid_ticket(
+    _event, show, order_id, ticket_id, admin = await _paid_ticket(
         client, make_admin_user, make_event, make_show, make_ticket_type, make_event_config
     )
     token = sign_ticket_token(uuid.UUID(ticket_id))
@@ -209,7 +210,7 @@ async def test_already_scanned_on_repeat_scan_does_not_remutate_the_ticket(
     make_ticket_type: Callable[..., Awaitable[TicketType]],
     make_event_config: Callable[..., Awaitable[EventConfig]],
 ) -> None:
-    event, show, order_id, ticket_id, admin = await _paid_ticket(
+    _event, show, _order_id, ticket_id, admin = await _paid_ticket(
         client, make_admin_user, make_event, make_show, make_ticket_type, make_event_config
     )
     token = sign_ticket_token(uuid.UUID(ticket_id))
@@ -234,7 +235,7 @@ async def test_already_scanned_on_repeat_scan_does_not_remutate_the_ticket(
     assert ticket.scanned_at == datetime.fromisoformat(second_body["scanned_at"])
 
     entries = await _scan_audit_entries(db_session, ticket_id)
-    results = sorted(e.detail["result"] for e in entries if e.detail)
+    results = sorted(str(e.detail["result"]) for e in entries if e.detail)
     assert results == ["already_scanned", "pass"], "exactly one pass mutation ever happened"
 
 
@@ -250,7 +251,7 @@ async def test_wrong_show_reports_the_tickets_actual_show_and_leaves_it_unscanne
     make_ticket_type: Callable[..., Awaitable[TicketType]],
     make_event_config: Callable[..., Awaitable[EventConfig]],
 ) -> None:
-    event, show, order_id, ticket_id, admin = await _paid_ticket(
+    event, show, _order_id, ticket_id, _admin = await _paid_ticket(
         client, make_admin_user, make_event, make_show, make_ticket_type, make_event_config
     )
     other_show = await make_show(event_id=event.id, status=PublishStatus.PUBLISHED)
@@ -284,7 +285,7 @@ async def test_invalid_garbage_and_unknown_ticket_id_produce_identical_generic_r
     make_ticket_type: Callable[..., Awaitable[TicketType]],
     make_event_config: Callable[..., Awaitable[EventConfig]],
 ) -> None:
-    event, show, ticket_type = await _setup_show(make_event, make_show, make_ticket_type, make_event_config)
+    _event, show, _ticket_type = await _setup_show(make_event, make_show, make_ticket_type, make_event_config)
     admin = await make_admin_user(role=AdminRole.ADMIN)
     await _login_as(client, admin)
 
@@ -315,7 +316,7 @@ async def test_unpaid_pending_door_order_does_not_complete_entry(
     make_ticket_type: Callable[..., Awaitable[TicketType]],
     make_event_config: Callable[..., Awaitable[EventConfig]],
 ) -> None:
-    event, show, ticket_type = await _setup_show(make_event, make_show, make_ticket_type, make_event_config)
+    _event, show, ticket_type = await _setup_show(make_event, make_show, make_ticket_type, make_event_config)
     admin = await make_admin_user(role=AdminRole.ADMIN)
     await _login_as(client, admin)
     order_id, ticket_id = await _checkout_one_ticket(client, ticket_type.id)
@@ -351,7 +352,7 @@ async def test_unpaid_is_not_special_cased_to_pending_door_only(
     """``app.services.scan.scan_ticket`` treats ANY non-``paid`` status as
     ``unpaid``, not just ``pending_door`` — force the Order into a
     different non-paid status directly and confirm the same outcome."""
-    event, show, ticket_type = await _setup_show(make_event, make_show, make_ticket_type, make_event_config)
+    _event, show, ticket_type = await _setup_show(make_event, make_show, make_ticket_type, make_event_config)
     admin = await make_admin_user(role=AdminRole.ADMIN)
     await _login_as(client, admin)
     order_id, ticket_id = await _checkout_one_ticket(client, ticket_type.id)
@@ -384,7 +385,7 @@ async def test_scanner_role_principal_can_perform_a_real_pass_scan(
     make_ticket_type: Callable[..., Awaitable[TicketType]],
     make_event_config: Callable[..., Awaitable[EventConfig]],
 ) -> None:
-    event, show, ticket_type = await _setup_show(make_event, make_show, make_ticket_type, make_event_config)
+    _event, show, ticket_type = await _setup_show(make_event, make_show, make_ticket_type, make_event_config)
     async with client_factory(None) as setup_client:
         order_id, ticket_id = await _checkout_one_ticket(setup_client, ticket_type.id)
         await _mark_paid_as_admin(setup_client, make_admin_user, order_id)
@@ -427,7 +428,7 @@ async def test_concurrent_scans_of_the_same_paid_ticket_yield_exactly_one_pass(
     structure), not just in isolation.
     """
     for iteration in range(_SCAN_ITERATIONS):
-        event, show, ticket_type = await _setup_show(make_event, make_show, make_ticket_type, make_event_config)
+        _event, show, ticket_type = await _setup_show(make_event, make_show, make_ticket_type, make_event_config)
 
         async with client_factory(f"scan-race-{iteration}-{uuid.uuid4().hex[:8]}") as client:
             order_id, ticket_id = await _checkout_one_ticket(
