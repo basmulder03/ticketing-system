@@ -1,0 +1,61 @@
+{% extends "beamer/base.html" %}
+
+{% block title %}{{ event.name }} — {{ translate('app.name', locale) }}{% endblock %}
+
+{% block theme_style %}
+{# See app.web.public_context.build_beamer_theme_css's docstring: this is
+   deliberately NOT the same theme_css app/templates/public/landing.html
+   embeds -- fixed accent color + font only, never primary/secondary
+   colors, never custom_css. #}
+{% if theme_css %}<style>{{ theme_css | safe }}</style>{% endif %}
+{% endblock %}
+
+{% block body %}
+<main class="beamer-page" data-doors-at="{{ doors_at_raw }}">
+  {% if logo_url %}
+  <img class="beamer-page__logo" src="{{ logo_url }}" alt="{{ event.name }}">
+  {% endif %}
+
+  <h1 class="beamer-page__event">{{ event.name }}</h1>
+  <div class="beamer-page__accent-bar" aria-hidden="true"></div>
+  <p class="beamer-page__venue">{{ venue_name }}</p>
+
+  {# Mirrors app/templates/public/base.html's #pub-copy-announcer /
+     app/templates/public/landing.html's #pub-presale-announcer pattern:
+     a dedicated, visually-hidden, polite live region that only receives
+     text at the exact moment the countdown flips to "doors open" (see
+     app/static/beamer.js) -- never on every per-second tick of the
+     countdown value itself. This view has no other interactive/dynamic
+     content, but this one state change is still a real status-message
+     update per WCAG 4.1.3, so it gets the same treatment as the landing
+     page's own sales-live transition. #}
+  <p id="beamer-doors-announcer" class="beamer-visually-hidden" aria-live="polite" role="status"></p>
+
+  {# Countdown to this Show's doors_time -- reuses the same tick/format
+     logic app/static/public.js's pre-sale countdown uses (see
+     app/static/countdown.js), just pointed at a different target
+     timestamp and a different pair of DOM targets. `doors_passed` gives
+     the correct initial state server-side even with JS disabled, mirroring
+     app/templates/public/landing.html's `sales_live_now` handling of its
+     own countdown. #}
+  <div id="beamer-countdown" class="beamer-countdown" {% if doors_passed %}hidden{% endif %}
+    data-unit-days="{{ translate('public.landing.countdown_unit_days', locale) }}"
+    data-unit-hours="{{ translate('public.landing.countdown_unit_hours', locale) }}"
+    data-unit-minutes="{{ translate('public.landing.countdown_unit_minutes', locale) }}"
+    data-unit-seconds="{{ translate('public.landing.countdown_unit_seconds', locale) }}"
+    data-live-announcement="{{ translate('public.landing.doors_time_label', locale) }}">
+    <p class="beamer-countdown__label">{{ translate('public.landing.doors_time_label', locale) }}</p>
+    <p class="beamer-countdown__value" id="beamer-countdown-value"></p>
+  </div>
+
+  {# Once doors_time has passed, the ticking value above is hidden (see
+     app/static/beamer.js) and this stands alone -- the same
+     doors_time_label string ("Doors open"/"Zaal open") doubles as both the
+     countdown's heading and, on its own, the past-the-deadline
+     announcement, so no separate "doors are open now" copy had to be
+     authored for this view (see this milestone's handoff notes). #}
+  <p id="beamer-doors-open" class="beamer-doors-open" {% if not doors_passed %}hidden{% endif %}>
+    {{ translate('public.landing.doors_time_label', locale) }}
+  </p>
+</main>
+{% endblock %}

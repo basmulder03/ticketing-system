@@ -29,7 +29,7 @@
         <th scope="col">Email</th>
         <th scope="col">Total</th>
         <th scope="col">Created</th>
-        <th scope="col"></th>
+        <th scope="col"><span class="bo-visually-hidden">Actions</span></th>
       </tr>
     </thead>
     <tbody>
@@ -48,6 +48,7 @@
             <button type="submit" class="bo-button bo-button--small">Resend confirmation email</button>
           </form>
           <a href="/api/v1/orders/{{ order.id }}/invoice.pdf" class="bo-button bo-button--small" target="_blank" rel="noopener">Download invoice</a>
+          <a href="/api/v1/orders/{{ order.id }}/tickets.pdf" class="bo-button bo-button--small" target="_blank" rel="noopener">Download tickets</a>
           {% else %}
           <form method="post" action="/events/{{ event.id }}/orders/{{ order.id }}/mark-paid" class="bo-inline-form bo-inline-form--wrap">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

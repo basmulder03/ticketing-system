@@ -30,6 +30,16 @@ Covers every route currently declared with ``Depends(require_admin)``:
   - GET    /api/v1/events/{event_id}/orders/export.csv (Milestone 8: same
     reasoning — per-order financial detail for accounting export,
     admin-only)
+  - POST   /api/v1/orders/{order_id}/erase-pii (Milestone 9: GDPR buyer-PII
+    erasure mutates an Order's buyer fields — admin-only, same financial/
+    PII reasoning as mark-paid above — see ``app.api.routes.orders``
+    module docstring)
+  - GET    /api/v1/orders/{order_id}/tickets.pdf (Milestone 9: standalone
+    ticket-PDF re-download — same buyer-PII/financial reasoning as
+    ``invoice.pdf`` above)
+  - GET    /api/v1/shows/{show_id}/tickets-batch.pdf (Milestone 9: batch
+    ticket-print action across every paid Order of a Show — same
+    financial/PII reasoning, addressed by Show id rather than Order id)
 
 If a future route adds ``Depends(require_admin)``, add it to
 ``ADMIN_GATED_ROUTES`` below so this test keeps covering the full set.
@@ -46,6 +56,7 @@ from tests.integration.conftest import SeededAdmin, SeededAgent
 _PLACEHOLDER_AGENT_ID = "11111111-1111-1111-1111-111111111111"
 _PLACEHOLDER_ORDER_ID = "22222222-2222-2222-2222-222222222222"
 _PLACEHOLDER_EVENT_ID = "33333333-3333-3333-3333-333333333333"
+_PLACEHOLDER_SHOW_ID = "44444444-4444-4444-4444-444444444444"
 
 # (label, method, path, json_body)
 ADMIN_GATED_ROUTES: list[tuple[str, str, str, dict[str, str] | None]] = [
@@ -92,6 +103,24 @@ ADMIN_GATED_ROUTES: list[tuple[str, str, str, dict[str, str] | None]] = [
         "export_orders_csv",
         "GET",
         f"/api/v1/events/{_PLACEHOLDER_EVENT_ID}/orders/export.csv",
+        None,
+    ),
+    (
+        "erase_order_pii",
+        "POST",
+        f"/api/v1/orders/{_PLACEHOLDER_ORDER_ID}/erase-pii",
+        {},
+    ),
+    (
+        "download_tickets_pdf",
+        "GET",
+        f"/api/v1/orders/{_PLACEHOLDER_ORDER_ID}/tickets.pdf",
+        None,
+    ),
+    (
+        "download_show_tickets_batch_pdf",
+        "GET",
+        f"/api/v1/shows/{_PLACEHOLDER_SHOW_ID}/tickets-batch.pdf",
         None,
     ),
 ]

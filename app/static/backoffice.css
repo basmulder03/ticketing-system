@@ -143,11 +143,22 @@ summary:focus-visible {
   align-items: center;
   gap: var(--bo-spacing-3);
   margin-left: auto;
+  /* Flex items refuse to shrink below their content's min-content width by
+     default -- without this, a long admin email address (a real value,
+     not just a test fixture: any email with no natural break point, e.g.
+     a long local-part before the @) pushes this flex item past the
+     viewport at ~375px, which in turn grows the whole page's horizontal
+     scrollWidth even though every other element on the page fits (found
+     during Milestone 9's responsive audit -- see
+     tests/integration/test_responsive_layout.py). */
+  min-width: 0;
 }
 
 .bo-header__account-name {
   font-size: 0.875rem;
   opacity: 0.85;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 /* Layout */
@@ -386,6 +397,21 @@ summary:focus-visible {
 
 .bo-table-wrap {
   overflow-x: auto;
+  /* `.bo-visually-hidden` descendants inside this table (empty <th> action-
+   * column labels, a <caption>) use `position: absolute` with no explicit
+   * offsets, so their containing block is whichever ancestor is
+   * `position`-ed. Without this, that containing block becomes the
+   * initial containing block (the whole document) instead of this
+   * scrollable wrapper -- their "static position" inside a table wider
+   * than the viewport can then land past the visible edge, which grows
+   * `document.documentElement.scrollWidth` and makes the entire PAGE
+   * scroll horizontally, defeating the whole point of this wrapper's
+   * `overflow-x: auto` scroll-container fallback (found during
+   * Milestone 9's responsive audit -- see
+   * tests/integration/test_responsive_layout.py). Making this element
+   * itself the containing block keeps every such descendant's layout
+   * box correctly scoped/clipped to this wrapper. */
+  position: relative;
 }
 
 .bo-table {

@@ -160,3 +160,31 @@ class MarkOrderPaidResponse(BaseModel):
 
     already_paid: bool
     order: OrderOut
+
+
+class ErasePiiRequest(BaseModel):
+    """Body of ``POST /api/v1/orders/{order_id}/erase-pii`` (Milestone 9).
+
+    ``confirm`` only matters for an Order that already has an issued
+    Invoice: it is the explicit, opt-in acknowledgement PROJECT_BRIEF.md's
+    GDPR-conscious requirement calls for when a deletion request runs up
+    against invoice-retention law (see ``app.services.gdpr`` for the full
+    reasoning). Defaulting to ``False`` means an accidental/careless call
+    against an invoiced order is refused (409), not silently erased; an
+    Order with no Invoice erases immediately regardless of this field.
+    """
+
+    confirm: bool = False
+
+
+class ErasePiiResponse(BaseModel):
+    """Response of a successful buyer-PII erasure."""
+
+    order: OrderOut
+    had_invoice: bool
+    """``True`` if this Order had an issued Invoice at the time of erasure
+    (meaning the caller had to pass ``confirm: true`` to reach this
+    success response) — surfaced back to the caller/UI as a reminder that
+    the underlying Invoice record itself was intentionally left untouched,
+    per this app's accounting-retention stance (see ``app.services.gdpr``).
+    """

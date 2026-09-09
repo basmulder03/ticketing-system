@@ -44,6 +44,14 @@ straightforward top-to-bottom/left-to-right table markup with no CSS
 reordering, so a dedicated keyboard-traversal test — like the public
 checkout form's — wasn't judged necessary; flagged as a manual checklist
 item instead of asserted here).
+
+Milestone 9 hardening pass: extended (per that milestone's
+accessibility-auditor handoff) to close the previously-flagged gap that
+login, the theme editor, the email-template editor, and the events list had
+NO automated axe coverage at all — see the "Login / Theme editor / Email
+template editor / Events list" sections below. Same fixtures/conventions as
+the rest of this file (``_login_and_apply_session_cookie``, ``run_axe``,
+``format_axe_violations``) — no new tooling introduced.
 """
 
 import uuid
@@ -55,11 +63,13 @@ from httpx import AsyncClient
 from playwright.async_api import Page
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.enums import OrderStatus, PaymentMethod, PublishStatus
+from app.models.email_template import EmailTemplate
+from app.models.enums import EmailTemplateType, OrderStatus, PaymentMethod, PublishStatus, ThemeFont
 from app.models.event import Event
 from app.models.event_config import EventConfig
 from app.models.order import Order
 from app.models.show import Show
+from app.models.theme import Theme
 from app.models.ticket import Ticket
 from app.models.ticket_type import TicketType
 from tests.integration.conftest import (
@@ -284,5 +294,172 @@ async def test_stats_page_with_no_shows_has_no_axe_violations(
     event = await make_event(status=PublishStatus.PUBLISHED, name="No Shows Yet Event")
 
     violations = await run_axe(axe_page, f"/events/{event.id}/stats")
+
+    assert violations == [], format_axe_violations(violations)
+
+
+# --- Milestone 9: login, theme editor, email-template editor, events list --
+#
+# Previously-flagged gap (see this file's module docstring): these four
+# pages had no automated axe sweep at all, unlike Orders/Stats above. Same
+# ``_login_and_apply_session_cookie``/``run_axe``/``format_axe_violations``
+# conventions throughout.
+
+
+async def test_login_page_has_no_axe_violations(axe_page: Page) -> None:
+    """Unauthenticated GET /login — the default, no-error render path."""
+    violations = await run_axe(axe_page, "/login")
+
+    assert violations == [], format_axe_violations(violations)
+
+
+async def test_login_page_error_state_has_no_axe_violations(axe_page: Page) -> None:
+    """The ``role="alert"`` invalid-credentials banner
+    (``app/templates/backoffice/login.html``), reached by really submitting
+    the form with wrong credentials through Playwright (this page has no
+    prerequisite seeded state, so a real form click — rather than
+    ``httpx`` + cookie handoff, as the orders/stats tests above use for
+    pages that DO need seeded data — is the simplest way to reach this
+    branch)."""
+    await axe_page.goto("/login")
+    await axe_page.fill("#email", "nobody@example.test")
+    await axe_page.fill("#password", "wrong-password")
+    await axe_page.click('button[type="submit"]')
+    await axe_page.wait_for_selector('[role="alert"]')
+
+    # Not using run_axe() here: it navigates first, which would lose the
+    # error state just reached above — evaluate axe directly against the
+    # page as it currently sits instead (same pattern
+    # test_public_site_accessibility.py's checkout-error-state test uses).
+    result = await axe_page.evaluate(
+        """
+        async () => {
+          return await axe.run(document, {
+            runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21aa'] },
+          });
+        }
+        """
+    )
+    assert result["violations"] == [], format_axe_violations(result["violations"])
+
+
+async def test_theme_editor_page_has_no_axe_violations(
+    axe_page: Page,
+    client: AsyncClient,
+    make_admin_user: Callable[..., Awaitable[SeededAdmin]],
+    make_event: Callable[..., Awaitable[Event]],
+) -> None:
+    """No Theme row yet — the "fresh event, all defaults" render path
+    (``theme`` is ``None`` throughout ``theme_editor.html``)."""
+    await _login_and_apply_session_cookie(axe_page, client, make_admin_user)
+    event = await make_event(status=PublishStatus.PUBLISHED, name="Theme A11y Event")
+
+    violations = await run_axe(axe_page, f"/events/{event.id}/theme")
+
+    assert violations == [], format_axe_violations(violations)
+
+
+async def test_theme_editor_page_with_saved_theme_and_active_custom_css_has_no_axe_violations(
+    axe_page: Page,
+    client: AsyncClient,
+    db_session: AsyncSession,
+    make_admin_user: Callable[..., Awaitable[SeededAdmin]],
+    make_event: Callable[..., Awaitable[Event]],
+    make_event_config: Callable[..., Awaitable[EventConfig]],
+) -> None:
+    """A saved Theme with active custom CSS — exercises the "Custom CSS is
+    active" info banner, the open ``<details>`` advanced panel, and (via a
+    second Event to copy from) the "Duplicate theme from another event"
+    form's populated ``<select>``."""
+    await _login_and_apply_session_cookie(axe_page, client, make_admin_user)
+    await make_event(status=PublishStatus.PUBLISHED, name="Source Event")
+    event = await make_event(status=PublishStatus.PUBLISHED, name="Themed Event")
+    await make_event_config(event_id=event.id)
+    theme = Theme(
+        event_id=event.id,
+        primary_color="#1a1a1a",
+        secondary_color="#ffffff",
+        accent_color="#c9a227",
+        font_choice=ThemeFont.LORA,
+        custom_css="h1 { color: #123456; }",
+        status=PublishStatus.PUBLISHED,
+    )
+    db_session.add(theme)
+    await db_session.commit()
+
+    violations = await run_axe(axe_page, f"/events/{event.id}/theme")
+
+    assert violations == [], format_axe_violations(violations)
+
+
+async def test_email_template_editor_page_has_no_axe_violations(
+    axe_page: Page,
+    client: AsyncClient,
+    make_admin_user: Callable[..., Awaitable[SeededAdmin]],
+    make_event: Callable[..., Awaitable[Event]],
+) -> None:
+    """No saved customization for this language yet — the "no customized
+    template yet" info banner render path, with the Reset button in its
+    ``disabled`` state."""
+    await _login_and_apply_session_cookie(axe_page, client, make_admin_user)
+    event = await make_event(status=PublishStatus.PUBLISHED, name="Email Template A11y Event")
+
+    violations = await run_axe(axe_page, f"/events/{event.id}/email-templates")
+
+    assert violations == [], format_axe_violations(violations)
+
+
+async def test_email_template_editor_page_with_saved_template_has_no_axe_violations(
+    axe_page: Page,
+    client: AsyncClient,
+    db_session: AsyncSession,
+    make_admin_user: Callable[..., Awaitable[SeededAdmin]],
+    make_event: Callable[..., Awaitable[Event]],
+) -> None:
+    """A saved customization for this language — the info banner is absent
+    and the Reset button is enabled, a distinct branch from the test
+    above."""
+    await _login_and_apply_session_cookie(axe_page, client, make_admin_user)
+    event = await make_event(status=PublishStatus.PUBLISHED, name="Customized Email Template Event")
+    template = EmailTemplate(
+        event_id=event.id,
+        language="en",
+        template_type=EmailTemplateType.ORDER_CONFIRMATION_TICKET.value,
+        subject="Your tickets for {{show_date}}",
+        body="<p>Thanks for your order, {{buyer_name}}!</p>",
+    )
+    db_session.add(template)
+    await db_session.commit()
+
+    violations = await run_axe(axe_page, f"/events/{event.id}/email-templates?language=en")
+
+    assert violations == [], format_axe_violations(violations)
+
+
+async def test_events_list_page_has_no_axe_violations(
+    axe_page: Page,
+    client: AsyncClient,
+    make_admin_user: Callable[..., Awaitable[SeededAdmin]],
+    make_event: Callable[..., Awaitable[Event]],
+) -> None:
+    """At least one real Event row — the populated-table render path."""
+    await _login_and_apply_session_cookie(axe_page, client, make_admin_user)
+    await make_event(status=PublishStatus.PUBLISHED, name="Events List A11y Event")
+
+    violations = await run_axe(axe_page, "/events")
+
+    assert violations == [], format_axe_violations(violations)
+
+
+async def test_events_list_page_with_no_events_has_no_axe_violations(
+    axe_page: Page,
+    client: AsyncClient,
+    make_admin_user: Callable[..., Awaitable[SeededAdmin]],
+) -> None:
+    """No Event rows at all — the empty-state ``<tr><td colspan="7">``
+    render path, a distinct branch from the populated test above."""
+    await _login_and_apply_session_cookie(axe_page, client, make_admin_user)
+
+    violations = await run_axe(axe_page, "/events")
 
     assert violations == [], format_axe_violations(violations)

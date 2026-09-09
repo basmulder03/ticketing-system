@@ -108,6 +108,50 @@ def build_public_theme_css(theme: dict[str, Any] | None) -> str:
     return base_css if not custom_css else f"{base_css}\n{custom_css}\n"
 
 
+def build_beamer_theme_css(theme: dict[str, Any] | None) -> str:
+    """Build the ``<style>`` body for the large-display "beamer" view
+    (``app/templates/beamer/show.html``): the Theme's font-family plus its
+    ``accent_color`` exposed as a CSS custom property, nothing else.
+
+    Deliberately narrower than :func:`build_public_theme_css`: it never
+    sets ``color``/``background-color`` from the Theme's
+    ``primary_color``/``secondary_color``, and never touches
+    ``custom_css`` at all (this view is themed-but-security-sensitive the
+    same way ticket/invoice PDFs are — see ``app/static/beamer.css``'s
+    module comment and PROJECT_BRIEF.md's Event & Theming section: custom
+    CSS overrides apply ONLY to the public landing page).
+
+    Tradeoff, made deliberately per this milestone's brief ("keep the
+    emphasis on legibility/contrast over strict theme fidelity if the two
+    ever conflict"): a beamer screen is read from across a room,
+    unattended, with no way for a viewer to intervene if an organizer's
+    chosen primary/secondary pairing happens to be low-contrast against
+    each other (Theme colors are only contrast-checked against each other
+    for the public site's own body-text usage — see
+    ``app.services.contrast`` — not against the specific near-black
+    background this view hardcodes). So ``beamer.css`` hardcodes its own
+    guaranteed-high-contrast background/text colors, and only surfaces
+    ``accent_color`` as `--beacon-color-accent` for a purely decorative
+    element (a thin bar under the event name) that carries no legibility
+    requirement of its own — never as a text or background color on a
+    legibility-critical element. Flagged for `accessibility-auditor` to
+    confirm this reasoning holds rather than self-certified here.
+
+    Never invents a default of its own when ``theme`` is ``None``, same
+    rationale as :func:`build_public_theme_css`.
+    """
+    if theme is None:
+        return ""
+
+    font_stack = FONT_STACKS[ThemeFont(theme["font_choice"])]
+    return (
+        ".beamer-page {\n"
+        f"  --beacon-color-accent: {theme['accent_color']};\n"
+        f"  font-family: {font_stack};\n"
+        "}\n"
+    )
+
+
 def _escape_for_script_embedding(json_text: str) -> str:
     """Prevent a value inside the JSON payload (e.g. an event/venue name)
     from prematurely closing the ``<script>`` tag it's embedded in.

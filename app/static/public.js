@@ -11,13 +11,18 @@
   "use strict";
 
   // ---- Countdown: pre-sale -> buy flow at EventConfig.sales_live_at ----
+  // Milestone 9: the actual tick/remaining-time math now lives in
+  // app/static/countdown.js (window.BeaconCountdown), shared with the
+  // large-display beamer view's countdown (app/static/beamer.js) -- this
+  // function only owns this page's own DOM wiring/markup and what
+  // "expired" (sales now live) means here.
   function initCountdown() {
     var section = document.querySelector(".pub-countdown-section");
     var countdown = document.getElementById("pub-countdown");
     var buySection = document.getElementById("pub-buy-section");
     var valueEl = document.getElementById("pub-countdown-value");
     var announcer = document.getElementById("pub-presale-announcer");
-    if (!section || !countdown || !buySection || !valueEl) return;
+    if (!section || !countdown || !buySection || !valueEl || !window.BeaconCountdown) return;
 
     var salesLiveAtRaw = section.getAttribute("data-sales-live-at");
     if (!salesLiveAtRaw) return; // no gate configured — buy section is already visible server-side
@@ -30,26 +35,19 @@
     var unitSeconds = countdown.getAttribute("data-unit-seconds") || "s";
     var liveAnnouncement = countdown.getAttribute("data-live-announcement") || "";
 
-    function render() {
-      var remainingMs = salesLiveAt - Date.now();
-      if (remainingMs <= 0) {
+    window.BeaconCountdown.start(
+      salesLiveAt,
+      function (remainingMs) {
+        var d = window.BeaconCountdown.breakdown(remainingMs);
+        valueEl.textContent =
+          d.days + unitDays + " " + d.hours + unitHours + " " + d.minutes + unitMinutes + " " + d.seconds + unitSeconds;
+      },
+      function () {
         countdown.hidden = true;
         buySection.hidden = false;
         if (announcer && liveAnnouncement) announcer.textContent = liveAnnouncement;
-        clearInterval(timer);
-        return;
       }
-      var totalSeconds = Math.floor(remainingMs / 1000);
-      var days = Math.floor(totalSeconds / 86400);
-      var hours = Math.floor((totalSeconds % 86400) / 3600);
-      var minutes = Math.floor((totalSeconds % 3600) / 60);
-      var seconds = totalSeconds % 60;
-      valueEl.textContent =
-        days + unitDays + " " + hours + unitHours + " " + minutes + unitMinutes + " " + seconds + unitSeconds;
-    }
-
-    render();
-    var timer = setInterval(render, 1000);
+    );
   }
 
   // ---- Show/date picker: reveal only the selected show's ticket panel ----

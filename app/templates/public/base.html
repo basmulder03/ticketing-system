@@ -25,6 +25,11 @@
   <link rel="stylesheet" href="/static/public.css">
   {% block theme_style %}{% endblock %}
   {% block extra_head %}{% endblock %}
+  {# countdown.js must load (and its `defer`red script run) before
+     public.js, which reads window.BeaconCountdown -- both are `defer`, so
+     document order is enough to guarantee that (see
+     app/static/countdown.js's module comment). #}
+  <script src="/static/countdown.js" defer></script>
   <script src="/static/public.js" defer></script>
 </head>
 <body>
@@ -55,6 +60,10 @@
 
   <footer class="pub-chrome-footer">
     <p>{{ translate('app.name', locale) }}</p>
+    {# Placeholder link text, not routed through translate() — see
+       app/templates/public/privacy_policy.html's own header comment;
+       flagged to content-i18n for real translated copy. #}
+    <p><a href="/privacy">Privacy Policy</a></p>
   </footer>
 </body>
 </html>

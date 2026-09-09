@@ -202,6 +202,16 @@ services). This repo's `docker-compose.yml` is local-dev only — Postgres
 config is intentionally unauthenticated/insecure defaults and Mailpit
 replaces real SMTP, neither of which are safe for prod as-is.
 
+## Load-testing the sales-live moment
+
+Before a real event's sales-live moment, `scripts/loadtest/` has a
+Locust-based load test that fires many concurrent real HTTP checkout
+requests at a shared pool of scarce tickets against a real running
+instance — measuring capacity/latency/error-rate, not just correctness
+(the concurrency correctness test, `tests/integration/test_checkout_concurrency.py`,
+already runs in CI on every push and is separate from this). See
+[`scripts/loadtest/README.md`](./scripts/loadtest/README.md).
+
 ## Project layout
 
 ```
@@ -226,8 +236,10 @@ app/                  FastAPI application package
   i18n/                EN/NL key-based translation dictionaries
 alembic/               DB migrations
 scripts/
-  seed.py               Demo data seed script (seeds one AdminUser so far)
-  dev-up.sh, dev-down.sh, dev-reseed.sh, dev-reset-db.sh
+  seed.py               Demo data seed script (AdminUser + demo Event/Show/TicketType)
+  dev-up.sh, dev-down.sh, dev-reseed.sh, dev-reset-db.sh, dev-native-up.sh, dev-native-test.sh
+  loadtest/              Locust load test for the sales-live checkout moment (Milestone 9,
+                          manual/occasional — not run in CI, see scripts/loadtest/README.md)
 tests/                 pytest suite
 docker/entrypoint.sh   Waits for DB, runs migrations, then execs uvicorn
 ```
