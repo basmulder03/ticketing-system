@@ -3,6 +3,9 @@
 {% block content %}
 <p class="bo-breadcrumb"><a href="/events">Events</a> / {{ event.name }}</p>
 <p class="bo-hint bo-hint--small">
+  <a href="/events/{{ event.id }}/edit">Edit event</a> ·
+  <a href="/events/{{ event.id }}/shows">Shows</a> ·
+  <a href="/events/{{ event.id }}/config">Settings</a> ·
   <a href="/events/{{ event.id }}/theme">Theme</a> ·
   <a href="/events/{{ event.id }}/email-templates">Email templates</a> ·
   <a href="/events/{{ event.id }}/orders">Orders</a> ·
