@@ -207,6 +207,21 @@ async def mark_order_paid(
     return MarkOrderPaidResult(order=order, already_paid=False)
 
 
+_RELEASABLE_STATUSES = (OrderStatus.PENDING, OrderStatus.PENDING_DOOR)
+"""Starting statuses :func:`release_order_stock` is willing to transition
+out of — both are, per ``app.models.enums.OrderStatus``'s docstring, "still
+holding its reserved stock" statuses: ``PENDING`` (a Mollie payment in
+flight) and ``PENDING_DOOR`` (a buyer's pay-at-the-door reservation for a
+future show). Widened from ``PENDING``-only (Milestone 3) to also include
+``PENDING_DOOR`` in Milestone 10 (``app.services.order_expiry``), so the
+stale-order sweep can reuse this one function for both kinds of lapsed
+reservation instead of duplicating its row-locking/idempotency/never-
+downgrades-a-paid-order guarantees for a second, near-identical status
+flip — see that module for why ``PENDING_DOOR`` orders need a very
+different TTL policy (tied to the Show's own start time, not a fixed
+duration) even though the release mechanics themselves are identical."""
+
+
 async def release_order_stock(
     session: AsyncSession,
     *,
@@ -215,9 +230,10 @@ async def release_order_stock(
     principal: Principal,
     reason: str,
 ) -> Order:
-    """Idempotently transition a still-``PENDING`` Order to ``new_status``
-    (``OrderStatus.CANCELLED`` or ``OrderStatus.EXPIRED``) after a failed/
-    expired/canceled Mollie payment.
+    """Idempotently transition a still-``PENDING``/``PENDING_DOOR`` Order to
+    ``new_status`` (``OrderStatus.CANCELLED`` or ``OrderStatus.EXPIRED``)
+    after a failed/expired/canceled Mollie payment, a lapsed pay-at-the-door
+    reservation (``app.services.order_expiry``), or a staff cancellation.
 
     Releasing reserved stock needs no separate mechanism beyond this status
     flip: ``app.services.stock.sold_counts_for_ticket_types`` already
@@ -225,15 +241,16 @@ async def release_order_stock(
     the moment this commits, this Order's Tickets stop counting against
     their TicketTypes' remaining stock.
 
-    A safe no-op if the Order is no longer ``PENDING`` — in particular this
-    NEVER downgrades an already-``PAID`` order, even if a stale/late
-    "expired" webhook is delivered after a separate "paid" webhook for the
-    same Order was already processed first; whichever reconciliation call
-    is processed first under the row lock wins, and ``Order.status`` only
-    ever leaves ``PENDING`` once.
+    A safe no-op if the Order is not currently in one of
+    :data:`_RELEASABLE_STATUSES` — in particular this NEVER downgrades an
+    already-``PAID`` order, even if a stale/late "expired" webhook is
+    delivered after a separate "paid" webhook for the same Order was already
+    processed first; whichever reconciliation call is processed first under
+    the row lock wins, and ``Order.status`` only ever leaves
+    ``PENDING``/``PENDING_DOOR`` once.
     """
     order = await _lock_order(session, order_id)
-    if order.status != OrderStatus.PENDING:
+    if order.status not in _RELEASABLE_STATUSES:
         return order
 
     order.status = new_status
