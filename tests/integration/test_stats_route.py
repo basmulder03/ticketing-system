@@ -539,3 +539,78 @@ async def test_export_csv_is_unfiltered_by_status_and_includes_ticket_type_summa
     assert cancelled_row["mollie_payment_id"] == ""
     assert cancelled_row["invoice_number"] == ""
     assert "None" not in cancelled_row.values()
+
+
+# --- Cross-event isolation ---------------------------------------------------
+
+
+async def test_stats_and_csv_export_never_leak_a_different_events_data(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    make_admin_user: Callable[..., Awaitable[SeededAdmin]],
+    make_event: Callable[..., Awaitable[Event]],
+    make_show: Callable[..., Awaitable[Show]],
+    make_ticket_type: Callable[..., Awaitable[TicketType]],
+) -> None:
+    """security-reviewer finding (Milestone 8): code inspection showed both
+    routes correctly scope every query by ``event_id``, but there was no
+    explicit positive test proving one event's stats/CSV never surface a
+    DIFFERENT event's data. Seeds two distinct Events, each with its own
+    paid Order/Ticket, and asserts each event's ``/stats``/``export.csv``
+    response contains ONLY its own data — the other event's revenue/order
+    id/buyer must never appear."""
+    await _login_admin(client, make_admin_user)
+
+    event_a = await make_event(status=PublishStatus.PUBLISHED)
+    show_a = await make_show(event_id=event_a.id, status=PublishStatus.PUBLISHED)
+    ticket_type_a = await make_ticket_type(show_id=show_a.id, name="Event A Ticket", price=Decimal("30.00"))
+    order_a = await _make_order_with_tickets(
+        db_session,
+        event_id=event_a.id,
+        ticket_type_id=ticket_type_a.id,
+        status=OrderStatus.PAID,
+        payment_method=PaymentMethod.MOLLIE,
+        total=Decimal("30.00"),
+        mollie_payment_id="tr_event_a",
+    )
+
+    event_b = await make_event(status=PublishStatus.PUBLISHED)
+    show_b = await make_show(event_id=event_b.id, status=PublishStatus.PUBLISHED)
+    ticket_type_b = await make_ticket_type(show_id=show_b.id, name="Event B Ticket", price=Decimal("99.00"))
+    order_b = await _make_order_with_tickets(
+        db_session,
+        event_id=event_b.id,
+        ticket_type_id=ticket_type_b.id,
+        status=OrderStatus.PAID,
+        payment_method=PaymentMethod.DOOR,
+        total=Decimal("99.00"),
+        mollie_payment_id=None,
+    )
+
+    stats_a = await client.get(f"/api/v1/events/{event_a.id}/stats")
+    assert stats_a.status_code == 200, stats_a.text
+    body_a = stats_a.json()
+    assert body_a["revenue_total"] == "30.00"
+    ticket_type_ids_a = {tt["id"] for show in body_a["shows"] for tt in show["ticket_types"]}
+    assert ticket_type_ids_a == {str(ticket_type_a.id)}
+
+    stats_b = await client.get(f"/api/v1/events/{event_b.id}/stats")
+    assert stats_b.status_code == 200, stats_b.text
+    body_b = stats_b.json()
+    assert body_b["revenue_total"] == "99.00"
+    ticket_type_ids_b = {tt["id"] for show in body_b["shows"] for tt in show["ticket_types"]}
+    assert ticket_type_ids_b == {str(ticket_type_b.id)}
+
+    csv_a = await client.get(f"/api/v1/events/{event_a.id}/orders/export.csv")
+    assert csv_a.status_code == 200, csv_a.text
+    _, rows_a = _parse_csv(csv_a.content)
+    order_ids_a = {row["order_id"] for row in rows_a}
+    assert order_ids_a == {str(order_a.id)}
+    assert str(order_b.id) not in order_ids_a
+
+    csv_b = await client.get(f"/api/v1/events/{event_b.id}/orders/export.csv")
+    assert csv_b.status_code == 200, csv_b.text
+    _, rows_b = _parse_csv(csv_b.content)
+    order_ids_b = {row["order_id"] for row in rows_b}
+    assert order_ids_b == {str(order_b.id)}
+    assert str(order_a.id) not in order_ids_b
