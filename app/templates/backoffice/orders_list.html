@@ -10,9 +10,9 @@
 </p>
 <h1>Orders: {{ event.name }}</h1>
 <p class="bo-hint">
-  Minimal Orders view: enough to see who ordered what, resend a confirmation/ticket email, and manually mark an
-  order as paid (cash, bank transfer, card terminal, corrections, etc.). Filtering and sales stats are not part of
-  this view yet.
+  Minimal Orders view: enough to see who ordered what, resend a confirmation/ticket email, manually mark an
+  order as paid (cash, bank transfer, card terminal, corrections, etc.), and erase a buyer's PII on request
+  (GDPR deletion request handling — irreversible). Filtering and sales stats are not part of this view yet.
 </p>
 
 {% if orders_error %}
@@ -59,6 +59,24 @@
             <button type="submit" class="bo-button bo-button--small">Mark as paid</button>
           </form>
           <span class="bo-hint bo-hint--small">Only paid orders have a confirmation email to resend.</span>
+          {% endif %}
+
+          {% if order.buyer_name == '[erased]' %}
+          <span class="bo-hint bo-hint--small">Buyer details erased.</span>
+          {% else %}
+          <form method="post" action="/events/{{ event.id }}/orders/{{ order.id }}/erase-pii" class="bo-inline-form"
+                data-confirm="Erase this order's buyer name, email, and address? This cannot be undone — there is no way to recover the original details afterwards.">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit" class="bo-button bo-button--small bo-button--danger">Erase buyer PII</button>
+          </form>
+          {% if order.status == 'paid' %}
+          <form method="post" action="/events/{{ event.id }}/orders/{{ order.id }}/erase-pii" class="bo-inline-form"
+                data-confirm="This order has an issued invoice. Invoices (which may include the buyer's name and address) are typically subject to statutory accounting/tax retention periods — verify your own invoice-retention obligations before erasing this order's buyer details. Erase anyway? This cannot be undone.">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="confirm" value="true">
+            <button type="submit" class="bo-button bo-button--small bo-button--danger">Erase anyway (has an invoice)</button>
+          </form>
+          {% endif %}
           {% endif %}
         </td>
       </tr>
