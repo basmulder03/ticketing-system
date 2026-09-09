@@ -2,6 +2,7 @@
 {% block title %}Settings — {{ event.name }} — Beacon Backoffice{% endblock %}
 {% block content %}
 <p class="bo-breadcrumb"><a href="/events">Events</a> / {{ event.name }}</p>
+<nav aria-label="Event section">
 <p class="bo-hint bo-hint--small">
   <a href="/events/{{ event.id }}/edit">Edit event</a> ·
   <a href="/events/{{ event.id }}/shows">Shows</a> ·
@@ -11,6 +12,7 @@
   <a href="/events/{{ event.id }}/orders">Orders</a> ·
   <a href="/events/{{ event.id }}/stats">Stats</a>
 </p>
+</nav>
 <h1>Settings: {{ event.name }}</h1>
 
 <section class="bo-panel">
@@ -85,9 +87,13 @@
       </div>
     </div>
     <div class="bo-inline-form bo-inline-form--wrap">
-      <label for="test_email_recipient" class="bo-visually-hidden">Test email recipient</label>
-      <input type="email" id="test_email_recipient" form="test-email-form" name="recipient" placeholder="you@example.com" required>
+      <label for="test_email_recipient">Test email recipient</label>
+      <input type="email" id="test_email_recipient" form="test-email-form" name="recipient" placeholder="you@example.com" required
+             aria-describedby="test-email-recipient-hint">
     </div>
+    <p id="test-email-recipient-hint" class="bo-hint bo-hint--small">
+      Used by the "Send test email" button near the bottom of this page.
+    </p>
   </section>
 
   <section class="bo-panel">
@@ -124,12 +130,16 @@
       </div>
     </div>
     <div class="bo-inline-form bo-inline-form--wrap">
-      <label for="test_mollie_environment" class="bo-visually-hidden">Environment to test</label>
-      <select id="test_mollie_environment" form="test-mollie-form" name="environment">
+      <label for="test_mollie_environment">Environment to test</label>
+      <select id="test_mollie_environment" form="test-mollie-form" name="environment"
+              aria-describedby="test-mollie-environment-hint">
         <option value="test">Test</option>
         <option value="live">Live</option>
       </select>
     </div>
+    <p id="test-mollie-environment-hint" class="bo-hint bo-hint--small">
+      Used by the "Test Mollie connection" button near the bottom of this page.
+    </p>
   </section>
 
   <section class="bo-panel">
@@ -186,12 +196,16 @@
 <form id="test-email-form" method="post" action="/events/{{ event.id }}/config/test-email" hidden>
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 </form>
-<p><button type="submit" form="test-email-form" class="bo-button bo-button--small">Send test email</button>
-  <span class="bo-hint bo-hint--small">Uses the currently SAVED SMTP settings — save first if you just changed them.</span></p>
+<p><button type="submit" form="test-email-form" class="bo-button bo-button--small"
+    aria-describedby="test-email-send-hint">Send test email</button>
+  <span id="test-email-send-hint" class="bo-hint bo-hint--small">Sends to the recipient address entered in the
+    SMTP section above, using the currently SAVED SMTP settings — save first if you just changed them.</span></p>
 
 <form id="test-mollie-form" method="post" action="/events/{{ event.id }}/config/test-mollie" hidden>
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 </form>
-<p><button type="submit" form="test-mollie-form" class="bo-button bo-button--small">Test Mollie connection</button>
-  <span class="bo-hint bo-hint--small">Uses the currently SAVED Mollie key — save first if you just changed it.</span></p>
+<p><button type="submit" form="test-mollie-form" class="bo-button bo-button--small"
+    aria-describedby="test-mollie-send-hint">Test Mollie connection</button>
+  <span id="test-mollie-send-hint" class="bo-hint bo-hint--small">Tests the environment selected in the Mollie
+    section above, using the currently SAVED Mollie key — save first if you just changed it.</span></p>
 {% endblock %}
