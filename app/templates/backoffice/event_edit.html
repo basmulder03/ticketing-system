@@ -2,6 +2,7 @@
 {% block title %}Edit — {{ event.name }} — Beacon Backoffice{% endblock %}
 {% block content %}
 <p class="bo-breadcrumb"><a href="/events">Events</a> / {{ event.name }}</p>
+<nav aria-label="Event section">
 <p class="bo-hint bo-hint--small">
   <a href="/events/{{ event.id }}/edit" aria-current="page">Edit event</a> ·
   <a href="/events/{{ event.id }}/shows">Shows</a> ·
@@ -11,6 +12,7 @@
   <a href="/events/{{ event.id }}/orders">Orders</a> ·
   <a href="/events/{{ event.id }}/stats">Stats</a>
 </p>
+</nav>
 <h1>Edit: {{ event.name }}</h1>
 
 <section class="bo-panel">
@@ -65,24 +67,14 @@
     anyone who needs to review a draft before it goes live.
   </p>
   <div class="bo-inline-form bo-inline-form--wrap">
+    <label for="preview-link-input" class="bo-visually-hidden">Preview link</label>
     <input type="text" readonly value="{{ public_base_url }}/preview/{{ event.preview_token }}"
            id="preview-link-input" onclick="this.select()">
-    <button type="button" class="bo-button bo-button--small" id="copy-preview-link-button">Copy link</button>
+    <button type="button" class="bo-button bo-button--small bo-copy-link"
+            data-copy-value="{{ public_base_url }}/preview/{{ event.preview_token }}">
+      Copy link
+    </button>
   </div>
-  <script>
-    (function () {
-      var button = document.getElementById("copy-preview-link-button");
-      var input = document.getElementById("preview-link-input");
-      if (!button || !input) return;
-      button.addEventListener("click", function () {
-        navigator.clipboard.writeText(input.value).then(function () {
-          var original = button.textContent;
-          button.textContent = "Copied!";
-          setTimeout(function () { button.textContent = original; }, 1500);
-        });
-      });
-    })();
-  </script>
 </section>
 
 <section class="bo-panel">
