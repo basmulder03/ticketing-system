@@ -6,6 +6,10 @@ verification, session-cookie issuance, and audit logging (``admin_user.login``)
 all stay defined exactly once in ``app.api.routes.auth``. This module only
 renders the HTML form and forwards the ``Set-Cookie``/``Set-Cookie``-clearing
 headers from that JSON response onto the browser-facing redirect.
+
+Milestone 7 adds :func:`_apply_role_default`: a ``scanner``-role session
+landing on this module's own ``"/events"`` default is retargeted to the
+show-picker (``/scan``) instead, since ``/events`` is admin-only.
 """
 
 import re
@@ -51,6 +55,28 @@ def _safe_next(candidate: str) -> str:
     return candidate
 
 
+def _apply_role_default(safe_next: str, role: str | None) -> str:
+    """``/events`` is unreachable for a ``scanner``-role session
+    (``require_web_admin`` excludes that role — see ``app.web.deps``), so a
+    scanner landing there via this module's default would immediately
+    bounce straight back through the login redirect. Retarget the
+    show-picker page (``/scan``, Milestone 7) instead, but ONLY when
+    ``safe_next`` is still the unmodified ``"/events"`` default.
+
+    This reuses ``"/events"`` itself as the "no explicit ``next`` was
+    requested" sentinel, matching this module's existing (pre-Milestone 7)
+    behavior: ``login_page`` already seeds the login form's hidden ``next``
+    field with the literal string ``"/events"`` whenever no ``?next=``
+    query param was present, so by the time a value reaches here there is
+    no way to distinguish "no next was given" from "next=/events was
+    explicitly given" anyway — treating both the same is safe (and
+    correct) here specifically because ``/events`` is never a *useful*
+    explicit destination for a scanner account regardless of intent, unlike
+    an arbitrary same-site path a caller might genuinely want preserved.
+    """
+    return "/scan" if safe_next == "/events" and role == "scanner" else safe_next
+
+
 @router.get("/login", response_model=None)
 async def login_page(request: Request, next: str = "/events") -> Response:
     """Render the login form. Already-authenticated visitors are bounced
@@ -59,7 +85,8 @@ async def login_page(request: Request, next: str = "/events") -> Response:
     async with internal_api_client(request) as client:
         me_response = await client.get("/api/v1/auth/me")
     if me_response.status_code == 200:
-        return RedirectResponse(url=_safe_next(next), status_code=303)
+        role = me_response.json().get("role")
+        return RedirectResponse(url=_apply_role_default(_safe_next(next), role), status_code=303)
 
     token = read_or_generate_csrf_token(request)
     response = templates.TemplateResponse(
@@ -98,7 +125,8 @@ async def login_submit(
         attach_csrf_cookie(response, token)
         return response
 
-    redirect = RedirectResponse(url=safe_next, status_code=303)
+    role = api_response.json().get("role")
+    redirect = RedirectResponse(url=_apply_role_default(safe_next, role), status_code=303)
     for raw_cookie in api_response.headers.get_list("set-cookie"):
         redirect.headers.append("set-cookie", raw_cookie)
     return redirect

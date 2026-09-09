@@ -1,0 +1,17 @@
+{# Shared minimal header for the scanning app's two pages (picker/scan).
+   Deliberately not backoffice/base.html's <header> -- no site nav, no
+   brand link, just enough to know who's logged in, get back to the show
+   picker, and log out. Expects `principal`, `csrf_token`, and optionally
+   `back_url`/`back_label` in the including template's context. #}
+<header class="scan-header">
+  {% if back_url %}
+  <a href="{{ back_url }}" class="scan-header__back">&larr; {{ back_label or "Shows" }}</a>
+  {% else %}
+  <span class="scan-header__brand">Beacon Scan</span>
+  {% endif %}
+  <span class="scan-header__account">{{ principal.name }} &middot; {{ principal.role }}</span>
+  <form method="post" action="/logout" class="scan-header__logout">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button type="submit" class="scan-btn scan-btn--ghost scan-btn--small">Log out</button>
+  </form>
+</header>

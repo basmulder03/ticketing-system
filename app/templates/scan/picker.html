@@ -1,0 +1,34 @@
+{% extends "scan/base.html" %}
+{% block title %}Pick a show — Beacon Scan{% endblock %}
+{% block body %}
+{% include "scan/_header.html" %}
+<main id="scan-main" class="scan-main scan-main--picker">
+  <h1 class="scan-picker__title">Which show are you scanning for?</h1>
+  <p class="scan-hint">
+    Pick the exact performance you're checking people into. Scans are only valid against the show you choose here.
+  </p>
+
+  {% if shows_error %}
+  <div class="scan-banner scan-banner--error" role="alert">{{ shows_error }}</div>
+  {% endif %}
+
+  {% if shows %}
+  <ul class="scan-show-list">
+    {% for show in shows %}
+    <li>
+      <a class="scan-show-card" href="/scan/{{ show.id }}">
+        <span class="scan-show-card__event">{{ show.event_name }}</span>
+        <span class="scan-show-card__date">{{ show.date }} &middot; doors {{ show.doors_time[:5] }}</span>
+        <span class="scan-show-card__venue">{{ show.venue_name }}</span>
+        {% if show.status != "published" %}
+        <span class="scan-badge scan-badge--muted">{{ show.status }}</span>
+        {% endif %}
+      </a>
+    </li>
+    {% endfor %}
+  </ul>
+  {% elif not shows_error %}
+  <p class="scan-hint">No shows in the next 60 days. Ask an admin to check the show dates in the backoffice.</p>
+  {% endif %}
+</main>
+{% endblock %}

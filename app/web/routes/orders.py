@@ -6,7 +6,11 @@ Milestone 6) an inline "Mark as paid" action for any non-``paid`` order —
 the web-layer proxy to ``POST /api/v1/orders/{order_id}/mark-paid`` (see
 ``app.api.routes.orders.mark_paid``), covering door card payments, bank
 transfers, and manual corrections per PROJECT_BRIEF.md's Manual Payment
-Handling section.
+Handling section. As of Milestone 7, that mark-as-paid action also accepts
+an open-redirect-guarded ``return_to`` field so the scanning app's
+``unpaid`` result screen (``app.web.routes.scan``) can render this exact
+form inline and land the admin back there afterward — see
+``mark_order_paid_web``/``_safe_return_to`` below.
 
 Deliberately minimal beyond that per this milestone's scope — no
 filtering/sorting UI, no stats: that is Milestone 8 territory. This
@@ -26,7 +30,9 @@ Verified end-to-end against a real order (checkout -> paid -> orders list
 renders it -> resend sends a second email).
 """
 
+import re
 from typing import Any
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
@@ -40,6 +46,31 @@ from app.web.deps import require_web_admin
 from app.web.flash import redirect_with_flash
 
 router = APIRouter(tags=["backoffice-orders"])
+
+_CONTROL_OR_BACKSLASH = re.compile(r"[\\\t\r\n]")
+"""Same pattern as ``app.web.routes.auth._CONTROL_OR_BACKSLASH`` — see that
+module for the exact WHATWG-URL-normalization rationale this guards
+against."""
+
+
+def _safe_return_to(candidate: str, *, default: str) -> str:
+    """Open-redirect guard for :func:`mark_order_paid_web`'s optional
+    ``return_to`` field, mirroring ``app.web.routes.auth._safe_next``'s
+    logic exactly (same three checks, same reasoning) but parameterized on
+    ``default`` instead of hardcoding ``"/events"`` — this route's natural
+    fallback is the Orders list for the current event, not the events
+    index. Falls back to ``default`` for an empty, absolute, protocol-
+    relative, or WHATWG-URL-normalization-exploitable value."""
+    if not candidate:
+        return default
+    if _CONTROL_OR_BACKSLASH.search(candidate):
+        return default
+    if not candidate.startswith("/") or candidate.startswith("//"):
+        return default
+    parsed = urlsplit(candidate)
+    if parsed.scheme or parsed.netloc:
+        return default
+    return candidate
 
 
 def _error_detail(response: Any, fallback: str) -> str:
@@ -142,6 +173,7 @@ async def mark_order_paid_web(
     csrf_token: str = Form(...),
     method_label: str = Form(...),
     reason: str = Form(""),
+    return_to: str = Form(""),
 ) -> RedirectResponse:
     """Proxy to the admin-only ``POST /api/v1/orders/{order_id}/mark-paid``
     route (see ``app.api.routes.orders.mark_paid``) — same pattern as
@@ -150,9 +182,22 @@ async def mark_order_paid_web(
     non-``paid`` status per that route's docstring, so no status gate is
     enforced here either; the template only renders this form for non-paid
     orders as a UX nicety, not a security boundary — the API route itself
-    is the actual enforcement point (or lack thereof, by design)."""
+    is the actual enforcement point (or lack thereof, by design).
+
+    ``return_to`` (added in Milestone 7): this route's sole caller used to
+    be the Orders list page (``backoffice/orders_list.html``), which never
+    needed anywhere else to land. The scanning app's ``unpaid`` result
+    screen (``app.web.routes.scan``) now also renders this exact form
+    inline, and an admin resolving payment there wants to land back on the
+    scan page — not the Orders list a scanner-role colleague standing next
+    to them can't even reach — to physically re-scan the same ticket next.
+    Validated via :func:`_safe_return_to` (same open-redirect guard as
+    ``app.web.routes.auth._safe_next``); an absent/invalid value falls back
+    to the pre-existing Orders-list redirect, so every caller that doesn't
+    pass this field keeps its exact prior behavior."""
     verify_csrf(request, csrf_token)
-    redirect_path = f"/events/{event_id}/orders"
+    default_redirect = f"/events/{event_id}/orders"
+    redirect_path = _safe_return_to(return_to, default=default_redirect)
 
     label = method_label.strip()
     if not label:

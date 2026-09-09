@@ -117,6 +117,32 @@ async def require_admin(principal: Principal = Depends(get_current_principal)) -
     return principal
 
 
+async def require_scanner_or_admin(principal: Principal = Depends(get_current_principal)) -> Principal:
+    """Dependency for the door-scanning route(s) — admits a human ``admin``
+    OR ``scanner`` role, never an agent.
+
+    Added in Milestone 7 as the concrete gate for
+    ``AdminUser.role``'s ``scanner`` value, which until now had no route
+    that accepted it at all (see that model's docstring: "``scanner``
+    accounts are limited to the door-scanning endpoint (added in a later
+    milestone)"). Mirrors :func:`require_admin`'s structure exactly —
+    same ``actor_type != ActorType.HUMAN`` guard, same 403 — just with a
+    role check that accepts either human role instead of only ``ADMIN``.
+
+    Deliberately does NOT admit an agent principal: PROJECT_BRIEF.md scopes
+    agent keys to content-type data, never to door operations, and a
+    scanner-role human gets NOTHING beyond this route from this dependency
+    — in particular, routes that touch payments/financial data (the
+    existing admin-only ``mark-paid`` route, invoices, orders) must keep
+    using :func:`require_admin`, never this function, so a scanner account
+    can observe an unpaid ticket at the door but can never itself resolve
+    the payment.
+    """
+    if principal.actor_type != ActorType.HUMAN or principal.role not in (AdminRole.ADMIN, AdminRole.SCANNER):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Scanner or admin access required.")
+    return principal
+
+
 async def require_admin_or_agent(principal: Principal = Depends(get_current_principal)) -> Principal:
     """Dependency for content-type routes both human admins AND agent keys may reach.
 

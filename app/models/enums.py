@@ -157,6 +157,46 @@ class EmailTemplateType(str, enum.Enum):
     ORDER_CONFIRMATION_TICKET = "order_confirmation_ticket"
 
 
+class ScanOutcome(str, enum.Enum):
+    """The discriminated result of one door-scan attempt (Milestone 7).
+
+    NOT a mapped/persisted column type — unlike every other enum in this
+    module, ``ScanOutcome`` never backs a database column. It lives here
+    anyway (rather than in ``app.schemas.scan``) to keep every shared,
+    string-valued app enum in one place, and because its value is written
+    into ``AuditLogEntry.detail`` (a JSON column) as the ``result`` field
+    by ``app.services.scan`` — see that module for the full outcome
+    semantics. ``app.schemas.scan.ScanResponse`` reuses this exact enum as
+    its ``outcome`` field so the JSON API and the audit log always agree on
+    the same five spellings.
+
+    - ``PASS``: signature valid, correct show, order paid, not previously
+      scanned — entry is complete, ``Ticket.scanned_at``/``scanned_by`` are
+      now set.
+    - ``ALREADY_SCANNED``: everything else checks out but the ticket was
+      already scanned before this attempt — a genuine fail, not a pass.
+    - ``INVALID``: the QR token's signature didn't verify, or verified but
+      names a ``Ticket.id`` that doesn't exist. Both are surfaced with the
+      same generic message so a caller can't distinguish "tampered
+      signature" from "well-formed but unknown ticket" (see
+      ``app.core.qr_tokens.verify_ticket_token``).
+    - ``WRONG_SHOW``: the ticket is real and unscanned, but its
+      ``TicketType.show_id`` doesn't match the show being scanned for.
+    - ``UNPAID``: the ticket is real, for the right show, and unscanned,
+      but its ``Order.status`` isn't ``paid`` — the brief's distinct third
+      UI state. Does NOT mark the ticket scanned; entry is only completed
+      by a later, separate scan of the same QR code once an admin has used
+      the existing ``POST /api/v1/orders/{order_id}/mark-paid`` route to
+      settle payment.
+    """
+
+    PASS = "pass"
+    ALREADY_SCANNED = "already_scanned"
+    INVALID = "invalid"
+    WRONG_SHOW = "wrong_show"
+    UNPAID = "unpaid"
+
+
 class ThemeFont(str, enum.Enum):
     """A curated, fixed list of font choices for a Theme — deliberately NOT
     free-text (the brief calls Theme's font choice "a fixed field"), so
