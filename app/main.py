@@ -19,6 +19,7 @@ from starlette.responses import RedirectResponse
 from starlette.staticfiles import StaticFiles
 
 from app.api.routes import (
+    admin_users,
     agent_accounts,
     audit_log,
     auth,
@@ -85,6 +86,7 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(auth.router)
+    app.include_router(admin_users.router)
     app.include_router(agent_accounts.router)
     app.include_router(audit_log.router)
     app.include_router(events.router)
