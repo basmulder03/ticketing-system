@@ -40,6 +40,13 @@ Covers every route currently declared with ``Depends(require_admin)``:
   - GET    /api/v1/shows/{show_id}/tickets-batch.pdf (Milestone 9: batch
     ticket-print action across every paid Order of a Show — same
     financial/PII reasoning, addressed by Show id rather than Order id)
+  - POST   /api/v1/admin/admin-users (backoffice/core-management-ui:
+    AdminUser account management is itself a new admin-only surface, same
+    "never agent/scanner scope" reasoning as agent-account management above)
+  - GET    /api/v1/admin/admin-users
+  - POST   /api/v1/admin/admin-users/{admin_user_id}/deactivate
+  - POST   /api/v1/admin/admin-users/{admin_user_id}/reactivate
+  - POST   /api/v1/admin/admin-users/{admin_user_id}/reset-password
 
 If a future route adds ``Depends(require_admin)``, add it to
 ``ADMIN_GATED_ROUTES`` below so this test keeps covering the full set.
@@ -122,6 +129,31 @@ ADMIN_GATED_ROUTES: list[tuple[str, str, str, dict[str, str] | None]] = [
         "GET",
         f"/api/v1/shows/{_PLACEHOLDER_SHOW_ID}/tickets-batch.pdf",
         None,
+    ),
+    (
+        "create_admin_user",
+        "POST",
+        "/api/v1/admin/admin-users",
+        {"email": "should-not-be-created@example.test", "password": "irrelevant-password"},
+    ),
+    ("list_admin_users", "GET", "/api/v1/admin/admin-users", None),
+    (
+        "deactivate_admin_user",
+        "POST",
+        f"/api/v1/admin/admin-users/{_PLACEHOLDER_AGENT_ID}/deactivate",
+        None,
+    ),
+    (
+        "reactivate_admin_user",
+        "POST",
+        f"/api/v1/admin/admin-users/{_PLACEHOLDER_AGENT_ID}/reactivate",
+        None,
+    ),
+    (
+        "reset_admin_user_password",
+        "POST",
+        f"/api/v1/admin/admin-users/{_PLACEHOLDER_AGENT_ID}/reset-password",
+        {"new_password": "irrelevant-password"},
     ),
 ]
 

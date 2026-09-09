@@ -1,0 +1,93 @@
+{% extends "backoffice/base.html" %}
+{% block title %}Edit — {{ event.name }} — Beacon Backoffice{% endblock %}
+{% block content %}
+<p class="bo-breadcrumb"><a href="/events">Events</a> / {{ event.name }}</p>
+<nav aria-label="Event section">
+<p class="bo-hint bo-hint--small">
+  <a href="/events/{{ event.id }}/edit" aria-current="page">Edit event</a> ·
+  <a href="/events/{{ event.id }}/shows">Shows</a> ·
+  <a href="/events/{{ event.id }}/config">Settings</a> ·
+  <a href="/events/{{ event.id }}/theme">Theme</a> ·
+  <a href="/events/{{ event.id }}/email-templates">Email templates</a> ·
+  <a href="/events/{{ event.id }}/orders">Orders</a> ·
+  <a href="/events/{{ event.id }}/stats">Stats</a>
+</p>
+</nav>
+<h1>Edit: {{ event.name }}</h1>
+
+<section class="bo-panel">
+  <form method="post" action="/events/{{ event.id }}/edit">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    <div class="bo-field">
+      <label for="name">Name</label>
+      <input type="text" id="name" name="name" required maxlength="255" value="{{ event.name }}">
+    </div>
+
+    <div class="bo-field">
+      <label for="slug">Slug</label>
+      <input type="text" id="slug" name="slug" required maxlength="255"
+             pattern="[a-z0-9]+(-[a-z0-9]+)*" value="{{ event.slug }}"
+             title="Lowercase letters, numbers, and hyphens only (e.g. summer-festival-2026)">
+      <p class="bo-hint bo-hint--small">Used in the public event URL (<code>/e/&lt;slug&gt;</code>). Changing
+        this changes the event's public URL — any links already shared with the old slug will stop working.</p>
+    </div>
+
+    <div class="bo-field">
+      <label for="description">Description</label>
+      <textarea id="description" name="description" rows="4">{{ event.description or '' }}</textarea>
+    </div>
+
+    <div class="bo-field">
+      <label for="status">Status</label>
+      <select id="status" name="status">
+        {% for value, label in status_choices %}
+        <option value="{{ value }}" {% if event.status == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="bo-field">
+      <label>
+        <input type="checkbox" name="sales_paused" value="true" {% if event.sales_paused %}checked{% endif %}>
+        Sales paused
+      </label>
+      <p class="bo-hint bo-hint--small">Temporarily stops new checkouts on the public site without unpublishing
+        the event or its shows.</p>
+    </div>
+
+    <button type="submit" class="bo-button bo-button--primary">Save changes</button>
+  </form>
+</section>
+
+<section class="bo-panel">
+  <h2>Preview / draft link</h2>
+  <p class="bo-hint bo-hint--small">
+    Unguessable link to view and check out this event regardless of its published status — share it with
+    anyone who needs to review a draft before it goes live.
+  </p>
+  <div class="bo-inline-form bo-inline-form--wrap">
+    <label for="preview-link-input" class="bo-visually-hidden">Preview link</label>
+    <input type="text" readonly value="{{ public_base_url }}/preview/{{ event.preview_token }}"
+           id="preview-link-input" onclick="this.select()">
+    <button type="button" class="bo-button bo-button--small bo-copy-link"
+            data-copy-value="{{ public_base_url }}/preview/{{ event.preview_token }}">
+      Copy link
+    </button>
+  </div>
+</section>
+
+<section class="bo-panel">
+  <h2>Danger zone</h2>
+  <p class="bo-hint bo-hint--small">
+    Deletes this event and everything under it (shows, ticket types, theme, email templates, invoice
+    settings). Blocked if any of its ticket types have real orders/tickets sold — cancel or otherwise
+    resolve those first if you genuinely need to delete an event that has sold tickets.
+  </p>
+  <form method="post" action="/events/{{ event.id }}/delete"
+        data-confirm="Delete &quot;{{ event.name }}&quot;? This cannot be undone.">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button type="submit" class="bo-button bo-button--danger">Delete event</button>
+  </form>
+</section>
+{% endblock %}

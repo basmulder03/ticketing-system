@@ -1,0 +1,116 @@
+{% extends "backoffice/base.html" %}
+{% block title %}Admin users — Beacon Backoffice{% endblock %}
+{% block content %}
+<h1>Admin users</h1>
+<p class="bo-hint">
+  An admin user is a human backoffice account that logs in with an email and password &mdash; either the
+  full <code>admin</code> role (everything in this backoffice) or the narrower <code>scanner</code> role
+  (door-scanning app only, see <a href="/scan">/scan</a>). This is not the same thing as an
+  <a href="/agent-accounts">agent account</a>, which is an API key for an AI agent/tool, not a human login.
+</p>
+
+{% if accounts_error %}
+<div class="bo-banner bo-banner--error" role="alert">{{ accounts_error }}</div>
+{% endif %}
+
+<section class="bo-panel">
+  <h2>Create an admin user</h2>
+  <form method="post" action="/admin-users">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="bo-field-row">
+      <div class="bo-field">
+        <label for="new-admin-email">Email</label>
+        <input type="email" id="new-admin-email" name="email" required maxlength="255"
+               autocomplete="off" placeholder="e.g. name@example.com">
+      </div>
+      <div class="bo-field">
+        <label for="new-admin-password">Password</label>
+        <input type="password" id="new-admin-password" name="password" required minlength="8"
+               autocomplete="new-password">
+      </div>
+      <div class="bo-field">
+        <label for="new-admin-role">Role</label>
+        <select id="new-admin-role" name="role">
+          {% for value, label in role_choices %}
+          <option value="{{ value }}" {% if value == 'admin' %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <button type="submit" class="bo-button bo-button--primary">Create admin user</button>
+  </form>
+</section>
+
+<div class="bo-table-wrap">
+  <table class="bo-table">
+    <thead>
+      <tr>
+        <th scope="col">Email</th>
+        <th scope="col">Role</th>
+        <th scope="col">Status</th>
+        <th scope="col">Created</th>
+        <th scope="col">Last login</th>
+        <th scope="col"><span class="bo-visually-hidden">Actions</span></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for account in accounts %}
+      {% set is_self = account.id == (principal.id | string) %}
+      <tr>
+        <td data-label="Email">{{ account.email }}{% if is_self %} <span class="bo-hint bo-hint--small">(you)</span>{% endif %}</td>
+        <td data-label="Role">{{ account.role }}</td>
+        <td data-label="Status">
+          <span class="bo-badge bo-badge--{{ 'active' if account.is_active else 'revoked' }}">
+            {{ 'active' if account.is_active else 'inactive' }}
+          </span>
+        </td>
+        <td data-label="Created">{{ account.created_at[:16].replace('T', ' ') }}</td>
+        <td data-label="Last login">
+          {{ account.last_login_at[:16].replace('T', ' ') if account.last_login_at else 'Never' }}
+        </td>
+        <td data-label="Actions">
+          {% if account.is_active %}
+            {% if not is_self %}
+            <form method="post" action="/admin-users/{{ account.id }}/deactivate" class="bo-inline-form"
+                  data-confirm="Deactivate {{ account.email }}? This immediately blocks new logins and ends any session this account already holds.">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <button type="submit" class="bo-button bo-button--small bo-button--danger">Deactivate</button>
+            </form>
+            {% else %}
+            <span class="bo-hint bo-hint--small">You can't deactivate your own account.</span>
+            {% endif %}
+          {% else %}
+          <form method="post" action="/admin-users/{{ account.id }}/reactivate" class="bo-inline-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit" class="bo-button bo-button--small">Reactivate</button>
+          </form>
+          {% endif %}
+
+          <details>
+            <summary>Reset password</summary>
+            <form method="post" action="/admin-users/{{ account.id }}/reset-password" class="bo-field">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              {% if is_self %}
+              <label for="current-password-{{ account.id }}">Current password</label>
+              <input type="password" id="current-password-{{ account.id }}" name="current_password"
+                     required autocomplete="current-password">
+              {% endif %}
+              <label for="new-password-{{ account.id }}">New password</label>
+              <input type="password" id="new-password-{{ account.id }}" name="new_password"
+                     required minlength="8" autocomplete="new-password">
+              <button type="submit" class="bo-button bo-button--small">Set new password</button>
+            </form>
+          </details>
+        </td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="6">
+          {% if accounts_error %}Admin users could not be loaded.{% else %}No admin users yet.{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

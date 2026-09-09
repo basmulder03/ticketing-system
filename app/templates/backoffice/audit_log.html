@@ -1,0 +1,79 @@
+{% extends "backoffice/base.html" %}
+{% block title %}Audit log — Beacon Backoffice{% endblock %}
+{% block content %}
+<h1>Audit log</h1>
+<p class="bo-hint">
+  An append-only record of who did what, when &mdash; every backoffice or agent-driven change. The actor
+  type (human admin, AI agent, or an automated system process) is always shown alongside who made the
+  change: an agent's actions are never recorded as if a human admin made them, and never merged into a
+  generic "system" actor.
+</p>
+
+{% if entries_error %}
+<div class="bo-banner bo-banner--error" role="alert">{{ entries_error }}</div>
+{% endif %}
+
+<form method="get" action="/audit-log" class="bo-inline-form">
+  <label for="audit-limit">Show</label>
+  <select id="audit-limit" name="limit">
+    {% for option in allowed_limits %}
+    <option value="{{ option }}" {% if option == limit %}selected{% endif %}>{{ option }} most recent</option>
+    {% endfor %}
+  </select>
+  <button type="submit" class="bo-button bo-button--small">Apply</button>
+</form>
+<p class="bo-hint bo-hint--small">
+  Newest first. There is no filtering by actor/action/date and no pagination beyond this count yet
+  &mdash; for a long-running event's full history, some older entries may not be shown here.
+</p>
+
+<div class="bo-table-wrap">
+  <table class="bo-table bo-table--compact">
+    <thead>
+      <tr>
+        <th scope="col">Timestamp</th>
+        <th scope="col">Actor</th>
+        <th scope="col">Action</th>
+        <th scope="col">Target</th>
+        <th scope="col">Detail</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for entry in entries %}
+      <tr>
+        <td data-label="Timestamp">{{ entry.created_at[:19].replace('T', ' ') }}</td>
+        <td data-label="Actor">
+          <span class="bo-badge bo-badge--{{ entry.actor_type }}">{{ entry.actor_type }}</span>
+          {{ entry.actor_name }}
+        </td>
+        <td data-label="Action"><code>{{ entry.action }}</code></td>
+        <td data-label="Target">
+          {% if entry.target_type %}
+          {{ entry.target_type }}
+          {% if entry.target_id %}
+          <span aria-hidden="true" title="{{ entry.target_id }}">{{ entry.target_id[:8] }}&hellip;</span>
+          <span class="bo-visually-hidden">{{ entry.target_id }}</span>
+          {% endif %}
+          {% else %}
+          &mdash;
+          {% endif %}
+        </td>
+        <td data-label="Detail">
+          {% if entry.detail_display %}
+          <pre class="bo-code-block">{{ entry.detail_display }}</pre>
+          {% else %}
+          &mdash;
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="5">
+          {% if entries_error %}The audit log could not be loaded.{% else %}No audit log entries yet.{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

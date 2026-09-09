@@ -1,0 +1,44 @@
+{% extends "backoffice/base.html" %}
+{% block title %}New event — Beacon Backoffice{% endblock %}
+{% block content %}
+<p class="bo-breadcrumb"><a href="/events">Events</a> / New event</p>
+<h1>New event</h1>
+
+<section class="bo-panel">
+  <form method="post" action="/events/new">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    <div class="bo-field">
+      <label for="name">Name</label>
+      <input type="text" id="name" name="name" required maxlength="255">
+    </div>
+
+    <div class="bo-field">
+      <label for="slug">Slug</label>
+      <input type="text" id="slug" name="slug" required maxlength="255"
+             pattern="[a-z0-9]+(-[a-z0-9]+)*"
+             title="Lowercase letters, numbers, and hyphens only (e.g. summer-festival-2026)">
+      <p class="bo-hint bo-hint--small">Used in the public event URL (<code>/e/&lt;slug&gt;</code>). Lowercase
+        letters, numbers, and hyphens only.</p>
+    </div>
+
+    <div class="bo-field">
+      <label for="description">Description</label>
+      <textarea id="description" name="description" rows="4"></textarea>
+    </div>
+
+    <div class="bo-field">
+      <label for="status">Status</label>
+      <select id="status" name="status">
+        {% for value, label in status_choices %}
+        <option value="{{ value }}" {% if value == 'draft' %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <p class="bo-hint bo-hint--small">A draft event is only reachable via its unguessable preview link — see
+        the edit page after creating it. Publishing makes it reachable at its normal public URL.</p>
+    </div>
+
+    <button type="submit" class="bo-button bo-button--primary">Create event</button>
+  </form>
+</section>
+{% endblock %}

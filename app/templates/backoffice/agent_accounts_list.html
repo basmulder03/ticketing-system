@@ -1,0 +1,96 @@
+{% extends "backoffice/base.html" %}
+{% block title %}Agent accounts — Beacon Backoffice{% endblock %}
+{% block content %}
+<h1>Agent accounts</h1>
+<p class="bo-hint">
+  An agent account is a named API key for an AI agent or other external tool. Agent keys can read and
+  write the same content-management surface a human admin edits in this backoffice — Events, Shows,
+  Ticket types, an Event's Theme, and Email template content. They can never reach payment or SMTP
+  credentials, admin user management, financial/order data, or this backoffice's audit log; those stay
+  reachable only with a human admin session.
+</p>
+
+{% if accounts_error %}
+<div class="bo-banner bo-banner--error" role="alert">{{ accounts_error }}</div>
+{% endif %}
+
+{% if new_agent_key %}
+<section class="bo-panel" aria-labelledby="new-agent-key-heading">
+  <h2 id="new-agent-key-heading">&ldquo;{{ new_agent_key.name }}&rdquo; was created</h2>
+  <div class="bo-banner bo-banner--info" role="alert">
+    <strong>Copy this API key now &mdash; it will not be shown again.</strong> Beacon only stores a hash
+    of this key, never the key itself, so if it's lost there is no way to recover it: revoke this
+    account and create a new one instead.
+  </div>
+  <pre class="bo-code-block" id="new-agent-key-value">{{ new_agent_key.api_key }}</pre>
+  <button type="button" class="bo-button bo-copy-link" data-copy-value="{{ new_agent_key.api_key }}">
+    Copy API key
+  </button>
+  <p class="bo-hint bo-hint--small">
+    Hand this key to the agent/tool's configuration as the <code>X-Agent-Api-Key</code> request header.
+    From now on Beacon can only ever show its prefix, <code>{{ new_agent_key.key_prefix }}&hellip;</code>,
+    in the table below &mdash; enough to tell accounts apart, never enough to authenticate.
+  </p>
+</section>
+{% endif %}
+
+<section class="bo-panel">
+  <h2>Create an agent account</h2>
+  <form method="post" action="/agent-accounts" class="bo-inline-form bo-inline-form--wrap">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label for="agent-name">Name</label>
+    <input type="text" id="agent-name" name="name" required maxlength="255"
+           placeholder="e.g. content-management-agent">
+    <button type="submit" class="bo-button bo-button--primary">Create agent account</button>
+  </form>
+</section>
+
+<div class="bo-table-wrap">
+  <table class="bo-table">
+    <thead>
+      <tr>
+        <th scope="col">Name</th>
+        <th scope="col">Key prefix</th>
+        <th scope="col">Status</th>
+        <th scope="col">Created</th>
+        <th scope="col">Last used</th>
+        <th scope="col"><span class="bo-visually-hidden">Actions</span></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for account in accounts %}
+      <tr>
+        <td data-label="Name">{{ account.name }}</td>
+        <td data-label="Key prefix"><code>{{ account.key_prefix }}&hellip;</code></td>
+        <td data-label="Status">
+          <span class="bo-badge bo-badge--{{ 'active' if account.is_active else 'revoked' }}">
+            {{ 'active' if account.is_active else 'revoked' }}
+          </span>
+        </td>
+        <td data-label="Created">{{ account.created_at[:16].replace('T', ' ') }}</td>
+        <td data-label="Last used">
+          {{ account.last_used_at[:16].replace('T', ' ') if account.last_used_at else 'Never' }}
+        </td>
+        <td data-label="Actions">
+          {% if account.is_active %}
+          <form method="post" action="/agent-accounts/{{ account.id }}/revoke" class="bo-inline-form"
+                data-confirm="Revoke this agent account? Its API key will stop working immediately and this cannot be undone — a new account must be created instead.">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit" class="bo-button bo-button--small bo-button--danger">Revoke</button>
+          </form>
+          {% else %}
+          <span class="bo-hint bo-hint--small">Revoked.</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="6">
+          {% if accounts_error %}Agent accounts could not be loaded.{% else %}No agent accounts yet.{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

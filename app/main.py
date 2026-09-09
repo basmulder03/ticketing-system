@@ -19,6 +19,7 @@ from starlette.responses import RedirectResponse
 from starlette.staticfiles import StaticFiles
 
 from app.api.routes import (
+    admin_users,
     agent_accounts,
     audit_log,
     auth,
@@ -38,12 +39,17 @@ from app.api.routes import (
 from app.core.config import get_settings
 from app.services.order_expiry import run_order_expiry_background_loop
 from app.web.deps import WebAuthRequired
+from app.web.routes import admin_users as web_admin_users
+from app.web.routes import agent_accounts as web_agent_accounts
+from app.web.routes import audit_log as web_audit_log
 from app.web.routes import auth as web_auth
 from app.web.routes import email_templates as web_email_templates
+from app.web.routes import event_config as web_event_config
 from app.web.routes import events as web_events
 from app.web.routes import orders as web_orders
 from app.web.routes import public_site as web_public_site
 from app.web.routes import scan as web_scan
+from app.web.routes import shows as web_shows
 from app.web.routes import stats as web_stats
 from app.web.routes import themes as web_themes
 
@@ -85,6 +91,7 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(auth.router)
+    app.include_router(admin_users.router)
     app.include_router(agent_accounts.router)
     app.include_router(audit_log.router)
     app.include_router(events.router)
@@ -109,11 +116,16 @@ def create_app() -> FastAPI:
     # business logic.
     app.include_router(web_auth.router)
     app.include_router(web_events.router)
+    app.include_router(web_event_config.router)
     app.include_router(web_themes.router)
     app.include_router(web_email_templates.router)
     app.include_router(web_orders.router)
     app.include_router(web_scan.router)
     app.include_router(web_stats.router)
+    app.include_router(web_admin_users.router)
+    app.include_router(web_agent_accounts.router)
+    app.include_router(web_audit_log.router)
+    app.include_router(web_shows.router)
 
     # Public-site HTML pages (Milestone 2, `frontend-theming`): themed
     # landing/preview pages, checkout form, order confirmation — see

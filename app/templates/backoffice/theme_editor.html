@@ -2,12 +2,17 @@
 {% block title %}Theme — {{ event.name }} — Beacon Backoffice{% endblock %}
 {% block content %}
 <p class="bo-breadcrumb"><a href="/events">Events</a> / {{ event.name }}</p>
+<nav aria-label="Event section">
 <p class="bo-hint bo-hint--small">
+  <a href="/events/{{ event.id }}/edit">Edit event</a> ·
+  <a href="/events/{{ event.id }}/shows">Shows</a> ·
+  <a href="/events/{{ event.id }}/config">Settings</a> ·
   <a href="/events/{{ event.id }}/theme" aria-current="page">Theme</a> ·
   <a href="/events/{{ event.id }}/email-templates">Email templates</a> ·
   <a href="/events/{{ event.id }}/orders">Orders</a> ·
   <a href="/events/{{ event.id }}/stats">Stats</a>
 </p>
+</nav>
 <h1>Theme: {{ event.name }}</h1>
 <p class="bo-hint">
   Colors, logo, background, and font apply everywhere this event is themed: the public landing page,
