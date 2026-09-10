@@ -133,26 +133,43 @@ def nudge_lightness_for_contrast(
         return hex_color
 
     if prefer_direction in ("lighter", "darker"):
-        direction = 1 if prefer_direction == "lighter" else -1
+        directions = [1 if prefer_direction == "lighter" else -1]
     else:
-        lighter_candidate = hsl_to_hex(hue, saturation, min(1.0, lightness + _LIGHTNESS_STEP))
-        darker_candidate = hsl_to_hex(hue, saturation, max(0.0, lightness - _LIGHTNESS_STEP))
-        lighter_ratio = contrast_ratio(lighter_candidate, background_hex)
-        darker_ratio = contrast_ratio(darker_candidate, background_hex)
-        direction = 1 if lighter_ratio >= darker_ratio else -1
+        # Compare against the reachable EXTREME in each direction (fully
+        # white-ward vs fully black-ward along this same hue/saturation),
+        # not just one small step -- a single-step lookahead can pick the
+        # wrong direction whenever the color starts already near one
+        # boundary and the background's lightness sits close to that same
+        # boundary (e.g. white text on a near-white background: stepping
+        # one unit "darker" briefly LOSES contrast as lightness approaches
+        # the background's own, before eventually gaining it back well
+        # past that point -- a one-step lookahead sees only the initial
+        # loss and picks "lighter", which is already maxed at white with
+        # nowhere left to go, so the search below would give up after one
+        # no-op step. Found live: a white accent/secondary color against
+        # an off-white background silently returned unchanged instead of
+        # a real suggestion.). Both directions are tried in ranked order
+        # below regardless, so a tie or an unusual edge case still can't
+        # strand the search on a dead-end direction.
+        lightest_ratio = contrast_ratio(hsl_to_hex(hue, saturation, 1.0), background_hex)
+        darkest_ratio = contrast_ratio(hsl_to_hex(hue, saturation, 0.0), background_hex)
+        directions = [1, -1] if lightest_ratio >= darkest_ratio else [-1, 1]
 
     best_hex = hex_color
     best_ratio = contrast_ratio(hex_color, background_hex)
-    current_lightness = lightness
-    for _ in range(_MAX_STEPS):
-        current_lightness = max(0.0, min(1.0, current_lightness + direction * _LIGHTNESS_STEP))
-        candidate_hex = hsl_to_hex(hue, saturation, current_lightness)
-        candidate_ratio = contrast_ratio(candidate_hex, background_hex)
-        if candidate_ratio > best_ratio:
-            best_hex, best_ratio = candidate_hex, candidate_ratio
-        if candidate_ratio >= target_ratio:
-            return candidate_hex
-        if current_lightness in (0.0, 1.0):
+    for direction in directions:
+        current_lightness = lightness
+        for _ in range(_MAX_STEPS):
+            current_lightness = max(0.0, min(1.0, current_lightness + direction * _LIGHTNESS_STEP))
+            candidate_hex = hsl_to_hex(hue, saturation, current_lightness)
+            candidate_ratio = contrast_ratio(candidate_hex, background_hex)
+            if candidate_ratio > best_ratio:
+                best_hex, best_ratio = candidate_hex, candidate_ratio
+            if candidate_ratio >= target_ratio:
+                return candidate_hex
+            if current_lightness in (0.0, 1.0):
+                break
+        if best_ratio >= target_ratio:
             break
 
     return best_hex
