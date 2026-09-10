@@ -251,6 +251,32 @@ a.pub-chrome-header__brand:hover {
   padding: 1rem 0;
 }
 
+/* .event-content is the ONE element a Theme's colors ever apply to (see
+   the file header comment) -- an arbitrary admin-chosen background can
+   land anywhere from near-identical to the page's own paper tone to a
+   totally different hue, so it needs to read as a deliberately placed
+   card ON the page, not a flush, borderless color change with no
+   breathing room. The radius/shadow/padding below are chrome-owned
+   (constant regardless of Theme); background-color/color are the
+   fallback for an Event with no Theme row yet (build_public_theme_css
+   returns "" in that case) -- when a Theme IS set, its inline <style>
+   block (loaded after this stylesheet, see base.html) overrides just
+   those two properties via the identical .event-content selector. */
+.event-content {
+  padding: 1.75rem 1.25rem 2.25rem;
+  margin: 1.5rem 0;
+  border-radius: var(--pub-radius-lg);
+  box-shadow: var(--pub-shadow);
+  background-color: var(--pub-chrome-bg-raised);
+  color: var(--pub-chrome-fg);
+}
+
+@media (min-width: 768px) {
+  .event-content {
+    padding: 2.5rem 2.5rem 3rem;
+  }
+}
+
 /* ---- Notices ---- */
 
 .pub-notice {
