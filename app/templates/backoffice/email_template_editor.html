@@ -53,9 +53,14 @@
       </div>
     </section>
 
+    {# hx-trigger deliberately has NO "changed" modifier -- see the
+       identical fix/comment on app/templates/backoffice/theme_editor.html's
+       own form for the full explanation (htmx's "changed" check compares
+       this <form>'s own, always-undefined `.value`, so it silently
+       suppressed every single trigger here too). #}
     <form id="email-template-form" method="post" action="/events/{{ event.id }}/email-templates"
           hx-post="/events/{{ event.id }}/email-templates/preview-fragment"
-          hx-trigger="input changed delay:500ms, change changed delay:200ms"
+          hx-trigger="input delay:500ms, change delay:200ms"
           hx-target="#email-template-preview-pane" hx-swap="innerHTML">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="language" value="{{ language }}">
