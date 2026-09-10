@@ -4,8 +4,16 @@
  * Scope: the backoffice admin tool only (event/theme management etc.) —
  * NOT the themed public site, ticket/invoice PDFs, or emails, all of which
  * pull their colors/fonts from the active Event's Theme instead (see
- * PROJECT_BRIEF.md's Event & Theming section). This stylesheet is
- * deliberately plain/functional (KISS) rather than a design system.
+ * PROJECT_BRIEF.md's Event & Theming section).
+ *
+ * Shares its design tokens (palette, type pairing, radius/shadow scale)
+ * with app/static/public.css's post-launch redesign, so the admin tool and
+ * the public site read as one product rather than two — see that file's
+ * header comment for the reasoning (warm paper/ink palette, system-only
+ * serif+sans pairing, no external font requests). This stylesheet stays
+ * denser/more utilitarian than the public site's editorial "ticket stub"
+ * treatment (a working tool, not a storefront), but never invents its own
+ * separate color language.
  *
  * Mobile-first: base rules target ~375px phones; min-width media queries
  * progressively enhance the layout at ~768px (tablet), ~1024px (laptop),
@@ -14,27 +22,71 @@
  */
 
 :root {
-  --bo-color-bg: #f5f5f4;
+  --bo-color-bg: #faf7f1;
   --bo-color-surface: #ffffff;
-  --bo-color-border: #d9d9d6;
-  --bo-color-text: #1f2320;
-  --bo-color-muted: #5b615c;
-  --bo-color-primary: #1a1a1a;
-  --bo-color-primary-contrast: #ffffff;
-  --bo-color-accent: #0b6e4f;
-  --bo-color-danger: #a3242c;
-  --bo-color-danger-bg: #fbeaea;
+  --bo-color-border: #ded5c4;
+  --bo-color-input-border: #57503f;
+  --bo-color-text: #1c1a17;
+  --bo-color-muted: #6b6459;
+  --bo-color-primary: #1c1a17;
+  --bo-color-primary-contrast: #faf7f1;
+  /* Fixed regardless of color scheme -- NOT the same as --bo-color-primary
+     above, which deliberately swaps in dark mode so a filled button
+     inverts itself for free (see .bo-button below, same trick as
+     app/static/public.css). The header bar is a persistent toolbar, not a
+     button: it must stay a dark bar with light text in BOTH modes, or it
+     jarringly flips to a light bar in dark mode by inheriting the
+     button's inverted primary color (found while visually verifying this
+     redesign in dark mode). */
+  --bo-color-header-bg: #1c1a17;
+  --bo-color-header-fg: #faf7f1;
+  --bo-color-accent: #7a2222;
+  --bo-color-danger: #7a0d0d;
+  --bo-color-danger-bg: #fdecec;
   --bo-color-success-bg: #e7f5ec;
   --bo-color-success-text: #14532d;
-  --bo-color-info-bg: #eaf2fb;
-  --bo-color-info-text: #143a63;
-  --bo-radius: 6px;
+  --bo-color-info-bg: #e8f2fb;
+  --bo-color-info-text: #0b3d66;
+  --bo-color-warning-bg: #fff6e0;
+  --bo-color-warning-text: #6b4700;
+  --bo-font-display: Georgia, "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino, serif;
+  --bo-font-body: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --bo-radius: 8px;
+  --bo-radius-lg: 14px;
+  --bo-shadow: 0 1px 2px rgba(28, 26, 23, 0.06), 0 10px 28px -14px rgba(28, 26, 23, 0.22);
   --bo-spacing-1: 0.25rem;
   --bo-spacing-2: 0.5rem;
   --bo-spacing-3: 0.75rem;
   --bo-spacing-4: 1rem;
   --bo-spacing-6: 1.5rem;
   --bo-max-width: 1120px;
+}
+
+/* Chrome-only dark palette — same values as app/static/public.css's dark
+   block, for one consistent identity across both tools. Computed once by
+   hand (not derived from any Theme; the backoffice is never touched by a
+   Theme's colors, see the file header comment). */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bo-color-bg: #17140f;
+    --bo-color-surface: #201c16;
+    --bo-color-border: #3a3327;
+    --bo-color-input-border: #a89a7c;
+    --bo-color-text: #f1ece1;
+    --bo-color-muted: #b7ac98;
+    --bo-color-primary: #f1ece1;
+    --bo-color-primary-contrast: #17140f;
+    --bo-color-accent: #e0836f;
+    --bo-color-danger: #ff8a8a;
+    --bo-color-danger-bg: #3a1414;
+    --bo-color-success-bg: #123822;
+    --bo-color-success-text: #7cdba0;
+    --bo-color-info-bg: #0f2a42;
+    --bo-color-info-text: #8fc4ff;
+    --bo-color-warning-bg: #3a2c05;
+    --bo-color-warning-text: #ffcf6b;
+    --bo-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 14px 32px -16px rgba(0, 0, 0, 0.65);
+  }
 }
 
 * {
@@ -47,20 +99,22 @@ html {
 
 body {
   margin: 0;
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--bo-font-body);
   color: var(--bo-color-text);
   background: var(--bo-color-bg);
   line-height: 1.5;
 }
 
 h1, h2, h3 {
-  line-height: 1.25;
+  font-family: var(--bo-font-display);
+  line-height: 1.2;
+  letter-spacing: -0.01em;
   margin-top: 0;
 }
 
-h1 { font-size: 1.5rem; }
-h2 { font-size: 1.15rem; margin-bottom: var(--bo-spacing-2); }
-h3 { font-size: 1rem; margin-bottom: var(--bo-spacing-2); }
+h1 { font-size: 1.65rem; }
+h2 { font-size: 1.25rem; margin-bottom: var(--bo-spacing-2); }
+h3 { font-size: 1.05rem; margin-bottom: var(--bo-spacing-2); }
 
 a {
   color: var(--bo-color-accent);
@@ -93,11 +147,12 @@ summary:focus-visible {
   color: var(--bo-color-text);
   padding: var(--bo-spacing-2) var(--bo-spacing-4);
   z-index: 100;
+  border-radius: 0 0 var(--bo-radius) 0;
 }
 
 .bo-skip-link:focus {
-  left: var(--bo-spacing-2);
-  top: var(--bo-spacing-2);
+  left: 0;
+  top: 0;
 }
 
 .bo-visually-hidden {
@@ -120,8 +175,8 @@ summary:focus-visible {
   align-items: center;
   gap: var(--bo-spacing-3);
   padding: var(--bo-spacing-3) var(--bo-spacing-4);
-  background: var(--bo-color-primary);
-  color: var(--bo-color-primary-contrast);
+  background: var(--bo-color-header-bg);
+  color: var(--bo-color-header-fg);
 }
 
 .bo-header a {
@@ -130,12 +185,37 @@ summary:focus-visible {
 }
 
 .bo-header__brand a {
+  position: relative;
+  padding-left: 1rem;
+  font-family: var(--bo-font-display);
   font-weight: 700;
+  font-size: 1.1rem;
+}
+
+.bo-header__brand a::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.1em;
+  width: 0.35rem;
+  height: 0.85em;
+  background: var(--bo-color-accent);
+  border-radius: 2px;
 }
 
 .bo-header__nav {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--bo-spacing-4);
+}
+
+.bo-header__nav a {
+  opacity: 0.85;
+}
+
+.bo-header__nav a:hover {
+  opacity: 1;
+  text-decoration: underline;
 }
 
 .bo-header__account {
@@ -203,31 +283,32 @@ summary:focus-visible {
   border-radius: var(--bo-radius);
   margin-bottom: var(--bo-spacing-4);
   border: 1px solid transparent;
+  border-left-width: 4px;
 }
 
 .bo-flash--success,
 .bo-banner--success {
   background: var(--bo-color-success-bg);
   color: var(--bo-color-success-text);
-  border-color: #bfe3cc;
+  border-color: var(--bo-color-success-text);
 }
 
 .bo-flash--error {
   background: var(--bo-color-danger-bg);
   color: var(--bo-color-danger);
-  border-color: #f1c0c3;
+  border-color: var(--bo-color-danger);
 }
 
 .bo-banner--info {
   background: var(--bo-color-info-bg);
   color: var(--bo-color-info-text);
-  border-color: #c3d9f0;
+  border-color: var(--bo-color-info-text);
 }
 
 .bo-banner--error {
   background: var(--bo-color-danger-bg);
   color: var(--bo-color-danger);
-  border-color: #f1c0c3;
+  border-color: var(--bo-color-danger);
 }
 
 .bo-form-error {
@@ -240,13 +321,19 @@ summary:focus-visible {
 .bo-panel {
   background: var(--bo-color-surface);
   border: 1px solid var(--bo-color-border);
-  border-radius: var(--bo-radius);
+  border-radius: var(--bo-radius-lg);
   padding: var(--bo-spacing-4);
   margin-bottom: var(--bo-spacing-4);
 }
 
+@media (min-width: 768px) {
+  .bo-panel {
+    padding: var(--bo-spacing-6);
+  }
+}
+
 .bo-panel--advanced {
-  background: #fafaf8;
+  background: var(--bo-color-bg);
 }
 
 .bo-panel--advanced summary {
@@ -276,17 +363,18 @@ summary:focus-visible {
 .bo-field input[type="text"],
 .bo-field input[type="email"],
 .bo-field input[type="password"],
-.bo-field input[type="file"],
 .bo-field input[type="number"],
 .bo-field input[type="date"],
 .bo-field input[type="time"],
+.bo-field input[type="datetime-local"],
 .bo-field select,
 .bo-field textarea,
 .bo-inline-form input[type="text"],
 .bo-inline-form input[type="number"],
 .bo-inline-form input[type="date"],
-.bo-inline-form input[type="time"] {
-  border: 1px solid var(--bo-color-border);
+.bo-inline-form input[type="time"],
+.bo-inline-form select {
+  border: 1px solid var(--bo-color-input-border);
   border-radius: var(--bo-radius);
   padding: var(--bo-spacing-2) var(--bo-spacing-3);
   font: inherit;
@@ -309,6 +397,39 @@ summary:focus-visible {
 
 .bo-inline-form input[type="number"] {
   width: 6rem;
+}
+
+/* File inputs: browsers render the native control as an unstyled system
+   button + "no file chosen" label with no way to restyle the button part
+   directly, so instead of fighting that we wrap the whole control in a
+   bordered field matching every other input, and let the browser's own
+   button sit inside it — this gets a consistent border/radius/background
+   with zero JS and no loss of the native picker's own accessibility. */
+.bo-field input[type="file"] {
+  border: 1px solid var(--bo-color-input-border);
+  border-radius: var(--bo-radius);
+  padding: var(--bo-spacing-2) var(--bo-spacing-3);
+  font: inherit;
+  font-size: 0.875rem;
+  background: var(--bo-color-surface);
+  color: var(--bo-color-text);
+  max-width: 100%;
+}
+
+.bo-field input[type="file"]::file-selector-button {
+  font: inherit;
+  font-weight: 600;
+  padding: var(--bo-spacing-1) var(--bo-spacing-3);
+  margin-right: var(--bo-spacing-3);
+  border: 1px solid var(--bo-color-primary);
+  border-radius: var(--bo-radius);
+  background: var(--bo-color-primary);
+  color: var(--bo-color-primary-contrast);
+  cursor: pointer;
+}
+
+.bo-field input[type="file"]::file-selector-button:hover {
+  opacity: 0.9;
 }
 
 .bo-checkbox-label {
@@ -341,6 +462,19 @@ summary:focus-visible {
   resize: vertical;
 }
 
+input[type="text"]:focus-visible,
+input[type="email"]:focus-visible,
+input[type="password"]:focus-visible,
+input[type="number"]:focus-visible,
+input[type="date"]:focus-visible,
+input[type="time"]:focus-visible,
+input[type="datetime-local"]:focus-visible,
+input[type="file"]:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  border-color: #1a6ed8;
+}
+
 .bo-color-fields {
   display: flex;
   flex-wrap: wrap;
@@ -363,7 +497,7 @@ summary:focus-visible {
   width: 3rem;
   height: 2.25rem;
   padding: 0;
-  border: 1px solid var(--bo-color-border);
+  border: 1px solid var(--bo-color-input-border);
   border-radius: var(--bo-radius);
   background: none;
 }
@@ -377,6 +511,7 @@ summary:focus-visible {
 .bo-inline-form {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: var(--bo-spacing-2);
   margin: var(--bo-spacing-2) 0;
 }
@@ -393,8 +528,9 @@ summary:focus-visible {
 /* Buttons */
 
 .bo-button {
-  display: inline-block;
-  border: 1px solid var(--bo-color-primary);
+  display: inline-flex;
+  align-items: center;
+  border: 2px solid var(--bo-color-primary);
   border-radius: var(--bo-radius);
   background: var(--bo-color-surface);
   color: var(--bo-color-primary);
@@ -404,8 +540,19 @@ summary:focus-visible {
   text-decoration: none;
   cursor: pointer;
   min-height: 44px;
-  display: inline-flex;
-  align-items: center;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .bo-button:not(:disabled):hover {
+    transform: translateY(-1px);
+    box-shadow: var(--bo-shadow);
+  }
+
+  .bo-button:not(:disabled):active {
+    transform: translateY(0);
+    box-shadow: none;
+  }
 }
 
 .bo-button--primary {
@@ -414,9 +561,13 @@ summary:focus-visible {
 }
 
 .bo-button--ghost {
-  border-color: rgba(255, 255, 255, 0.5);
+  border-color: var(--bo-color-border);
   background: transparent;
   color: inherit;
+}
+
+.bo-header .bo-button--ghost {
+  border-color: rgba(255, 255, 255, 0.5);
 }
 
 .bo-button--danger {
@@ -457,10 +608,19 @@ summary:focus-visible {
   border-collapse: collapse;
 }
 
-.bo-table th,
-.bo-table td {
+.bo-table th {
   text-align: left;
   padding: var(--bo-spacing-2) var(--bo-spacing-3);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--bo-color-muted);
+  border-bottom: 2px solid var(--bo-color-border);
+}
+
+.bo-table td {
+  text-align: left;
+  padding: var(--bo-spacing-3) var(--bo-spacing-3);
   border-bottom: 1px solid var(--bo-color-border);
 }
 
@@ -481,8 +641,8 @@ summary:focus-visible {
 }
 
 .bo-badge--draft {
-  background: #f1eadb;
-  color: #6b5a1a;
+  background: var(--bo-color-warning-bg);
+  color: var(--bo-color-warning-text);
 }
 
 .bo-badge--published {
@@ -517,8 +677,8 @@ summary:focus-visible {
 
 .bo-badge--pending,
 .bo-badge--pending_door {
-  background: #f1eadb;
-  color: #6b5a1a;
+  background: var(--bo-color-warning-bg);
+  color: var(--bo-color-warning-text);
 }
 
 .bo-badge--cancelled,
@@ -556,7 +716,7 @@ summary:focus-visible {
 }
 
 .bo-badge--system {
-  background: #ece9e4;
+  background: var(--bo-color-border);
   color: var(--bo-color-muted);
 }
 
@@ -583,8 +743,8 @@ summary:focus-visible {
   max-width: 24rem;
   margin: 3rem auto;
   background: var(--bo-color-surface);
-  border: 1px solid var(--bo-color-border);
-  border-radius: var(--bo-radius);
+  border-radius: var(--bo-radius-lg);
+  box-shadow: var(--bo-shadow);
   padding: var(--bo-spacing-6);
 }
 
@@ -649,20 +809,27 @@ summary:focus-visible {
   }
 }
 
-/* Language-switcher tabs (e.g. the EmailTemplate editor's EN/NL switch). */
+/* Tabs — the EN/NL language switcher (email template editor) and the
+   per-event section nav (Edit event / Shows / Settings / Theme / Email
+   templates / Orders / Stats, repeated at the top of every event-scoped
+   page) both use this one component, so switching between an event's
+   pages and switching a template's language look like the same kind of
+   action. */
 
 .bo-tabs {
   display: flex;
-  gap: var(--bo-spacing-2);
+  flex-wrap: wrap;
+  gap: var(--bo-spacing-1) var(--bo-spacing-4);
   margin-bottom: var(--bo-spacing-4);
   border-bottom: 1px solid var(--bo-color-border);
 }
 
 .bo-tabs__tab {
   display: inline-block;
-  padding: var(--bo-spacing-2) var(--bo-spacing-3);
+  padding: var(--bo-spacing-2) var(--bo-spacing-1);
   text-decoration: none;
   color: var(--bo-color-muted);
+  font-size: 0.9rem;
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
 }
@@ -674,7 +841,7 @@ summary:focus-visible {
 .bo-tabs__tab--active {
   color: var(--bo-color-text);
   font-weight: 600;
-  border-bottom-color: var(--bo-color-primary);
+  border-bottom-color: var(--bo-color-accent);
 }
 
 /* Stats & Reporting dashboard (Milestone 8) — headline stat cards, one
@@ -701,7 +868,7 @@ summary:focus-visible {
   gap: var(--bo-spacing-1);
   background: var(--bo-color-surface);
   border: 1px solid var(--bo-color-border);
-  border-radius: var(--bo-radius);
+  border-radius: var(--bo-radius-lg);
   padding: var(--bo-spacing-4);
 }
 
@@ -712,7 +879,8 @@ summary:focus-visible {
 }
 
 .bo-stat-card__value {
-  font-size: 1.5rem;
+  font-family: var(--bo-font-display);
+  font-size: 1.75rem;
   font-weight: 700;
 }
 
@@ -770,6 +938,68 @@ summary:focus-visible {
   margin-top: var(--bo-spacing-3);
 }
 
+/* <details>/<summary> disclosure styling everywhere it's used (the
+   Advanced/custom-CSS section of the theme editor, per-show breakdowns on
+   the stats dashboard, the audit-log entry detail views) — the browser's
+   bare default marker + plain text read as unfinished/unstyled (flagged
+   directly: "different pages make use of the collapsible fields. They
+   ugly man."). A custom marker plus a bordered, rounded summary row makes
+   it read as a deliberate, clickable disclosure control instead. */
+details {
+  border: 1px solid var(--bo-color-border);
+  border-radius: var(--bo-radius);
+  padding: 0 var(--bo-spacing-3);
+  margin: var(--bo-spacing-3) 0;
+}
+
+details > summary {
+  list-style: none;
+  cursor: pointer;
+  padding: var(--bo-spacing-3) 0;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: var(--bo-spacing-2);
+}
+
+details > summary::-webkit-details-marker {
+  display: none;
+}
+
+details > summary::before {
+  content: "";
+  display: inline-block;
+  width: 0;
+  height: 0;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-left: 6px solid var(--bo-color-muted);
+  transition: transform 0.15s ease;
+}
+
+details[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+details > summary + * {
+  margin-top: 0;
+}
+
+details > :last-child {
+  padding-bottom: var(--bo-spacing-3);
+}
+
+/* .bo-panel--advanced/.bo-panel already carry their own border+padding —
+   a <details> nested inside either would double up on both, so it's
+   reset back to a plain block there and relies on the panel's own
+   chrome instead. */
+.bo-panel > details,
+.bo-panel--advanced > details {
+  border: 0;
+  padding: 0;
+  margin: var(--bo-spacing-3) 0 0;
+}
+
 .bo-code-block {
   background: #1f2320;
   color: #e6e6e2;
@@ -779,4 +1009,66 @@ summary:focus-visible {
   font-size: 0.8rem;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* Events list: a card grid instead of a wide table-of-buttons (see
+   app/templates/backoffice/events_list.html) — each event's status, quick
+   links into every section, and its preview link are one glanceable unit
+   rather than a row that scrolls off the edge of a phone screen. */
+
+.bo-event-cards {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--bo-spacing-4);
+}
+
+@media (min-width: 768px) {
+  .bo-event-cards {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (min-width: 1440px) {
+  .bo-event-cards {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.bo-event-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--bo-spacing-3);
+  background: var(--bo-color-surface);
+  border: 1px solid var(--bo-color-border);
+  border-radius: var(--bo-radius-lg);
+  padding: var(--bo-spacing-4);
+}
+
+.bo-event-card__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--bo-spacing-2);
+}
+
+.bo-event-card__name {
+  font-size: 1.1rem;
+  margin: 0;
+}
+
+.bo-event-card__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--bo-spacing-1) var(--bo-spacing-3);
+  font-size: 0.875rem;
+  padding-top: var(--bo-spacing-2);
+  border-top: 1px solid var(--bo-color-border);
+}
+
+.bo-event-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--bo-spacing-2);
+  margin-top: auto;
+  padding-top: var(--bo-spacing-2);
 }

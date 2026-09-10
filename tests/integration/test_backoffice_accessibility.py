@@ -521,7 +521,7 @@ async def test_events_list_page_has_no_axe_violations(
     make_admin_user: Callable[..., Awaitable[SeededAdmin]],
     make_event: Callable[..., Awaitable[Event]],
 ) -> None:
-    """At least one real Event row — the populated-table render path."""
+    """At least one real Event card — the populated-card-grid render path."""
     await _login_and_apply_session_cookie(axe_page, client, make_admin_user)
     await make_event(status=PublishStatus.PUBLISHED, name="Events List A11y Event")
 
@@ -535,8 +535,9 @@ async def test_events_list_page_with_no_events_has_no_axe_violations(
     client: AsyncClient,
     make_admin_user: Callable[..., Awaitable[SeededAdmin]],
 ) -> None:
-    """No Event rows at all — the empty-state ``<tr><td colspan="7">``
-    render path, a distinct branch from the populated test above."""
+    """No Event rows at all — the empty-state ``<p>`` render path (see
+    app/templates/backoffice/events_list.html), a distinct branch from the
+    populated-card-grid test above."""
     await _login_and_apply_session_cookie(axe_page, client, make_admin_user)
 
     violations = await run_axe(axe_page, "/events")
