@@ -60,6 +60,7 @@ MOLLIE_MODE_CHOICES = [
 PAYMENT_METHOD_CHOICES = [
     ("mollie", "Mollie (online payment)"),
     ("door", "Pay at the door"),
+    ("demo", "Demo / test payment (no real charge)"),
 ]
 
 

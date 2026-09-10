@@ -61,13 +61,27 @@ class PaymentMethod(str, enum.Enum):
     """A payment method an Event can enable for its shows' checkout flow.
 
     Stored as a list on ``EventConfig.enabled_payment_methods`` (an event may
-    enable one or both). Full payment-flow integration lands in later
-    milestones (Mollie: Milestone 3, door: Milestone 6) — this milestone only
-    builds the per-event on/off configuration.
+    enable any combination). Full payment-flow integration lands across
+    several milestones (Mollie: Milestone 3, door: Milestone 6, demo:
+    post-launch fix).
+
+    ``DEMO`` is a real, selectable payment method (not a dev/test-only
+    backdoor) any event can enable, per the user's NOTES: "create a custom
+    one, that behaves something like mollie for a test environment/demo
+    purposes without having to do stuff with external applications" — it
+    walks the buyer through the same pending-then-settled shape a real
+    provider would (an interstitial page, not an instant auto-pay), but
+    entirely in-process, no credentials or outbound calls of any kind. See
+    ``app.services.checkout``'s payment-initiation dispatch and
+    ``app.web.routes.demo_payment`` for the full flow — kept structurally
+    parallel to Mollie's own initiation/webhook shape specifically so a
+    THIRD real provider can be added later by implementing the same
+    initiate-then-settle shape, not by special-casing checkout.py again.
     """
 
     MOLLIE = "mollie"
     DOOR = "door"
+    DEMO = "demo"
 
 
 class OrderStatus(str, enum.Enum):

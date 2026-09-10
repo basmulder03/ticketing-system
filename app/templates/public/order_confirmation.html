@@ -48,6 +48,8 @@
     <dd>
       {% if order.payment_method == 'door' %}
         {{ translate('public.checkout.payment_method_door', locale) }}
+      {% elif order.payment_method == 'demo' %}
+        {{ translate('public.checkout.payment_method_demo', locale) }}
       {% else %}
         {{ translate('public.checkout.payment_method_mollie', locale) }}
       {% endif %}

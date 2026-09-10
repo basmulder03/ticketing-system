@@ -223,6 +223,13 @@
             <label for="payment-door">{{ translate('public.checkout.payment_method_door', locale) }}</label>
           </div>
           {% endif %}
+          {% if 'demo' in event.enabled_payment_methods %}
+          <div class="pub-payment-methods__option">
+            <input type="radio" id="payment-demo" name="payment_method" value="demo"
+              {% if sticky.get('payment_method') == 'demo' %}checked{% endif %}>
+            <label for="payment-demo">{{ translate('public.checkout.payment_method_demo', locale) }}</label>
+          </div>
+          {% endif %}
         </fieldset>
         {% else %}
         <p class="pub-notice pub-notice--warning">{{ translate('public.checkout.no_payment_methods', locale) }}</p>

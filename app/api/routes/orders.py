@@ -85,7 +85,7 @@ async def _order_to_out(session: AsyncSession, order: Order) -> OrderOut:
             for t in tickets
         ],
         created_at=order.created_at,
-        mollie_checkout_url=None,
+        payment_redirect_url=None,
     )
 
 

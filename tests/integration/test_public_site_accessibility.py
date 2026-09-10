@@ -253,6 +253,57 @@ async def test_order_confirmation_unavailable_page_has_no_axe_violations(axe_pag
     assert violations == [], format_axe_violations(violations)
 
 
+async def test_demo_payment_page_has_no_axe_violations(
+    axe_page: Page,
+    client: AsyncClient,
+    make_event: Callable[..., Awaitable[Event]],
+    make_show: Callable[..., Awaitable[Show]],
+    make_ticket_type: Callable[..., Awaitable[TicketType]],
+    make_event_config: Callable[..., Awaitable[EventConfig]],
+) -> None:
+    """The `demo` payment provider's interstitial (post-launch fix) — no
+    Theme involved (see this module's docstring on ``color-contrast``
+    scope), so unlike the landing page, this stays fully enabled here.
+    Checkout is driven via ``httpx``, same reasoning as the
+    order-confirmation test above; this page needs no cookie hand-off at
+    all, since its access control is the order id in the URL itself (see
+    ``app.api.routes.public._get_pending_demo_order_or_404``), so the
+    redirect location can be visited directly."""
+    event = await make_event(status=PublishStatus.PUBLISHED)
+    show = await make_show(event_id=event.id, status=PublishStatus.PUBLISHED)
+    ticket_type = await make_ticket_type(show_id=show.id, price=Decimal("15.00"), quantity_available=10)
+    await make_event_config(event_id=event.id, sales_live_at=_PAST, enabled_payment_methods=[PaymentMethod.DEMO])
+
+    checkout = await client.post(
+        f"/e/{event.slug}/checkout",
+        data={
+            "show_choice": str(show.id),
+            f"qty_{ticket_type.id}": "2",
+            "buyer_name": "Buyer Name",
+            "buyer_email": "buyer@example.test",
+            "buyer_address": "1 Test Street",
+            "payment_method": "demo",
+        },
+    )
+    assert checkout.status_code == 303
+    redirect_location = checkout.headers["location"]
+    # `_initiate_demo_payment` builds an absolute URL (mirrors Mollie's own
+    # absolute checkout_url) — axe_page's route interception matches on
+    # path regardless of origin (see its docstring above), but strip it
+    # anyway to match this suite's path-only convention elsewhere.
+    assert "/demo-payment/" in redirect_location
+    demo_payment_path = redirect_location[redirect_location.index("/demo-payment/") :]
+
+    violations = await run_axe(axe_page, demo_payment_path)
+
+    assert violations == [], format_axe_violations(violations)
+
+
+async def test_demo_payment_unavailable_page_has_no_axe_violations(axe_page: Page) -> None:
+    violations = await run_axe(axe_page, "/demo-payment/00000000-0000-0000-0000-000000000000")
+    assert violations == [], format_axe_violations(violations)
+
+
 async def test_not_found_page_has_no_axe_violations(axe_page: Page) -> None:
     violations = await run_axe(axe_page, "/e/no-such-event-slug")
     assert violations == [], format_axe_violations(violations)
