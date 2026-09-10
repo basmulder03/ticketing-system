@@ -108,6 +108,47 @@ def _shell(locale: str) -> dict[str, str]:
     return _SHELL_STRINGS.get(locale, _SHELL_STRINGS["en"])
 
 
+DOOR_CONFIRMATION_DEFAULT_SUBJECT: dict[str, str] = {
+    locale: translate("email.door_confirmation.subject", locale) for locale in SUPPORTED_LOCALES
+}
+"""Built-in fallback ``EmailTemplate.subject`` per locale for the
+``door_payment_confirmation`` email type (see
+``app.services.door_reservation_email``), used only when the Event has no
+customized template for the buyer's language. Same sourcing note as
+:data:`DEFAULT_SUBJECT`."""
+
+DOOR_CONFIRMATION_DEFAULT_BODY: dict[str, str] = {
+    locale: translate("email.door_confirmation.body", locale) for locale in SUPPORTED_LOCALES
+}
+"""Built-in fallback ``EmailTemplate.body`` per locale for the
+``door_payment_confirmation`` email type. Same sourcing note as
+:data:`DEFAULT_BODY`."""
+
+_DOOR_CONFIRMATION_SHELL_KEYS: tuple[str, ...] = (
+    "heading",
+    "order_reference_label",
+    "items_heading",
+    "ticket_type_column",
+    "quantity_column",
+    "subtotal_column",
+    "total_label",
+    "logo_alt",
+    "footer",
+)
+
+_DOOR_CONFIRMATION_SHELL_STRINGS: dict[str, dict[str, str]] = {
+    locale: {key: translate(f"email.door_confirmation.{key}", locale) for key in _DOOR_CONFIRMATION_SHELL_KEYS}
+    for locale in SUPPORTED_LOCALES
+}
+"""Built-in fallback shell chrome strings for the door-payment-confirmation
+email (labels around the admin-authored body content — never buyer/agent-
+controlled). Same sourcing note as :data:`_SHELL_STRINGS`."""
+
+
+def _door_confirmation_shell(locale: str) -> dict[str, str]:
+    return _DOOR_CONFIRMATION_SHELL_STRINGS.get(locale, _DOOR_CONFIRMATION_SHELL_STRINGS["en"])
+
+
 def compute_days_until_show(show_date: date, *, now: datetime | None = None) -> int:
     """Days remaining until ``show_date``, computed at call time (so a
     resend closer to the date reflects a smaller number — PROJECT_BRIEF.md:
@@ -161,7 +202,7 @@ class RenderedEmail:
     text_body: str
 
 
-def _logo_html(theme: Theme | None, event_name: str, locale: str) -> str:
+def _logo_html(theme: Theme | None, event_name: str, locale: str, *, shell: dict[str, str] | None = None) -> str:
     if theme is None or not theme.logo_path:
         # A styled <p>, NOT a heading tag: this is a branding/masthead
         # fallback standing in for the logo <img> below (the same visual
@@ -174,7 +215,12 @@ def _logo_html(theme: Theme | None, event_name: str, locale: str) -> str:
         # this milestone's accessibility-auditor review.
         return f'<p style="margin:0;font-size:18px;font-weight:bold;">{html.escape(event_name)}</p>'
     url = public_url_for(theme.logo_path) or ""
-    alt = _shell(locale)["logo_alt"].format(event_name=html.escape(event_name))
+    # `shell` defaults to the order-confirmation shell strings for backward
+    # compatibility with this function's original single caller;
+    # ``render_door_payment_confirmation_email`` passes its own shell
+    # instead, since the two email types keep independently-editable shell
+    # copy (see that function's docstring).
+    alt = (shell or _shell(locale))["logo_alt"].format(event_name=html.escape(event_name))
     return f'<img src="{html.escape(url)}" alt="{alt}" style="max-height:64px;max-width:220px;display:block;margin:0 auto;" />'
 
 
@@ -302,6 +348,154 @@ def render_order_confirmation_email(
         if ticket_type is not None:
             text_lines.append(f"- {ticket_type.name}")
     text_lines += ["", shell["attachment_note"]]
+    text_body = "\n".join(text_lines)
+
+    return RenderedEmail(subject=subject, html_body=html_body, text_body=text_body)
+
+
+def _group_tickets_by_type(
+    tickets: list[Ticket], ticket_types_by_id: dict[str, TicketType]
+) -> list[tuple[TicketType, int]]:
+    """Group one-row-per-unit ``tickets`` into ``(ticket_type, quantity)``
+    pairs, in first-seen order -- shared by both the HTML and plain-text
+    renderings of the door-payment-confirmation email's order summary
+    below (unlike :func:`_ticket_rows_html`, which renders one row per
+    individual ticket/QR code, this email has no per-unit QR codes to show
+    yet, just "how many of each type")."""
+    counts: dict[str, int] = {}
+    order_seen: list[str] = []
+    for ticket in tickets:
+        tt_id = str(ticket.ticket_type_id)
+        if tt_id not in counts:
+            order_seen.append(tt_id)
+        counts[tt_id] = counts.get(tt_id, 0) + 1
+    grouped: list[tuple[TicketType, int]] = []
+    for tt_id in order_seen:
+        ticket_type = ticket_types_by_id.get(tt_id)
+        if ticket_type is not None:
+            grouped.append((ticket_type, counts[tt_id]))
+    return grouped
+
+
+def _order_item_rows_html(grouped: list[tuple[TicketType, int]], locale: str) -> str:
+    rows: list[str] = []
+    for ticket_type, quantity in grouped:
+        subtotal = format_currency(ticket_type.price * quantity, locale)
+        rows.append(
+            "<tr>"
+            f'<td style="border:1px solid #dddddd;padding:8px;">{html.escape(ticket_type.name)}</td>'
+            f'<td style="border:1px solid #dddddd;padding:8px;text-align:center;">{quantity}</td>'
+            f'<td style="border:1px solid #dddddd;padding:8px;text-align:right;">{html.escape(subtotal)}</td>'
+            "</tr>"
+        )
+    return "\n".join(rows)
+
+
+def render_door_payment_confirmation_email(
+    *,
+    template: EmailTemplate | None,
+    order: Order,
+    event: Event,
+    show: Show,
+    theme: Theme | None,
+    tickets: list[Ticket],
+    ticket_types_by_id: dict[str, TicketType],
+) -> RenderedEmail:
+    """Render the door-payment reservation-confirmation email: sent once,
+    right after checkout, for a ``payment_method="door"`` Order (see
+    ``app.services.door_reservation_email``) — BEFORE any payment has
+    happened. Closes a real gap found via the user's own manual testing:
+    with no email at all until the order is later paid at the door, a
+    buyer had no record of what they'd ordered if they lost the
+    order-confirmation browser tab/session.
+
+    Deliberately NOT the same function as
+    :func:`render_order_confirmation_email`: that one signs and attaches
+    real, scannable QR-coded tickets, which must never exist before an
+    Order is genuinely paid — a buyer could otherwise screenshot/forward a
+    valid ticket without ever paying at the door. This email is a plain
+    order summary (what was ordered, and the total due) with no ticket
+    attachment at all.
+
+    Uses ``template`` if given (an Event's saved
+    ``door_payment_confirmation`` ``EmailTemplate`` for ``order.language``
+    — agent/API-editable today, same as ``order_confirmation_ticket``;
+    no backoffice human-editor UI for it yet), else the built-in
+    :data:`DOOR_CONFIRMATION_DEFAULT_SUBJECT`/
+    :data:`DOOR_CONFIRMATION_DEFAULT_BODY` for that language.
+    """
+    locale = order.language if order.language in DOOR_CONFIRMATION_DEFAULT_SUBJECT else "en"
+    shell = _door_confirmation_shell(locale)
+    values = build_placeholder_values(
+        order=order, event=event, show=show, days_until_show=compute_days_until_show(show.date)
+    )
+
+    raw_subject = template.subject if template is not None else DOOR_CONFIRMATION_DEFAULT_SUBJECT[locale]
+    raw_body = template.body if template is not None else DOOR_CONFIRMATION_DEFAULT_BODY[locale]
+    subject = render_placeholders(raw_subject, values, escape_html=False)
+    body_content = render_placeholders(raw_body, values, escape_html=True)
+
+    primary = theme.primary_color if theme is not None else _DEFAULT_PRIMARY
+    secondary = theme.secondary_color if theme is not None else _DEFAULT_SECONDARY
+    font_stack = FONT_STACKS.get(theme.font_choice, _DEFAULT_FONT_STACK) if theme is not None else _DEFAULT_FONT_STACK
+
+    grouped = _group_tickets_by_type(tickets, ticket_types_by_id)
+    item_rows = _order_item_rows_html(grouped, locale)
+    event_name_escaped = html.escape(event.name)
+    total = format_currency(order.total, locale)
+
+    # Same table-based, inline-styled, fixed-theme-fields-only shell
+    # pattern as render_order_confirmation_email above — see that
+    # function's inline comment for the full rationale.
+    html_body = f"""<!DOCTYPE html>
+<html lang="{html.escape(locale)}">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>{html.escape(subject)}</title>
+</head>
+<body style="margin:0;padding:0;background-color:{secondary};font-family:{font_stack};color:{primary};">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:{secondary};">
+<tr><td align="center" style="padding:24px 12px;">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background-color:{secondary};border:1px solid #dddddd;">
+<tr><td style="padding:20px;text-align:center;">
+{_logo_html(theme, event.name, locale, shell=shell)}
+</td></tr>
+<tr><td style="padding:0 24px 8px;">
+<h1 style="margin:0 0 16px;font-size:22px;color:{primary};">{html.escape(shell["heading"])}</h1>
+{body_content}
+<p style="margin:16px 0;font-size:13px;">{html.escape(shell["order_reference_label"])}: {html.escape(str(order.id))}</p>
+<h2 style="margin:24px 0 8px;font-size:17px;color:{primary};">{html.escape(shell["items_heading"])}</h2>
+<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
+<tr>
+<th scope="col" style="border:1px solid #dddddd;padding:8px;text-align:left;">{html.escape(shell["ticket_type_column"])}</th>
+<th scope="col" style="border:1px solid #dddddd;padding:8px;text-align:center;">{html.escape(shell["quantity_column"])}</th>
+<th scope="col" style="border:1px solid #dddddd;padding:8px;text-align:right;">{html.escape(shell["subtotal_column"])}</th>
+</tr>
+{item_rows}
+</table>
+<p style="margin:16px 0;padding:12px;border:2px solid {primary};font-size:16px;"><strong>{html.escape(shell["total_label"])}: {html.escape(total)}</strong></p>
+</td></tr>
+<tr><td style="padding:16px;text-align:center;font-size:12px;">{html.escape(shell["footer"].format(event_name=event_name_escaped))}</td></tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>
+"""
+
+    text_lines = [
+        f"{shell['heading']}: {event.name}",
+        "",
+        _html_to_plain_text(body_content),
+        "",
+        f"{shell['order_reference_label']}: {order.id}",
+        "",
+        shell["items_heading"] + ":",
+    ]
+    for ticket_type, quantity in grouped:
+        text_lines.append(f"- {ticket_type.name} x{quantity}")
+    text_lines += ["", f"{shell['total_label']}: {total}"]
     text_body = "\n".join(text_lines)
 
     return RenderedEmail(subject=subject, html_body=html_body, text_body=text_body)

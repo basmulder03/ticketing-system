@@ -9,7 +9,12 @@ form-submission behavior). Mirrors the existing
 route module's underscore-prefixed pure helpers directly.
 """
 
-from app.web.routes.public_site import _find_show, _parse_checkout_items, _translate_checkout_error
+from app.web.routes.public_site import (
+    _find_show,
+    _parse_checkout_items,
+    _sellable_shows,
+    _translate_checkout_error,
+)
 
 
 def _event(shows: list[dict[str, object]]) -> dict[str, object]:
@@ -38,6 +43,24 @@ def test_find_show_returns_none_for_unknown_id() -> None:
 def test_find_show_returns_none_for_none_id() -> None:
     event = _event([_show("s1", [])])
     assert _find_show(event, None) is None
+
+
+# --- _sellable_shows -----------------------------------------------------
+
+
+def test_sellable_shows_drops_shows_with_no_ticket_types() -> None:
+    event = _event([_show("s1", ["tt1"]), _show("s2", [])])
+    assert [s["id"] for s in _sellable_shows(event)] == ["s1"]
+
+
+def test_sellable_shows_keeps_every_show_when_all_have_ticket_types() -> None:
+    event = _event([_show("s1", ["tt1"]), _show("s2", ["tt2", "tt3"])])
+    assert [s["id"] for s in _sellable_shows(event)] == ["s1", "s2"]
+
+
+def test_sellable_shows_returns_empty_list_when_none_are_sellable() -> None:
+    event = _event([_show("s1", []), _show("s2", [])])
+    assert _sellable_shows(event) == []
 
 
 # --- _parse_checkout_items ---------------------------------------------

@@ -59,7 +59,10 @@ from app.models.show import Show
 from app.models.theme import Theme
 from app.models.ticket import Ticket
 from app.models.ticket_type import TicketType
-from app.services.email_render import render_order_confirmation_email
+from app.services.email_render import (
+    render_door_payment_confirmation_email,
+    render_order_confirmation_email,
+)
 from tests.integration.conftest import format_axe_violations, run_axe_on_html
 
 _SHOW_DATE = datetime.now(UTC).date() + timedelta(days=45)
@@ -328,3 +331,50 @@ async def test_order_confirmation_email_html_without_theme_logo_keeps_correct_he
         "() => Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6')).map(el => el.tagName)"
     )
     assert heading_tags == ["H1", "H2"], heading_tags
+
+
+async def test_default_door_confirmation_email_html_has_no_axe_violations(
+    axe_page: Page,
+    db_session: AsyncSession,
+    make_event: Callable[..., Awaitable[Event]],
+    make_show: Callable[..., Awaitable[Show]],
+    make_ticket_type: Callable[..., Awaitable[TicketType]],
+    make_event_config: Callable[..., Awaitable[EventConfig]],
+    make_theme: Callable[..., Awaitable[Theme]],
+) -> None:
+    """The door-payment reservation-confirmation email (post-launch fix,
+    see ``app.services.door_reservation_email``) — same audit discipline as
+    the order-confirmation/ticket email above, against its own distinct
+    shell (an order-summary table, no QR codes, since this is sent before
+    the Order is ever paid)."""
+    event = await make_event(status=PublishStatus.PUBLISHED, name="Christmas Passion")
+    show = await make_show(event_id=event.id, status=PublishStatus.PUBLISHED, date=_SHOW_DATE, venue_name="Het Kruispunt")
+    adult = await make_ticket_type(show_id=show.id, name="Adult", price=Decimal("15.00"))
+    child = await make_ticket_type(show_id=show.id, name="Child", price=Decimal("7.50"))
+    await make_event_config(event_id=event.id)
+    theme = await make_theme(
+        event_id=event.id,
+        primary_color="#1a1a1a",
+        secondary_color="#ffffff",
+        accent_color="#c9a227",
+        font_choice=ThemeFont.SYSTEM_SANS,
+        logo_path="theme-logos/sample-logo.png",
+        status=PublishStatus.PUBLISHED,
+    )
+    order, tickets = await _seed_order_with_tickets(db_session, event=event, ticket_types=[adult, child])
+
+    rendered = render_door_payment_confirmation_email(
+        template=None,
+        order=order,
+        event=event,
+        show=show,
+        theme=theme,
+        tickets=tickets,
+        ticket_types_by_id={str(adult.id): adult, str(child.id): child},
+    )
+
+    assert rendered.text_body.strip(), "plain-text alternative must be genuinely non-empty"
+    assert "Jamie" in rendered.text_body
+
+    violations = await run_axe_on_html(axe_page, rendered.html_body)
+    assert violations == [], format_axe_violations(violations)
