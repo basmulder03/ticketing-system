@@ -1072,3 +1072,41 @@ details > :last-child {
   margin-top: auto;
   padding-top: var(--bo-spacing-2);
 }
+
+/* Styled confirm/copy-fallback dialogs (app/templates/backoffice/base.html)
+   -- replaces window.confirm()/window.prompt(), which looked jarringly out
+   of place against this app's own design system. Built on the native
+   <dialog> element for real focus-trapping/ESC-to-close/background
+   inertness (via showModal()) with this app's own look on top -- colors
+   below use the same tokens as everything else, so dark mode is already
+   handled with no extra rules. */
+
+.bo-dialog {
+  border: none;
+  border-radius: var(--bo-radius-lg);
+  box-shadow: var(--bo-shadow);
+  padding: var(--bo-spacing-6);
+  max-width: 28rem;
+  width: calc(100% - 2rem);
+  background: var(--bo-color-surface);
+  color: var(--bo-color-text);
+}
+
+.bo-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.bo-dialog h2 {
+  margin-top: 0;
+}
+
+.bo-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--bo-spacing-3);
+  margin: var(--bo-spacing-4) 0 0;
+}
+
+/* #bo-copy-fallback-input is a plain type="text" inside a .bo-field
+   wrapper, so it already gets full styling from the shared form-input
+   rules above -- no dialog-specific override needed. */
