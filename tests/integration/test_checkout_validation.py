@@ -103,7 +103,7 @@ async def test_perform_checkout_happy_path_creates_pending_order(
     )
     await db_session.commit()
     assert result.order.total == ticket_type.price * 2
-    assert result.mollie_checkout_url is None
+    assert result.payment_redirect_url is None
 
 
 async def test_ticket_type_not_found_raises_typed_error(db_session: AsyncSession) -> None:

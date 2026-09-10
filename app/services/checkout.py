@@ -1,7 +1,9 @@
 """Checkout: validates a public buyer's order request against the
 Event/Show/TicketType's draft & sales-timing state, then performs the
 row-locked stock reservation and creates the ``Order`` + ``Ticket`` rows,
-and (Milestone 3) initiates payment for a ``mollie``-method order — all
+and initiates payment for whichever ``PaymentMethod`` was chosen (Mollie:
+Milestone 3; demo: post-launch fix — see :func:`_initiate_mollie_payment`/
+:func:`_initiate_demo_payment` and :class:`PaymentInitiationResult`) — all
 inside one DB transaction. See ``app.services.stock`` for the row-locking
 mechanics that make stock reservation race-safe under concurrent buyers.
 """
@@ -139,13 +141,36 @@ class CheckoutItemInput:
 
 
 @dataclass(frozen=True)
+class PaymentInitiationResult:
+    """What a per-``PaymentMethod`` initiation function (currently
+    :func:`_initiate_mollie_payment` and :func:`_initiate_demo_payment`)
+    returns — a common shape deliberately kept minimal enough for any
+    future real provider to implement the same way, so adding one is a new
+    function plus one new ``elif`` branch in :func:`perform_checkout`, not
+    a rewrite of it.
+
+    ``redirect_url`` is where the web layer must send the buyer instead of
+    straight to order-confirmation (Mollie's own hosted page; the in-app
+    demo-payment simulator's page) — ``None`` for a method needing no
+    interstitial at all. ``simulated_payment`` is ``True`` only when the
+    Order is ALREADY genuinely ``paid`` by the time this returns (no
+    interstitial, no further settlement step) — see
+    :class:`CheckoutResult`'s own field of the same name for what that
+    triggers.
+    """
+
+    redirect_url: str | None
+    simulated_payment: bool = False
+
+
+@dataclass(frozen=True)
 class CheckoutResult:
     """What :func:`perform_checkout` returns: the created ``Order`` plus,
-    for a ``mollie``-method order that just created a real Mollie payment,
-    the Mollie-hosted checkout URL to redirect the buyer to."""
+    for a payment method that just created a real payment needing an
+    interstitial page, the URL to redirect the buyer to."""
 
     order: Order
-    mollie_checkout_url: str | None
+    payment_redirect_url: str | None
     simulated_payment: bool = False
     """``True`` only when this checkout took the preview-mode simulated-
     payment path (see :func:`_initiate_mollie_payment` case 2) — the Order
@@ -155,9 +180,11 @@ class CheckoutResult:
     the Milestone 4 order-confirmation email dispatch for this genuinely-
     just-paid Order — see ``app.services.ticket_delivery.
     send_order_confirmation_email``. Always ``False`` for a real Mollie
-    payment (still ``pending`` until the webhook confirms it later) and for
-    a ``door`` order (starts ``pending_door``, settled later by a
-    backoffice manual mark-as-paid action — Milestone 6)."""
+    payment (still ``pending`` until the webhook confirms it later), a
+    ``demo`` order (``pending``, settled later by the buyer's own action on
+    the demo-payment page), and a ``door`` order (starts ``pending_door``,
+    settled later by a backoffice manual mark-as-paid action — Milestone
+    6)."""
 
 
 async def perform_checkout(
@@ -285,8 +312,16 @@ async def perform_checkout(
             session.add(Ticket(order_id=order.id, ticket_type_id=ticket_type_id))
     await session.flush()
 
-    mollie_checkout_url: str | None = None
-    simulated_payment = False
+    # Per-method payment initiation, dispatched by a plain if/elif over
+    # PaymentMethod (not a registry/plugin lookup) -- deliberately: with 3
+    # concrete methods total (one of which, `door`, needs no initiation at
+    # all), a dict-of-callables would be indirection with no real payoff
+    # yet. What DOES make this "easy to extend" per the user's NOTES is
+    # PaymentInitiationResult itself: every initiation function returns
+    # that exact same shape, so a future 4th method is a new function with
+    # that same signature plus one new branch here, never a rewrite of
+    # this function's own control flow.
+    initiation = PaymentInitiationResult(redirect_url=None)
     if payment_method == PaymentMethod.MOLLIE:
         # Sandbox eligibility mirrors the draft-gate bypass above exactly
         # (``is_draft and has_valid_preview_token``), not "any checkout that
@@ -296,15 +331,19 @@ async def perform_checkout(
         # Event/Show is published. Scoping the simulated-payment path the
         # same way means it can never be used to skip real payment
         # processing on a live, published event.
-        mollie_checkout_url, simulated_payment = await _initiate_mollie_payment(
+        initiation = await _initiate_mollie_payment(
             session,
             order=order,
             config=config,
             preview_sandbox_allowed=is_draft and has_valid_preview_token,
             is_preview_checkout=has_valid_preview_token,
         )
+    elif payment_method == PaymentMethod.DEMO:
+        initiation = _initiate_demo_payment(order=order)
 
-    return CheckoutResult(order=order, mollie_checkout_url=mollie_checkout_url, simulated_payment=simulated_payment)
+    return CheckoutResult(
+        order=order, payment_redirect_url=initiation.redirect_url, simulated_payment=initiation.simulated_payment
+    )
 
 
 async def _initiate_mollie_payment(
@@ -314,11 +353,10 @@ async def _initiate_mollie_payment(
     config: EventConfig | None,
     preview_sandbox_allowed: bool,
     is_preview_checkout: bool,
-) -> tuple[str | None, bool]:
+) -> PaymentInitiationResult:
     """Kick off payment for a ``mollie``-method Order that was just created
-    (still ``PENDING``, already flushed). Returns
-    ``(mollie_checkout_url, simulated_payment)`` — see
-    :class:`CheckoutResult`'s ``simulated_payment`` field.
+    (still ``PENDING``, already flushed). See
+    :class:`PaymentInitiationResult` for the return shape.
 
     Three cases:
 
@@ -380,7 +418,7 @@ async def _initiate_mollie_payment(
         # exactly like the Mollie webhook's equivalent fresh-payment branch
         # — see app.services.invoicing module docstring.
         await issue_invoice_for_order(session, order=order, principal=SYSTEM_PRINCIPAL)
-        return None, True
+        return PaymentInitiationResult(redirect_url=None, simulated_payment=True)
 
     settings = get_settings()
     base_url = settings.public_base_url.rstrip("/")
@@ -413,4 +451,28 @@ async def _initiate_mollie_payment(
     # while this Order is still pending — see Order.mollie_mode's docstring.
     order.mollie_mode = config.mollie_mode if config is not None else None
     await session.flush()
-    return created.checkout_url, False
+    return PaymentInitiationResult(redirect_url=created.checkout_url, simulated_payment=False)
+
+
+def _initiate_demo_payment(*, order: Order) -> PaymentInitiationResult:
+    """Kick off payment for a ``demo``-method Order that was just created
+    (still ``PENDING``, already flushed) — post-launch fix, per the user's
+    NOTES: "create a custom [payment method], that behaves something like
+    mollie for a test environment/demo purposes without having to do stuff
+    with external applications."
+
+    Deliberately synchronous and trivial (no DB write, no external call of
+    any kind): unlike Mollie, there is no third party to hand off to and
+    nothing to configure, so all this does is point the buyer at this
+    app's OWN interstitial page (``app.web.routes.demo_payment`` — GET
+    ``/demo-payment/{order_id}``), where they pick "simulate success" or
+    "simulate failure" themselves. The Order stays genuinely ``PENDING``
+    until one of those two actions settles it, the same pending-then-
+    settled shape a real provider has (unlike the OTHER, pre-existing
+    preview-mode simulated-payment path above, which settles the Order
+    immediately, with no interstitial at all) — this is what makes it a
+    faithful demo of the real checkout flow, not just an auto-pass.
+    """
+    settings = get_settings()
+    base_url = settings.public_base_url.rstrip("/")
+    return PaymentInitiationResult(redirect_url=f"{base_url}/demo-payment/{order.id}", simulated_payment=False)

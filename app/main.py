@@ -43,6 +43,7 @@ from app.web.routes import admin_users as web_admin_users
 from app.web.routes import agent_accounts as web_agent_accounts
 from app.web.routes import audit_log as web_audit_log
 from app.web.routes import auth as web_auth
+from app.web.routes import demo_payment as web_demo_payment
 from app.web.routes import email_templates as web_email_templates
 from app.web.routes import event_config as web_event_config
 from app.web.routes import events as web_events
@@ -135,6 +136,13 @@ def create_app() -> FastAPI:
     # unauthenticated and use a separate themed Jinja environment
     # (app.core.public_templating), not the backoffice one.
     app.include_router(web_public_site.router)
+
+    # The `demo` payment provider's interstitial page — post-launch fix
+    # (see app/web/routes/demo_payment.py's module docstring). Registered
+    # after web_public_site so its routes participate in the same
+    # unauthenticated public-site path space; there is no path clash
+    # today (/demo-payment/... is a namespace of its own).
+    app.include_router(web_demo_payment.router)
 
     @app.exception_handler(WebAuthRequired)
     async def _redirect_to_login(request: Request, exc: WebAuthRequired) -> RedirectResponse:

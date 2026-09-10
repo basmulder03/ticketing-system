@@ -366,6 +366,18 @@ a.pub-chrome-header__brand:hover {
   cursor: not-allowed;
 }
 
+/* ---- Demo payment page ---- */
+
+/* Each action is its own <form method="post"> (no JS/fetch involved, same
+   progressive-enhancement posture as the checkout form itself), so this
+   lays out the two forms side by side rather than the buttons directly. */
+.pub-demo-payment-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+}
+
 /* ---- Hero / share ---- */
 
 .pub-hero {

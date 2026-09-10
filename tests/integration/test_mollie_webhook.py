@@ -94,7 +94,7 @@ async def _setup_mollie_pending_order(
     assert response.status_code == 201, response.text
     body = response.json()
     assert body["status"] == "pending"
-    assert body["mollie_checkout_url"] == "https://www.mollie.com/checkout/fake"
+    assert body["payment_redirect_url"] == "https://www.mollie.com/checkout/fake"
 
     result = await db_session.execute(select(Order).where(Order.id == uuid.UUID(body["id"])))
     order = result.scalar_one()

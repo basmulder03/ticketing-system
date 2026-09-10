@@ -99,16 +99,20 @@ class OrderOut(BaseModel):
     render an order-confirmation page, and (Milestone 3) to know where to
     send the buyer next.
 
-    ``mollie_checkout_url`` is only set when this checkout just created a
-    real Mollie payment (see ``app.services.checkout``) — the web layer
-    (``app.web.routes.public_site``) must redirect the buyer there instead
-    of straight to the order-confirmation page when it's present. It is
-    ``None`` for ``door`` orders and for the preview-mode simulated-payment
-    path (see that module's docstring), both of which go straight to
-    order-confirmation. ``status`` may already be ``paid`` at this point for
-    the simulated-preview path (no real Mollie payment involved) — it is
-    NOT reliably ``paid`` yet for a real Mollie order, since payment
-    confirmation there only ever arrives later via the webhook.
+    ``payment_redirect_url`` is only set when this checkout just created a
+    real payment needing an interstitial page before order-confirmation —
+    Mollie's own hosted checkout, or (post-launch) the in-app demo-payment
+    simulator's page (see ``app.services.checkout``'s payment-initiation
+    dispatch) — the web layer (``app.web.routes.public_site``) must
+    redirect the buyer there instead of straight to the order-confirmation
+    page when it's present. It is ``None`` for ``door`` orders and for the
+    preview-mode simulated-payment path (see that module's docstring), both
+    of which go straight to order-confirmation. ``status`` may already be
+    ``paid`` at this point for the simulated-preview path (no real payment
+    involved) — it is NOT reliably ``paid`` yet for a real Mollie order or
+    a still-pending demo order, since payment confirmation there only
+    arrives later (the webhook, or the buyer's own action on the
+    demo-payment page).
     """
 
     id: str
@@ -122,7 +126,7 @@ class OrderOut(BaseModel):
     total: Decimal
     tickets: list[TicketOut]
     created_at: datetime
-    mollie_checkout_url: str | None = None
+    payment_redirect_url: str | None = None
 
 
 class MarkOrderPaidRequest(BaseModel):

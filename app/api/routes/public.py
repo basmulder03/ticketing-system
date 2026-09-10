@@ -21,6 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.api.routes._utils import parse_uuid_or_404
 from app.core.rate_limit import (
     checkout_rate_limiter,
     mollie_webhook_rate_limiter,
@@ -32,6 +33,8 @@ from app.models.event import Event
 from app.models.order import Order
 from app.models.show import Show
 from app.models.ticket import Ticket
+from app.models.ticket_type import TicketType
+from app.schemas.demo_payment import DemoPaymentItemOut, DemoPaymentOut
 from app.schemas.order import CheckoutRequest, OrderOut, TicketOut
 from app.schemas.public import PublicEventOut, PublicShowOut, PublicThemeOut, PublicTicketTypeOut
 from app.services.audit import record_audit_entry
@@ -186,7 +189,7 @@ def _parse_ticket_type_id(raw: str) -> uuid.UUID:
         ) from None
 
 
-async def _order_to_out(session: AsyncSession, order: Order, *, mollie_checkout_url: str | None = None) -> OrderOut:
+async def _order_to_out(session: AsyncSession, order: Order, *, payment_redirect_url: str | None = None) -> OrderOut:
     result = await session.execute(
         select(Ticket).where(Ticket.order_id == order.id).options(selectinload(Ticket.ticket_type))
     )
@@ -212,7 +215,7 @@ async def _order_to_out(session: AsyncSession, order: Order, *, mollie_checkout_
             for t in tickets
         ],
         created_at=order.created_at,
-        mollie_checkout_url=mollie_checkout_url,
+        payment_redirect_url=payment_redirect_url,
     )
 
 
@@ -237,9 +240,12 @@ async def checkout(
     ``app.core.rate_limit.checkout_rate_limiter``) per the brief's "rate
     limiting on checkout... endpoints" requirement.
 
-    The response's ``mollie_checkout_url`` is set whenever a real Mollie
-    payment was just created — the caller (``app.web.routes.public_site``)
-    must redirect the buyer there instead of straight to order-confirmation.
+    The response's ``payment_redirect_url`` is set whenever a payment
+    needing an interstitial page was just created — a real Mollie payment,
+    or (post-launch) a ``demo``-method Order's in-app demo-payment page
+    (see ``app.services.checkout._initiate_demo_payment``) — the caller
+    (``app.web.routes.public_site``) must redirect the buyer there instead
+    of straight to order-confirmation.
 
     On any validation/availability/stock/payment-initiation failure, the
     transaction is rolled back and a specific 403/404/409/422/502 is
@@ -289,7 +295,128 @@ async def checkout(
         await send_order_confirmation_email(session, order_id=result.order.id, principal=SYSTEM_PRINCIPAL)
     elif result.order.payment_method == PaymentMethod.DOOR:
         await send_door_payment_confirmation_email(session, order_id=result.order.id, principal=SYSTEM_PRINCIPAL)
-    return await _order_to_out(session, result.order, mollie_checkout_url=result.mollie_checkout_url)
+    return await _order_to_out(session, result.order, payment_redirect_url=result.payment_redirect_url)
+
+
+async def _get_pending_demo_order_or_404(session: AsyncSession, order_id: str) -> Order:
+    """Look up an Order eligible for a demo-payment action: it must exist,
+    be ``payment_method=demo``, and still be ``pending`` — a completed/
+    failed order, a foreign order_id, and a nonexistent one all 404
+    identically (same "can't distinguish doesn't-exist from not-eligible"
+    posture ``EventNotAvailableCheckoutError`` already uses for draft
+    events), so this can never be used to probe order state or replay an
+    already-settled demo payment."""
+    parsed_id = parse_uuid_or_404(order_id, detail="Demo payment not found.")
+    result = await session.execute(
+        select(Order)
+        .where(Order.id == parsed_id)
+        .options(
+            selectinload(Order.event),
+            selectinload(Order.tickets).selectinload(Ticket.ticket_type),
+        )
+    )
+    order = result.scalar_one_or_none()
+    if order is None or order.payment_method != PaymentMethod.DEMO or order.status != OrderStatus.PENDING:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Demo payment not found.")
+    return order
+
+
+def _demo_payment_items(order: Order) -> list[DemoPaymentItemOut]:
+    """Group ``order``'s one-row-per-unit Tickets into one line per ticket
+    type, in first-seen order — mirrors
+    ``app.services.email_render._group_tickets_by_type``'s same reasoning
+    (there's no per-unit QR/ticket identity to show yet on an unpaid demo
+    order, just "how many of each type")."""
+    counts: dict[uuid.UUID, int] = {}
+    order_seen: list[uuid.UUID] = []
+    for ticket in order.tickets:
+        if ticket.ticket_type_id not in counts:
+            order_seen.append(ticket.ticket_type_id)
+        counts[ticket.ticket_type_id] = counts.get(ticket.ticket_type_id, 0) + 1
+    by_id: dict[uuid.UUID, TicketType] = {t.ticket_type_id: t.ticket_type for t in order.tickets}
+    return [
+        DemoPaymentItemOut(
+            ticket_type_name=by_id[tid].name, quantity=counts[tid], unit_price=by_id[tid].price
+        )
+        for tid in order_seen
+    ]
+
+
+@router.get("/demo-payment/{order_id}")
+async def get_demo_payment(order_id: str, session: AsyncSession = Depends(get_session)) -> DemoPaymentOut:
+    """Read-only summary for the demo-payment page (``app.web.routes.
+    demo_payment``) to render — what the buyer is about to simulate
+    paying for. See :class:`DemoPaymentOut`."""
+    order = await _get_pending_demo_order_or_404(session, order_id)
+    return DemoPaymentOut(
+        order_id=str(order.id),
+        event_name=order.event.name,
+        buyer_name=order.buyer_name,
+        total=order.total,
+        language=order.language,
+        items=_demo_payment_items(order),
+    )
+
+
+@router.post(
+    "/demo-payment/{order_id}/complete",
+    dependencies=[Depends(rate_limit_dependency(checkout_rate_limiter))],
+)
+async def complete_demo_payment(order_id: str, session: AsyncSession = Depends(get_session)) -> OrderOut:
+    """The buyer clicked "Simulate successful payment" — settle this
+    ``demo`` Order exactly like a genuine payment confirmation would (see
+    ``app.services.checkout._initiate_demo_payment``'s docstring for why
+    this two-step, interstitial shape exists at all rather than an
+    instant auto-pass): sign its Tickets' QR tokens, issue its Invoice,
+    and — once committed — dispatch the same order-confirmation/ticket
+    email a real Mollie or door payment would eventually trigger. No real
+    charge, no external call of any kind, anywhere in this path."""
+    order = await _get_pending_demo_order_or_404(session, order_id)
+    try:
+        mark_paid_result = await mark_order_paid(
+            session,
+            order_id=order.id,
+            principal=SYSTEM_PRINCIPAL,
+            method_label="demo",
+            reason="Simulated demo payment: buyer chose 'Simulate successful payment'.",
+        )
+    except (InsufficientStockError, TicketTypeNotFoundError) as exc:
+        # Not reachable in practice (this Order was just confirmed PENDING
+        # above, never a resurrected CANCELLED/EXPIRED order — see
+        # mark_order_paid's docstring for when that check actually
+        # applies) — handled anyway for the same defensive reason the
+        # Mollie webhook does, rather than ever surfacing an unhandled 500.
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Stock is no longer available.") from exc
+    if not mark_paid_result.already_paid:
+        await sign_order_tickets(session, order=mark_paid_result.order)
+        await issue_invoice_for_order(session, order=mark_paid_result.order, principal=SYSTEM_PRINCIPAL)
+    await session.commit()
+    if not mark_paid_result.already_paid:
+        await send_order_confirmation_email(session, order_id=order.id, principal=SYSTEM_PRINCIPAL)
+    return await _order_to_out(session, mark_paid_result.order)
+
+
+@router.post(
+    "/demo-payment/{order_id}/fail",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(rate_limit_dependency(checkout_rate_limiter))],
+)
+async def fail_demo_payment(order_id: str, session: AsyncSession = Depends(get_session)) -> Response:
+    """The buyer clicked "Simulate failed payment" — release this ``demo``
+    Order's reserved stock exactly like a genuine Mollie ``failed``/
+    ``canceled`` webhook status would (see ``_MOLLIE_FAILURE_STATUSES``
+    below): ``OrderStatus.CANCELLED``, same as any other buyer/Mollie-side
+    checkout cancellation."""
+    order = await _get_pending_demo_order_or_404(session, order_id)
+    await release_order_stock(
+        session,
+        order_id=order.id,
+        new_status=OrderStatus.CANCELLED,
+        principal=SYSTEM_PRINCIPAL,
+        reason="Simulated demo payment: buyer chose 'Simulate failed payment'.",
+    )
+    await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 _MOLLIE_FAILURE_STATUSES: dict[str, OrderStatus] = {

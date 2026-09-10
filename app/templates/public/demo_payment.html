@@ -1,0 +1,74 @@
+{% extends "public/base.html" %}
+{# The demo payment provider's interstitial page — see
+   app.services.checkout._initiate_demo_payment's docstring for why this
+   exists at all: a real, admin-selectable payment method any event can
+   enable, that behaves like a genuine provider's hosted checkout page
+   (pending order, buyer-driven settlement) without any external call or
+   credential. Deliberately NOT rendered with the event's own Theme colors
+   (no theme_style block set here) — a real provider's hosted page is
+   never themed to match the organizer's site either, and that visual
+   distinction is itself part of communicating "you have left the
+   organizer's site". #}
+{% block title %}{{ translate('public.demo_payment.title', locale) }} — {{ translate('app.name', locale) }}{% endblock %}
+{% block extra_head %}
+<meta name="robots" content="noindex, nofollow">
+{% endblock %}
+{% block content %}
+<section class="pub-plain-section">
+  <p class="pub-notice pub-notice--warning" role="status">
+    {{ translate('public.demo_payment.sandbox_notice', locale) }}
+  </p>
+
+  {% if error %}
+  <p class="pub-notice pub-notice--error" role="alert">{{ error }}</p>
+  {% endif %}
+
+  <h1>{{ translate('public.demo_payment.title', locale) }}</h1>
+  <p>{{ translate('public.demo_payment.intro', locale) }} {{ order.event_name }}.</p>
+
+  <dl class="pub-summary-list">
+    <dt>{{ translate('public.checkout.buyer_name_label', locale) }}</dt>
+    <dd>{{ order.buyer_name }}</dd>
+
+    <dt>{{ translate('public.order_confirmation.total_label', locale) }}</dt>
+    <dd>{{ order.total | format_currency(locale) }}</dd>
+  </dl>
+
+  <h2>{{ translate('public.order_confirmation.tickets_heading', locale) }}</h2>
+  <table class="pub-ticket-table">
+    <caption class="pub-visually-hidden">{{ translate('public.order_confirmation.tickets_heading', locale) }}</caption>
+    <thead>
+      <tr>
+        <th scope="col">{{ translate('public.landing.ticket_type_column', locale) }}</th>
+        <th scope="col">{{ translate('public.demo_payment.quantity_column', locale) }}</th>
+        <th scope="col">{{ translate('public.landing.price_column', locale) }}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {# order.items collides with dict.items (the built-in method) under
+         Jinja2's attribute-then-item lookup fallback -- bracket notation
+         forces the item lookup. #}
+      {% for item in order['items'] %}
+      <tr>
+        <td>{{ item.ticket_type_name }}</td>
+        <td>{{ item.quantity }}</td>
+        <td>{{ item.unit_price | format_currency(locale) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <div class="pub-demo-payment-actions">
+    <form method="post" action="/demo-payment/{{ order.order_id }}/complete">
+      <button type="submit" class="pub-button pub-button--primary">
+        {{ translate('public.demo_payment.complete_button', locale) }}
+      </button>
+    </form>
+    <form method="post" action="/demo-payment/{{ order.order_id }}/fail">
+      <button type="submit" class="pub-button pub-button--ghost">
+        {{ translate('public.demo_payment.fail_button', locale) }}
+      </button>
+    </form>
+  </div>
+</section>
+{% endblock %}

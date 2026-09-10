@@ -201,7 +201,7 @@ async def test_order_out_shape_including_nested_tickets(
     # fix (this milestone's regression) exists to handle.
     assert order["total"] == "15.00"
     assert "created_at" in order
-    assert order["mollie_checkout_url"] is None
+    assert order["payment_redirect_url"] is None
 
     assert len(order["tickets"]) == 1
     [ticket] = order["tickets"]

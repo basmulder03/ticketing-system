@@ -490,18 +490,23 @@ async def _handle_checkout_submission(
         )
 
     order = checkout_response.json()
-    mollie_checkout_url = order.get("mollie_checkout_url")
-    if mollie_checkout_url:
-        # Milestone 3: a real Mollie payment was just created for this
-        # order — send the buyer to Mollie's hosted checkout instead of
-        # straight to order-confirmation. Mollie redirects back to the
-        # `redirectUrl` this app itself supplied when creating the payment
-        # (see `app.services.checkout._initiate_mollie_payment`), which
-        # already points at `/order-confirmation/{id}` (with `?preview=1`
-        # when relevant) — so the stashed cookie below is still what
-        # renders that page once the buyer comes back, same as every other
-        # payment method.
-        response = RedirectResponse(url=mollie_checkout_url, status_code=303)
+    payment_redirect_url = order.get("payment_redirect_url")
+    if payment_redirect_url:
+        # Milestone 3 / post-launch fix: a real Mollie payment, or a `demo`
+        # order's in-app demo-payment page, was just created for this order
+        # — send the buyer there instead of straight to order-confirmation.
+        # Mollie redirects back to the `redirectUrl` this app itself
+        # supplied when creating the payment (see
+        # `app.services.checkout._initiate_mollie_payment`), and the
+        # demo-payment page's own "simulate success/failure" actions
+        # redirect onward themselves (see
+        # `app.web.routes.demo_payment`) — both eventually land back at
+        # `/order-confirmation/{id}` (with `?preview=1` when relevant), so
+        # the stashed cookie below (set now, on THIS response, before any
+        # of that redirect chain even starts) is still what renders that
+        # page once the buyer gets there, same as every other payment
+        # method.
+        response = RedirectResponse(url=payment_redirect_url, status_code=303)
     else:
         # `door` orders, and the preview-mode simulated-payment path (order
         # already `paid` with no real Mollie payment involved — see

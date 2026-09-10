@@ -96,7 +96,7 @@ async def test_draft_preview_mollie_checkout_simulates_paid_with_no_external_cal
     assert response.status_code == 201, response.text
     body = response.json()
     assert body["status"] == "paid"
-    assert body["mollie_checkout_url"] is None
+    assert body["payment_redirect_url"] is None
 
 
 async def test_draft_preview_mollie_checkout_simulation_writes_no_mollie_payment_id(
