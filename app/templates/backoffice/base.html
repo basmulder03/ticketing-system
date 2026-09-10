@@ -144,6 +144,23 @@
       if (output) output.textContent = event.target.value;
     });
 
+    // Theme editor: "Use #rrggbb" contrast-suggestion buttons (see
+    // app/templates/backoffice/_theme_preview_fragment.html) -- sets the
+    // named field's <input type="color"> to the suggested value and
+    // dispatches a real "input" event, which the swatch-sync listener
+    // above AND the theme form's own hx-trigger (see theme_editor.html)
+    // both already react to -- so one click updates the picker, its hex
+    // readout, and re-runs the live preview/contrast recalculation, with
+    // no new machinery of its own.
+    document.addEventListener("click", function (event) {
+      var button = event.target.closest(".bo-apply-color-suggestion");
+      if (!button) return;
+      var field = document.getElementById(button.getAttribute("data-target-field"));
+      if (!field) return;
+      field.value = button.getAttribute("data-suggested-color");
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
     // Copy-to-clipboard for shareable links (e.g. an event's unguessable
     // preview link — see app/templates/backoffice/events_list.html). Falls
     // back to the styled #bo-copy-fallback-dialog (see above) — a

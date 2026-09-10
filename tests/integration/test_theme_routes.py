@@ -367,6 +367,39 @@ async def test_preview_endpoint_does_not_persist_anything(
     assert get_response.status_code == 404  # no theme was ever saved
 
 
+async def test_preview_endpoint_includes_contrast_suggestions_for_failing_pairs(
+    client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]]
+) -> None:
+    """Post-launch fix: the preview response now also carries a "closest
+    compliant color" suggestion per failing pair (keyed by
+    ContrastPairOut.label), per the user's NOTES ("Do color
+    recommendations for what color can be used ... with easy setting of
+    that color"). _VALID_THEME_BODY's own colors are used deliberately
+    (not a hand-picked worst-case) -- this is what an ordinary saved theme
+    actually gets back."""
+    await _login(client, await make_admin_user())
+    event_id = await _create_event(client, slug="preview-suggestions-event")
+
+    response = await client.post(f"/api/v1/events/{event_id}/theme/preview", json=_VALID_THEME_BODY)
+
+    assert response.status_code == 200
+    body = response.json()
+    contrast_report = body["contrast_report"]
+    suggestions = body["contrast_suggestions"]
+
+    failing_labels = {p["label"] for p in contrast_report["pairs"] if not p["passes_normal_text"]}
+    passing_labels = {p["label"] for p in contrast_report["pairs"] if p["passes_normal_text"]}
+    assert failing_labels, "test setup assumption: this theme should have at least one failing pair"
+
+    assert set(suggestions.keys()) == failing_labels
+    assert passing_labels.isdisjoint(suggestions.keys())
+
+    for label in failing_labels:
+        suggestion = suggestions[label]
+        assert suggestion["field_name"] in ("primary_color", "secondary_color", "accent_color")
+        assert suggestion["suggested_color"].startswith("#")
+
+
 async def test_preview_endpoint_reflects_draft_values_independent_of_saved_theme(
     client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]]
 ) -> None:

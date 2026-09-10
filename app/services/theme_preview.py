@@ -18,7 +18,12 @@ from dataclasses import dataclass
 
 from app.core.css_sanitizer import EVENT_CONTENT_CLASS, sanitize_custom_css
 from app.models.enums import ThemeFont
-from app.services.contrast import ThemeContrastReport, check_theme_contrast
+from app.services.color import nudge_lightness_for_contrast
+from app.services.contrast import (
+    AA_NORMAL_TEXT_THRESHOLD,
+    ThemeContrastReport,
+    check_theme_contrast,
+)
 
 FONT_STACKS: dict[ThemeFont, str] = {
     ThemeFont.SYSTEM_SANS: "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
@@ -39,12 +44,77 @@ no-external-request posture the CSS sanitizer enforces for custom CSS."""
 
 
 @dataclass(frozen=True)
+class ContrastSuggestion:
+    """A "closest compliant color" suggestion for one failing contrast
+    pair (post-launch fix, per the user's NOTES: "Do color recommendations
+    for what color can be used ... with easy setting of that color").
+
+    ``field_name`` is which of the Theme's three form fields this
+    suggestion applies to (``"primary_color"``/``"secondary_color"``/
+    ``"accent_color"``) — the backoffice template uses it to wire a
+    one-click "use this color" button straight to the right ``<input
+    type="color">``. ``suggested_color`` always targets the stricter
+    4.5:1 normal-text threshold (clearing it also clears the 3:1 large-
+    text/UI threshold every pair is also checked against), computed by
+    :func:`app.services.color.nudge_lightness_for_contrast` -- the same
+    hue/saturation-preserving search :func:`app.services.color.
+    derive_dark_palette` already uses, so a suggestion always reads as
+    "your color, nudged" rather than an unrelated replacement.
+    """
+
+    field_name: str
+    suggested_color: str
+
+
+def _field_name_for_color(
+    hex_color: str, *, primary_color: str, secondary_color: str, accent_color: str
+) -> str | None:
+    """Which Theme field ``hex_color`` came from, by value equality against
+    the three fixed fields -- not by parsing ``ContrastPairResult.label``
+    (a fragile string-coupling this deliberately avoids: the label is
+    presentation text, not a stable machine-readable field identifier).
+    Returns ``None`` for a comparison's fixed white/black anchor, which is
+    never adjustable."""
+    if hex_color == primary_color:
+        return "primary_color"
+    if hex_color == secondary_color:
+        return "secondary_color"
+    if hex_color == accent_color:
+        return "accent_color"
+    return None
+
+
+def _build_contrast_suggestions(
+    report: ThemeContrastReport, *, primary_color: str, secondary_color: str, accent_color: str
+) -> dict[str, ContrastSuggestion]:
+    """One suggestion per FAILING pair in ``report``, keyed by
+    ``ContrastPairResult.label`` -- a pair that already passes needs no
+    suggestion, and gets no entry here (the template checks for that key's
+    presence rather than a sentinel value)."""
+    suggestions: dict[str, ContrastSuggestion] = {}
+    for pair in report.pairs:
+        if pair.passes_normal_text:
+            continue
+        field_name = _field_name_for_color(
+            pair.foreground, primary_color=primary_color, secondary_color=secondary_color, accent_color=accent_color
+        )
+        if field_name is None:
+            continue
+        suggested = nudge_lightness_for_contrast(
+            pair.foreground, pair.background, target_ratio=AA_NORMAL_TEXT_THRESHOLD
+        )
+        suggestions[pair.label] = ContrastSuggestion(field_name=field_name, suggested_color=suggested)
+    return suggestions
+
+
+@dataclass(frozen=True)
 class ThemePreviewResult:
     """Everything `frontend-theming` needs to render a live preview pane."""
 
     sanitized_custom_css: str
     is_custom_css_active: bool
     contrast_report: ThemeContrastReport
+    contrast_suggestions: dict[str, ContrastSuggestion]
     preview_css: str
     sample_html: str
 
@@ -66,6 +136,9 @@ def build_theme_preview(
     sanitized_css = sanitize_custom_css(custom_css or "")
     contrast_report = check_theme_contrast(
         primary_color=primary_color, secondary_color=secondary_color, accent_color=accent_color
+    )
+    contrast_suggestions = _build_contrast_suggestions(
+        contrast_report, primary_color=primary_color, secondary_color=secondary_color, accent_color=accent_color
     )
     font_stack = FONT_STACKS[font_choice]
 
@@ -101,6 +174,7 @@ def build_theme_preview(
         sanitized_custom_css=sanitized_css,
         is_custom_css_active=bool(sanitized_css),
         contrast_report=contrast_report,
+        contrast_suggestions=contrast_suggestions,
         preview_css=preview_css,
         sample_html=sample_html,
     )

@@ -753,7 +753,17 @@ textarea:focus-visible {
 
 .bo-theme-layout {
   display: grid;
-  grid-template-columns: 1fr;
+  /* minmax(0, 1fr), not a bare 1fr: a grid track's implicit minimum size
+     is its content's min-content width, not 0 -- a bare 1fr column
+     refuses to shrink below that, so once content wide enough exists
+     inside it (the contrast table's "Use #rrggbb" suggestion buttons),
+     the TRACK itself grows past the viewport instead of the nested
+     .bo-table-wrap's own overflow-x:auto ever getting a chance to
+     contain it (found via the responsive-layout test suite at 375px).
+     minmax(0, 1fr) lets the track shrink to the container's width, so
+     overflow is handled one level down, inside the table wrap, same as
+     the desktop two-column rule below already does correctly. */
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--bo-spacing-6);
 }
 
@@ -1110,3 +1120,18 @@ details > :last-child {
 /* #bo-copy-fallback-input is a plain type="text" inside a .bo-field
    wrapper, so it already gets full styling from the shared form-input
    rules above -- no dialog-specific override needed. */
+
+/* Theme editor: "closest compliant color" contrast suggestions
+   (app/templates/backoffice/_theme_preview_fragment.html) -- a small
+   swatch of the SUGGESTED color inside its own "Use #rrggbb" button, so
+   an admin can see the color before applying it, not just read a hex
+   code. */
+.bo-contrast-swatch {
+  display: inline-block;
+  width: 0.9em;
+  height: 0.9em;
+  border-radius: 3px;
+  border: 1px solid var(--bo-color-border);
+  margin-right: 0.4em;
+  vertical-align: -0.1em;
+}

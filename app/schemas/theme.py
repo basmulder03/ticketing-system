@@ -100,6 +100,16 @@ class ThemePreviewRequest(BaseModel):
     custom_css: str | None = None
 
 
+class ContrastSuggestionOut(BaseModel):
+    """A "closest compliant color" suggestion for one failing contrast
+    pair (post-launch fix, per the user's NOTES: "Do color recommendations
+    for what color can be used ... with easy setting of that color"). See
+    ``app.services.theme_preview.ContrastSuggestion``."""
+
+    field_name: str
+    suggested_color: str
+
+
 class ThemePreviewResponse(BaseModel):
     """Response of ``POST /api/v1/events/{event_id}/theme/preview``.
 
@@ -109,10 +119,14 @@ class ThemePreviewResponse(BaseModel):
     `frontend-theming` to render a live preview pane by dropping
     ``preview_css`` into a ``<style>`` tag and ``sample_html`` into the
     page — no server-rendered template involved at this stage.
+
+    ``contrast_suggestions`` is keyed by ``ContrastPairOut.label`` — a pair
+    absent from this dict already passes and needs no suggestion.
     """
 
     sanitized_custom_css: str
     is_custom_css_active: bool
     contrast_report: ContrastReportOut
+    contrast_suggestions: dict[str, ContrastSuggestionOut]
     preview_css: str
     sample_html: str
