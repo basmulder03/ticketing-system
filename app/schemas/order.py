@@ -129,6 +129,60 @@ class OrderOut(BaseModel):
     payment_redirect_url: str | None = None
 
 
+class ManualOrderItem(BaseModel):
+    """One requested ticket type + quantity line, same shape as
+    :class:`CheckoutItem`."""
+
+    ticket_type_id: str
+    quantity: int = Field(gt=0, le=50)
+
+
+class ManualOrderCreateRequest(BaseModel):
+    """Body of ``POST /api/v1/shows/{show_id}/manual-orders`` — an
+    admin-created Order for a buyer who never submitted any checkout
+    request at all (see ``app.services.manual_order`` module docstring).
+
+    ``buyer_email``/``buyer_address`` are optional, unlike
+    :class:`CheckoutRequest`'s required versions of the same fields — per
+    the user's NOTES, this exists specifically FOR "people without a
+    computer or phone", who may have no email address to give at all.
+    Left blank, ``app.services.manual_order.create_manual_order``
+    synthesizes an `.invalid`-domain placeholder to satisfy ``Order.
+    buyer_email``'s NOT NULL column, and the route skips confirmation-email
+    dispatch entirely rather than trying to send to it.
+
+    ``method_label``/``reason`` are the same free-text fields
+    :class:`MarkOrderPaidRequest` already uses, for the same reason (see
+    that schema's docstring) — this Order is settled to ``paid``
+    immediately on creation (see ``app.services.manual_order.
+    create_manual_order``), so the admin records how payment was actually
+    collected (cash, comp, etc.) at the same time as creating it, rather
+    than in a separate follow-up call.
+    """
+
+    buyer_name: str = Field(min_length=1, max_length=255)
+    buyer_email: str | None = Field(default=None, max_length=255, pattern=_EMAIL_PATTERN)
+    buyer_address: str | None = Field(default=None, max_length=1000)
+    language: str = Field(default="en")
+    items: list[ManualOrderItem] = Field(min_length=1, max_length=20)
+    method_label: str = Field(min_length=1, max_length=100)
+    reason: str | None = Field(default=None, max_length=1000)
+
+    @field_validator("language")
+    @classmethod
+    def _normalize_language(cls, value: str) -> str:
+        """Same lenient fallback as :meth:`CheckoutRequest._normalize_language`."""
+        normalized = value.lower()
+        return normalized if normalized in _SUPPORTED_LANGUAGES else "en"
+
+    @model_validator(mode="after")
+    def _check_total_quantity(self) -> "ManualOrderCreateRequest":
+        total = sum(item.quantity for item in self.items)
+        if total > _MAX_TICKETS_PER_ORDER:
+            raise ValueError(f"An order may not request more than {_MAX_TICKETS_PER_ORDER} tickets in total.")
+        return self
+
+
 class MarkOrderPaidRequest(BaseModel):
     """Body of ``POST /api/v1/orders/{order_id}/mark-paid`` (Milestone 6).
 

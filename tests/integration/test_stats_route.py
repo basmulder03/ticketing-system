@@ -20,9 +20,12 @@ docstring:
    while an Event has pending orders in flight. See
    ``test_mixed_order_statuses_produce_two_deliberately_different_sold_and_revenue_populations``.
 2. ``revenue_by_payment_method`` always has exactly one entry per
-   :class:`~app.models.enums.PaymentMethod` member (``mollie``, ``door``,
-   and — since the post-launch demo-payment-provider fix — ``demo``),
-   zero-filled when a method has no paid orders.
+   :class:`~app.models.enums.PaymentMethod` member, zero-filled when a
+   method has no paid orders — asserted dynamically against
+   ``set(PaymentMethod)`` (not a hardcoded literal set) so this test
+   doesn't need updating every time a new payment method is added (it
+   already needed exactly that fix twice: once for ``demo``, once for
+   ``manual``).
 
 Rows are built directly against the DB (mirrors
 ``tests/integration/test_stock_service.py``'s "insert Order/Ticket rows
@@ -142,7 +145,7 @@ async def test_stats_for_event_with_no_shows_is_empty_not_an_error(
     assert body["scanned_total"] == 0
     assert body["revenue_total"] == "0.00"
     methods = {entry["payment_method"] for entry in body["revenue_by_payment_method"]}
-    assert methods == {"mollie", "door", "demo"}
+    assert methods == {method.value for method in PaymentMethod}
     for entry in body["revenue_by_payment_method"]:
         assert entry["revenue"] == "0.00"
         assert entry["order_count"] == 0

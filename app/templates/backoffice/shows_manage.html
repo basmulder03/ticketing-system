@@ -231,6 +231,54 @@
         <button type="submit" class="bo-button bo-button--small bo-button--primary">Add ticket type</button>
       </form>
     </details>
+
+    <details>
+      <summary>Issue tickets manually</summary>
+      <p class="bo-hint">For a buyer without a computer or phone (a walk-up/box-office sale, or a comp
+        ticket) &mdash; creates a paid order directly, skipping the online payment process entirely.
+        Buyer email is optional: leave it blank if there is none, and hand over the printed
+        invoice/tickets instead once issued.</p>
+      {% if show.ticket_types %}
+      <form method="post" action="/events/{{ event.id }}/shows/{{ show.id }}/manual-orders">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="bo-field-row">
+          <div class="bo-field">
+            <label for="manual-buyer-name-{{ show.id }}">Buyer name</label>
+            <input id="manual-buyer-name-{{ show.id }}" type="text" name="buyer_name" required maxlength="255">
+          </div>
+          <div class="bo-field">
+            <label for="manual-buyer-email-{{ show.id }}">Buyer email (optional)</label>
+            <input id="manual-buyer-email-{{ show.id }}" type="email" name="buyer_email">
+          </div>
+        </div>
+        <div class="bo-field">
+          <label for="manual-buyer-address-{{ show.id }}">Buyer address (optional)</label>
+          <textarea id="manual-buyer-address-{{ show.id }}" name="buyer_address" rows="2"></textarea>
+        </div>
+        <div class="bo-field-row">
+          {% for ticket_type in show.ticket_types %}
+          <div class="bo-field">
+            <label for="manual-qty-{{ ticket_type.id }}">{{ ticket_type.name }} (&euro;{{ '%.2f' % (ticket_type.price | float) }}, {{ ticket_type.remaining }} remaining)</label>
+            <input id="manual-qty-{{ ticket_type.id }}" type="number" min="0" max="{{ ticket_type.remaining }}" name="qty_{{ ticket_type.id }}" value="0">
+          </div>
+          {% endfor %}
+        </div>
+        <div class="bo-field-row">
+          <div class="bo-field">
+            <label for="manual-method-{{ show.id }}">Payment method</label>
+            <input id="manual-method-{{ show.id }}" type="text" name="method_label" required placeholder="cash, comp, bank transfer...">
+          </div>
+          <div class="bo-field">
+            <label for="manual-reason-{{ show.id }}">Reason (optional)</label>
+            <input id="manual-reason-{{ show.id }}" type="text" name="reason" placeholder="e.g. box office walk-up sale">
+          </div>
+        </div>
+        <button type="submit" class="bo-button bo-button--small bo-button--primary">Issue tickets</button>
+      </form>
+      {% else %}
+      <p class="bo-hint">Add a ticket type above first.</p>
+      {% endif %}
+    </details>
   </details>
 </section>
 {% else %}
