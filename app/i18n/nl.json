@@ -8,6 +8,12 @@
   "public.not_found.title": "Evenement niet gevonden",
   "public.not_found.body": "We konden het evenement dat u zocht niet vinden. Mogelijk is het niet meer beschikbaar.",
 
+  "public.homepage.title": "Beacon",
+  "public.homepage.intro": "Beacon is een zelf gehost ticketplatform voor evenementen. Bekijk hieronder de evenementen die nu open staan, of log in om er een te beheren.",
+  "public.homepage.events_heading": "Evenementen",
+  "public.homepage.no_events": "Er zijn op dit moment geen evenementen open — kom later nog eens terug.",
+  "public.homepage.admin_sign_in": "Inloggen als beheerder",
+
   "public.share.heading": "Delen",
   "public.share.copy_link": "Kopieer link naar deze voorstelling",
   "public.share.copy_ticket_link": "Kopieer link naar dit ticketsoort",

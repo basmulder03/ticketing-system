@@ -323,6 +323,30 @@ async def test_privacy_policy_page_has_no_axe_violations(axe_page: Page) -> None
     assert violations == [], format_axe_violations(violations)
 
 
+async def test_homepage_directory_has_no_axe_violations(
+    axe_page: Page,
+    make_event: Callable[..., Awaitable[Event]],
+) -> None:
+    """The post-launch homepage fix (``app.web.routes.homepage``), rendered
+    with at least one real published Event so its directory list is
+    actually exercised, not just the empty state."""
+    await make_event(
+        name="Christmas Passion",
+        slug="homepage-a11y-event",
+        description="A festive concert.",
+        status=PublishStatus.PUBLISHED,
+    )
+
+    violations = await run_axe(axe_page, "/")
+
+    assert violations == [], format_axe_violations(violations)
+
+
+async def test_homepage_no_events_empty_state_has_no_axe_violations(axe_page: Page) -> None:
+    violations = await run_axe(axe_page, "/")
+    assert violations == [], format_axe_violations(violations)
+
+
 # --- Milestone 9: large-display "beamer/TV" countdown view -----------------
 #
 # app.web.public_context.build_beamer_theme_css's docstring explicitly asks

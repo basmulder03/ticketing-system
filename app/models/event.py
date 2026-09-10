@@ -67,6 +67,17 @@ class Event(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     a draft event from a single shared link, and the brief doesn't call for
     per-show preview-link granularity — a second token column per Show
     would be speculative complexity (KISS).
+
+    ``is_default_event`` (post-launch fix, per the user's NOTES: "event can
+    be set to the default event, which causes that event page to
+    automagically open") — at most one Event may have this ``True`` at a
+    time, enforced by a partial unique index (see migration ``0013``) as
+    well as ``app.api.routes.events.set_default_event`` clearing any
+    previous default in the same transaction. ``app.web.routes.homepage``
+    redirects a visitor to ``/`` straight to this Event's public page when
+    it's set AND published; otherwise (no default set, or the default
+    Event is still draft) it renders a plain directory of every published
+    Event instead.
     """
 
     __tablename__ = "events"
@@ -83,6 +94,7 @@ class Event(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     preview_token: Mapped[str] = mapped_column(
         String(64), unique=True, index=True, nullable=False, default=lambda: secrets.token_urlsafe(32)
     )
+    is_default_event: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     config: Mapped["EventConfig | None"] = relationship(
         back_populates="event", uselist=False, cascade="all, delete-orphan"

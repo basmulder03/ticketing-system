@@ -52,5 +52,6 @@ class EventOut(BaseModel):
     status: PublishStatus
     sales_paused: bool
     preview_token: str
+    is_default_event: bool
     created_at: datetime
     updated_at: datetime

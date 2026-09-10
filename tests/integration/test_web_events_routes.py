@@ -450,3 +450,68 @@ async def test_events_list_renders_the_correct_preview_link_data_attribute(
     preview_token = event_response.json()["preview_token"]
     expected_url = f"{get_settings().public_base_url}/preview/{preview_token}"
     assert f'data-copy-value="{expected_url}"' in response.text
+
+
+# --- Default event ------------------------------------------------------------
+
+
+async def test_set_default_event_happy_path_shows_default_badge(
+    client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]], make_event: Callable[..., Awaitable[Event]]
+) -> None:
+    await _api_login(client, await make_admin_user())
+    event = await make_event(name="Default Candidate")
+    token = await _get_csrf(client, "/events")
+
+    response = await client.post(f"/events/{event.id}/set-default", data={"csrf_token": token})
+
+    assert response.status_code == 303
+    assert "flash=Default%20event%20set.&flash_kind=success" in response.headers["location"]
+
+    page = await client.get("/events")
+    assert 'bo-badge--default">Default' in page.text
+    assert "Unset as default" in page.text
+
+
+async def test_unset_default_event_happy_path_removes_default_badge(
+    client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]], make_event: Callable[..., Awaitable[Event]]
+) -> None:
+    await _api_login(client, await make_admin_user())
+    event = await make_event(name="Default Candidate")
+    token = await _get_csrf(client, "/events")
+    await client.post(f"/events/{event.id}/set-default", data={"csrf_token": token})
+
+    response = await client.post(f"/events/{event.id}/unset-default", data={"csrf_token": token})
+
+    assert response.status_code == 303
+    assert "flash=Default%20event%20unset.&flash_kind=success" in response.headers["location"]
+
+    page = await client.get("/events")
+    assert "bo-badge--default" not in page.text
+    assert "Set as default" in page.text
+
+
+async def test_set_default_event_returns_404_flash_for_unknown_event(
+    client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]]
+) -> None:
+    await _api_login(client, await make_admin_user())
+    token = await _get_csrf(client, "/events")
+
+    response = await client.post(
+        f"/events/{uuid.uuid4()}/set-default", data={"csrf_token": token}
+    )
+
+    assert response.status_code == 303
+    location = response.headers["location"]
+    assert "flash_kind=error" in location
+    assert "Event%20not%20found." in location
+
+
+async def test_set_default_event_missing_csrf_is_rejected(
+    client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]], make_event: Callable[..., Awaitable[Event]]
+) -> None:
+    await _api_login(client, await make_admin_user())
+    event = await make_event()
+
+    response = await client.post(f"/events/{event.id}/set-default", data={})
+
+    assert response.status_code == 422

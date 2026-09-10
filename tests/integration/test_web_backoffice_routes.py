@@ -115,10 +115,16 @@ async def test_unauthenticated_email_template_editor_redirects_to_login_with_the
     assert response.headers["location"] == f"/login?next={quote(path)}"
 
 
-async def test_root_redirects_to_events(client: AsyncClient) -> None:
+async def test_root_no_longer_redirects_straight_into_the_backoffice(client: AsyncClient) -> None:
+    """Post-launch fix (``app.web.routes.homepage``): ``/`` used to
+    unconditionally redirect into the backoffice (``/events``), bouncing
+    every unauthenticated buyer straight to ``/login``. It's now a real
+    public homepage instead — see ``tests/integration/test_homepage_web_
+    routes.py`` for the redirect-to-default-event/directory-listing
+    behavior this asserts only that the OLD behavior is gone."""
     response = await client.get("/")
-    assert response.status_code == 303
-    assert response.headers["location"] == "/events"
+    assert response.status_code == 200
+    assert response.headers.get("location") != "/events"
 
 
 # --- Open-redirect guard, exercised end-to-end through the real login POST ---

@@ -1,0 +1,32 @@
+{% extends "public/base.html" %}
+{# The public site root (``/``) — see app.web.routes.homepage's module
+   docstring. Deliberately NOT Event-scoped/themed, same "plain page"
+   shape as public/privacy_policy.html and public/not_found.html: this
+   describes the whole deployment, not any one Event. Only rendered when
+   no Event is both set as the default AND published -- otherwise the
+   route redirects straight there instead. #}
+{% block title %}{{ translate('public.homepage.title', locale) }}{% endblock %}
+{% block content %}
+<section class="pub-plain-section">
+  <h1>{{ translate('public.homepage.title', locale) }}</h1>
+  <p>{{ translate('public.homepage.intro', locale) }}</p>
+
+  <h2>{{ translate('public.homepage.events_heading', locale) }}</h2>
+  {% if events %}
+  <ul class="pub-homepage-events">
+    {% for event in events %}
+    <li>
+      <a href="/e/{{ event.slug }}">{{ event.name }}</a>
+      {% if event.description %}<p>{{ event.description }}</p>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p>{{ translate('public.homepage.no_events', locale) }}</p>
+  {% endif %}
+
+  <p class="pub-homepage-admin-link">
+    <a href="/login">{{ translate('public.homepage.admin_sign_in', locale) }}</a>
+  </p>
+</section>
+{% endblock %}
