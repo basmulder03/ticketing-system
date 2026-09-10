@@ -21,6 +21,7 @@ from app.models.theme import Theme
 from app.schemas.theme import (
     ContrastPairOut,
     ContrastReportOut,
+    ContrastSuggestionOut,
     ThemeOut,
     ThemePreviewRequest,
     ThemePreviewResponse,
@@ -350,6 +351,10 @@ async def preview_theme(
         sanitized_custom_css=result.sanitized_custom_css,
         is_custom_css_active=result.is_custom_css_active,
         contrast_report=_contrast_report_out(result.contrast_report),
+        contrast_suggestions={
+            label: ContrastSuggestionOut(field_name=s.field_name, suggested_color=s.suggested_color)
+            for label, s in result.contrast_suggestions.items()
+        },
         preview_css=result.preview_css,
         sample_html=result.sample_html,
     )

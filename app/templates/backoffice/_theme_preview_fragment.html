@@ -34,6 +34,7 @@
         <th scope="col">Ratio</th>
         <th scope="col">Normal text</th>
         <th scope="col">Large text / UI</th>
+        <th scope="col">Suggestion</th>
       </tr>
     </thead>
     <tbody>
@@ -50,6 +51,17 @@
           <span class="bo-badge bo-badge--{{ 'pass' if pair.passes_large_text else 'fail' }}">
             {{ 'Pass' if pair.passes_large_text else 'Fail' }}
           </span>
+        </td>
+        <td data-label="Suggestion">
+          {% if pair.label in preview.contrast_suggestions %}
+          {% set suggestion = preview.contrast_suggestions[pair.label] %}
+          <button type="button" class="bo-button bo-button--small bo-apply-color-suggestion"
+                  data-target-field="{{ suggestion.field_name }}"
+                  data-suggested-color="{{ suggestion.suggested_color }}">
+            <span class="bo-contrast-swatch" aria-hidden="true" style="background-color: {{ suggestion.suggested_color }};"></span>
+            Use {{ suggestion.suggested_color }}
+          </button>
+          {% endif %}
         </td>
       </tr>
       {% endfor %}

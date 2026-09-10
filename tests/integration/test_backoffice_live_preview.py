@@ -19,6 +19,11 @@ they would never have caught this, since the bug was entirely in whether
 the BROWSER ever sends the request at all. Only a real browser-driven test
 like this one exercises that path.
 
+Also covers the "closest compliant color" contrast-suggestion buttons
+built on top of this same now-fixed live-preview mechanism (see
+``app.services.theme_preview.ContrastSuggestion``) — a feature that could
+not have worked reliably before this bug was fixed.
+
 Reuses ``axe_page`` (a real Playwright ``Page`` wired to the in-process ASGI
 app via request interception — see ``tests/integration/conftest.py``) even
 though these tests don't run axe-core themselves; the fixture name is just
@@ -126,6 +131,49 @@ async def test_theme_editor_live_preview_contrast_table_updates_on_color_change(
     after_text = await axe_page.inner_text("#theme-preview-pane")
     assert after_text != before_text, "contrast table never recalculated after a field change"
     assert "Fail" in after_text
+
+
+async def test_contrast_suggestion_button_applies_the_color_and_updates_the_live_preview(
+    axe_page: Page,
+    client: AsyncClient,
+    make_admin_user: Callable[..., Awaitable[SeededAdmin]],
+    make_event: Callable[..., Awaitable[Event]],
+    make_theme: Callable[..., Awaitable[Theme]],
+) -> None:
+    """Post-launch feature (per the user's NOTES: "Do color
+    recommendations for what color can be used ... with easy setting of
+    that color"): clicking a "Use #rrggbb" suggestion button sets the
+    named field's <input type="color"> and dispatches a real "input"
+    event -- which both the hex-readout-sync listener AND the (now-fixed)
+    live-preview hx-trigger react to, so one click should update the
+    picker's value AND re-run the contrast table with no separate save
+    step."""
+    await _login(axe_page, client, make_admin_user)
+    event = await make_event(status=PublishStatus.PUBLISHED, name="Contrast Suggestion Event")
+    await make_theme(
+        event_id=event.id,
+        primary_color="#111111",
+        secondary_color="#eeeeee",
+        accent_color="#c9a227",
+        font_choice=ThemeFont.SYSTEM_SANS,
+        status=PublishStatus.DRAFT,
+    )
+
+    await axe_page.goto(f"/events/{event.id}/theme")
+    button = axe_page.locator(".bo-apply-color-suggestion").first
+    target_field = await button.get_attribute("data-target-field")
+    suggested_color = await button.get_attribute("data-suggested-color")
+    assert target_field in ("primary_color", "secondary_color", "accent_color")
+    assert suggested_color and suggested_color.startswith("#")
+
+    await button.click()
+    await axe_page.wait_for_timeout(900)
+
+    field_value = await axe_page.eval_on_selector(f"#{target_field}", "el => el.value")
+    assert field_value == suggested_color
+
+    readout_value = await axe_page.inner_text(f".bo-color-field:has(#{target_field}) .bo-color-field__value")
+    assert readout_value.strip() == suggested_color
 
 
 async def test_email_template_editor_live_preview_updates_on_subject_change(

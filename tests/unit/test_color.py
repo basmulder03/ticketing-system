@@ -98,6 +98,40 @@ def test_nudge_gives_up_gracefully_on_an_unreachable_target() -> None:
     assert result.startswith("#") and len(result) == 7
 
 
+def test_nudge_finds_a_passing_color_when_already_at_the_light_boundary() -> None:
+    # A real bug found live: pure white (already at lightness=1.0, the
+    # boundary) against a near-white background. A naive single-step
+    # lookahead picks "lighter" (white can't get any lighter -- the step
+    # is clamped to a no-op) because stepping "darker" by one unit briefly
+    # LOSES contrast as lightness approaches the background's own, before
+    # eventually gaining it back well past that point -- so the old
+    # direction heuristic saw only that initial loss, committed to
+    # "lighter", and gave up after one no-op step, silently returning the
+    # input unchanged despite it failing outright (1.16:1, nowhere near
+    # the 4.5:1 target). Must actually search "darker" here and find a
+    # real, passing color.
+    original = "#ffffff"
+    background = "#eeeeee"
+    assert contrast_ratio(original, background) < 4.5
+
+    nudged = nudge_lightness_for_contrast(original, background, target_ratio=4.5)
+
+    assert nudged != original
+    assert contrast_ratio(nudged, background) >= 4.5
+
+
+def test_nudge_finds_a_passing_color_when_already_at_the_dark_boundary() -> None:
+    # The symmetric case: pure black against a near-black background.
+    original = "#000000"
+    background = "#111111"
+    assert contrast_ratio(original, background) < 4.5
+
+    nudged = nudge_lightness_for_contrast(original, background, target_ratio=4.5)
+
+    assert nudged != original
+    assert contrast_ratio(nudged, background) >= 4.5
+
+
 # --- derive_dark_palette ---
 
 
