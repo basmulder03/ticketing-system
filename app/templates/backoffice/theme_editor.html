@@ -50,9 +50,19 @@
       {% endif %}
     </section>
 
+    {# hx-trigger deliberately has NO "changed" modifier: htmx's "changed"
+       comparison reads `.value` off whatever element hx-trigger is
+       attached to (this <form>, since no `from:` modifier is set) -- a
+       <form> element has no meaningful `.value` (always `undefined`), so
+       every comparison was `undefined === undefined`, silently
+       suppressing EVERY trigger. Found live: the preview pane never
+       actually updated despite the UI copy claiming it does (the user's
+       own manual testing). `delay:` alone already debounces rapid
+       typing/color-picker drags, so no extra "skip if same value" filter
+       is needed here. #}
     <form id="theme-fields-form" method="post" action="/events/{{ event.id }}/theme"
           hx-post="/events/{{ event.id }}/theme/preview-fragment"
-          hx-trigger="input changed delay:500ms, change changed delay:200ms"
+          hx-trigger="input delay:500ms, change delay:200ms"
           hx-target="#theme-preview-pane" hx-swap="innerHTML">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
