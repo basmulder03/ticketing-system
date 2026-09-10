@@ -2,16 +2,14 @@
 {% block title %}Email templates — {{ event.name }} — Beacon Backoffice{% endblock %}
 {% block content %}
 <p class="bo-breadcrumb"><a href="/events">Events</a> / {{ event.name }}</p>
-<nav aria-label="Event section">
-<p class="bo-hint bo-hint--small">
-  <a href="/events/{{ event.id }}/edit">Edit event</a> ·
-  <a href="/events/{{ event.id }}/shows">Shows</a> ·
-  <a href="/events/{{ event.id }}/config">Settings</a> ·
-  <a href="/events/{{ event.id }}/theme">Theme</a> ·
-  <a href="/events/{{ event.id }}/email-templates" aria-current="page">Email templates</a> ·
-  <a href="/events/{{ event.id }}/orders">Orders</a> ·
-  <a href="/events/{{ event.id }}/stats">Stats</a>
-</p>
+<nav aria-label="Event section" class="bo-tabs">
+  <a href="/events/{{ event.id }}/edit" class="bo-tabs__tab">Edit event</a>
+  <a href="/events/{{ event.id }}/shows" class="bo-tabs__tab">Shows</a>
+  <a href="/events/{{ event.id }}/config" class="bo-tabs__tab">Settings</a>
+  <a href="/events/{{ event.id }}/theme" class="bo-tabs__tab">Theme</a>
+  <a href="/events/{{ event.id }}/email-templates" class="bo-tabs__tab bo-tabs__tab--active" aria-current="page">Email templates</a>
+  <a href="/events/{{ event.id }}/orders" class="bo-tabs__tab">Orders</a>
+  <a href="/events/{{ event.id }}/stats" class="bo-tabs__tab">Stats</a>
 </nav>
 <h1>Email templates: {{ event.name }}</h1>
 <p class="bo-hint">

@@ -5,41 +5,42 @@
 <p class="bo-hint">Select an event to edit its theme (colors, logo, background image, font, and an optional
   advanced custom CSS override for its public landing page).</p>
 
-<div class="bo-table-wrap">
-  <table class="bo-table">
-    <thead>
-      <tr>
-        <th scope="col">Name</th>
-        <th scope="col">Status</th>
-        <th scope="col"><span class="bo-visually-hidden">Shows</span></th>
-        <th scope="col"><span class="bo-visually-hidden">Theme</span></th>
-        <th scope="col"><span class="bo-visually-hidden">Email templates</span></th>
-        <th scope="col"><span class="bo-visually-hidden">Orders</span></th>
-        <th scope="col"><span class="bo-visually-hidden">Stats</span></th>
-        <th scope="col"><span class="bo-visually-hidden">Preview link</span></th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for event in events %}
-      <tr>
-        <td data-label="Name">{{ event.name }}</td>
-        <td data-label="Status"><span class="bo-badge bo-badge--{{ event.status }}">{{ event.status }}</span></td>
-        <td data-label="Shows"><a class="bo-button bo-button--small" href="/events/{{ event.id }}/shows">Shows</a></td>
-        <td data-label="Theme"><a class="bo-button bo-button--small" href="/events/{{ event.id }}/theme">Edit theme</a></td>
-        <td data-label="Email templates"><a class="bo-button bo-button--small" href="/events/{{ event.id }}/email-templates">Email templates</a></td>
-        <td data-label="Orders"><a class="bo-button bo-button--small" href="/events/{{ event.id }}/orders">Orders</a></td>
-        <td data-label="Stats"><a class="bo-button bo-button--small" href="/events/{{ event.id }}/stats">Stats</a></td>
-        <td data-label="Preview link">
-          <button type="button" class="bo-button bo-button--small bo-button--ghost bo-copy-link"
-                  data-copy-value="{{ public_base_url }}/preview/{{ event.preview_token }}">
-            Copy preview link
-          </button>
-        </td>
-      </tr>
-      {% else %}
-      <tr><td colspan="8">No events yet.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
+<p><a class="bo-button bo-button--primary" href="/events/new">New event</a></p>
+
+{% if not events %}
+<p class="bo-hint">No events yet.</p>
+{% else %}
+<div class="bo-event-cards">
+  {% for event in events %}
+  <article class="bo-event-card">
+    <header class="bo-event-card__header">
+      <h2 class="bo-event-card__name">{{ event.name }}</h2>
+      <span class="bo-badge bo-badge--{{ event.status }}">{{ event.status }}</span>
+    </header>
+
+    <nav class="bo-event-card__links" aria-label="{{ event.name }} sections">
+      <a href="/events/{{ event.id }}/edit">Edit event</a>
+      <a href="/events/{{ event.id }}/shows">Shows</a>
+      <a href="/events/{{ event.id }}/config">Settings</a>
+      <a href="/events/{{ event.id }}/theme">Theme</a>
+      <a href="/events/{{ event.id }}/email-templates">Email templates</a>
+      <a href="/events/{{ event.id }}/orders">Orders</a>
+      <a href="/events/{{ event.id }}/stats">Stats</a>
+    </nav>
+
+    <div class="bo-event-card__actions">
+      {% if event.status == 'published' %}
+      <a class="bo-button bo-button--small" href="{{ public_base_url }}/e/{{ event.slug }}" target="_blank" rel="noopener noreferrer">
+        View live page
+      </a>
+      {% endif %}
+      <button type="button" class="bo-button bo-button--small bo-button--ghost bo-copy-link"
+              data-copy-value="{{ public_base_url }}/preview/{{ event.preview_token }}">
+        Copy preview link
+      </button>
+    </div>
+  </article>
+  {% endfor %}
 </div>
+{% endif %}
 {% endblock %}

@@ -1,4 +1,5 @@
-/* Public site base CSS (Milestone 2).
+/* Public site base CSS (Milestone 2, redesigned post-launch per the user's
+   NOTES review pass).
 
    Mobile-first: unprefixed rules target the smallest breakpoint the brief
    names (~375px), then progressively enhanced at ~768px / ~1024px /
@@ -11,6 +12,17 @@
    Theme's sanitized custom CSS. This keeps the one hard rule from
    PROJECT_BRIEF.md's Event & Theming section intact: custom CSS can only
    ever affect `.event-content`, never this site-wide chrome.
+
+   Design direction: a "ticket stub" aesthetic — a warm paper ground, a
+   single serif display face for headings/numerals paired with the system
+   sans for body copy, dashed perforation rules on the countdown card, and
+   an ink-colored button that inverts itself for free in dark mode (see the
+   .pub-button rule below). Deliberately NO external font/icon requests:
+   this app must keep working with zero network dependencies beyond its
+   own origin (see the user's NOTES item on optional external deps, and the
+   real GDPR exposure of Google Fonts' CDN logging IP addresses) — the
+   serif pairing below is a system-font stack only, chosen for character,
+   not loaded from anywhere.
 */
 
 * {
@@ -18,23 +30,57 @@
 }
 
 :root {
-  --pub-chrome-fg: #1a1a1a;
-  --pub-chrome-bg: #ffffff;
-  --pub-chrome-border: #d0d0d0;
-  /* --pub-chrome-border (1.54:1 against white) is fine for decorative
-     dividers/container outlines, but WCAG 1.4.11 (Non-text Contrast)
-     requires 3:1 for the border that's the only visual cue of a form
-     control's boundary — used below for text inputs/textareas/the
-     quantity field, not for merely-decorative borders. #595959 is 7.0:1
-     against white. */
-  --pub-input-border: #595959;
+  --pub-chrome-bg: #faf7f1;
+  --pub-chrome-bg-raised: #ffffff;
+  --pub-chrome-fg: #1c1a17;
+  --pub-chrome-fg-muted: #6b6459;
+  --pub-chrome-border: #ded5c4;
+  /* --pub-chrome-border (1.36:1 against --pub-chrome-bg) is fine for
+     decorative dividers/container outlines, but WCAG 1.4.11 (Non-text
+     Contrast) requires 3:1 for the border that's the only visual cue of a
+     form control's boundary — --pub-input-border (7.48:1) is used for
+     those instead: text inputs/textareas/the quantity field/show cards. */
+  --pub-input-border: #57503f;
   --pub-focus-ring: #0b5fff;
+  --pub-accent: #7a2222;
   --pub-error-fg: #7a0d0d;
   --pub-error-bg: #fdecec;
   --pub-warning-fg: #6b4700;
   --pub-warning-bg: #fff6e0;
   --pub-info-fg: #0b3d66;
   --pub-info-bg: #e8f2fb;
+  --pub-font-display: Georgia, "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino, serif;
+  --pub-font-body: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --pub-radius: 10px;
+  --pub-radius-lg: 16px;
+  --pub-shadow: 0 1px 2px rgba(28, 26, 23, 0.06), 0 10px 28px -14px rgba(28, 26, 23, 0.22);
+}
+
+/* Chrome-only dark palette: hand-picked (not Theme-derived, since the
+   chrome must stay theme-agnostic by design — see the file header
+   comment), hue-matched to the light "warm paper/ink" palette above so
+   switching modes reads as "the same app, inverted", not two different
+   products. The equivalent per-Theme dark palette for `.event-content` is
+   computed by app.services.color.derive_dark_palette and emitted inline
+   per page by build_public_theme_css — this block never touches those
+   `--beacon-color-*` custom properties. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --pub-chrome-bg: #17140f;
+    --pub-chrome-bg-raised: #201c16;
+    --pub-chrome-fg: #f1ece1;
+    --pub-chrome-fg-muted: #b7ac98;
+    --pub-chrome-border: #3a3327;
+    --pub-input-border: #a89a7c;
+    --pub-accent: #e0836f;
+    --pub-error-fg: #ff8a8a;
+    --pub-error-bg: #3a1414;
+    --pub-warning-fg: #ffcf6b;
+    --pub-warning-bg: #3a2c05;
+    --pub-info-fg: #8fc4ff;
+    --pub-info-bg: #0f2a42;
+    --pub-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 14px 32px -16px rgba(0, 0, 0, 0.65);
+  }
 }
 
 html {
@@ -43,10 +89,17 @@ html {
 
 body {
   margin: 0;
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--pub-font-body);
   color: var(--pub-chrome-fg);
   background: var(--pub-chrome-bg);
   line-height: 1.5;
+}
+
+h1, h2, h3 {
+  font-family: var(--pub-font-display);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.15;
 }
 
 img {
@@ -55,7 +108,13 @@ img {
 }
 
 a {
-  color: var(--pub-focus-ring);
+  color: var(--pub-chrome-fg);
+  text-decoration-color: var(--pub-accent);
+  text-underline-offset: 0.15em;
+}
+
+a:hover {
+  color: var(--pub-accent);
 }
 
 :focus-visible {
@@ -79,16 +138,17 @@ a {
   position: absolute;
   left: -9999px;
   top: 0;
-  background: var(--pub-chrome-bg);
+  background: var(--pub-chrome-bg-raised);
   color: var(--pub-chrome-fg);
   padding: 0.75rem 1rem;
   z-index: 100;
   border: 2px solid var(--pub-focus-ring);
+  border-radius: 0 0 var(--pub-radius) 0;
 }
 
 .pub-skip-link:focus {
-  left: 0.5rem;
-  top: 0.5rem;
+  left: 0;
+  top: 0;
 }
 
 /* ---- Chrome: header / footer / banners ---- */
@@ -99,59 +159,140 @@ a {
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
-  padding: 0.75rem 1rem;
+  padding: 1rem 1.25rem;
   border-bottom: 1px solid var(--pub-chrome-border);
 }
 
 .pub-chrome-header__brand {
+  position: relative;
+  padding-left: 1rem;
+  font-family: var(--pub-font-display);
+  font-size: 1.25rem;
   font-weight: 700;
+  letter-spacing: -0.01em;
   text-decoration: none;
   color: var(--pub-chrome-fg);
 }
 
-.pub-lang-switcher a {
-  margin-left: 0.75rem;
-  text-decoration: underline;
+.pub-chrome-header__brand::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.15em;
+  width: 0.4rem;
+  height: 0.9em;
+  background: var(--pub-accent);
+  border-radius: 2px;
 }
 
-.pub-lang-switcher a[aria-current="true"] {
-  font-weight: 700;
+a.pub-chrome-header__brand:hover {
+  color: var(--pub-chrome-fg);
   text-decoration: none;
 }
 
+.pub-lang-switcher {
+  display: inline-flex;
+  gap: 0.15rem;
+  padding: 0.2rem;
+  border: 1px solid var(--pub-chrome-border);
+  border-radius: 999px;
+}
+
+.pub-lang-switcher a {
+  padding: 0.3rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-decoration: none;
+  color: var(--pub-chrome-fg-muted);
+}
+
+.pub-lang-switcher a:hover {
+  color: var(--pub-chrome-fg);
+}
+
+.pub-lang-switcher a[aria-current="true"] {
+  background: var(--pub-chrome-fg);
+  color: var(--pub-chrome-bg);
+}
+
 .pub-chrome-footer {
-  padding: 1.5rem 1rem;
+  padding: 2rem 1.25rem;
   text-align: center;
-  color: #555;
+  color: var(--pub-chrome-fg-muted);
   border-top: 1px solid var(--pub-chrome-border);
-  margin-top: 2rem;
+  margin-top: 3rem;
+  font-size: 0.9rem;
+}
+
+.pub-chrome-footer a {
+  color: var(--pub-chrome-fg-muted);
+}
+
+.pub-chrome-footer a:hover {
+  color: var(--pub-accent);
 }
 
 .pub-preview-banner {
-  background: #222;
-  color: #fff;
+  background: var(--pub-chrome-fg);
+  color: var(--pub-chrome-bg);
   text-align: center;
-  padding: 0.5rem 1rem;
+  padding: 0.6rem 1rem;
   font-weight: 600;
 }
 
 .pub-main {
   max-width: 960px;
   margin: 0 auto;
-  padding: 1rem;
+  padding: 1.25rem 1rem 3rem;
 }
 
+/* Every page's content — themed event pages and plain chrome pages
+   (privacy policy, not-found, order confirmation) alike — sits in the
+   same card-on-paper treatment, so the site reads as one consistent
+   design system rather than "the fancy landing page" plus a set of
+   unstyled leftovers.
+
+   .event-content is the ONE selector a Theme's colors ever apply to (see
+   the file header comment) -- an arbitrary admin-chosen background can
+   land anywhere from near-identical to the page's own paper tone to a
+   totally different hue, so it needs to read as a deliberately placed
+   card ON the page, not a flush, borderless color change with no
+   breathing room. .pub-plain-section (privacy policy, not-found, order
+   confirmation) gets the identical treatment for visual consistency, but
+   its background-color/color are never overridden by a Theme — those
+   pages are chrome, not per-Event branded content. The radius/shadow/
+   padding below are chrome-owned (constant regardless of Theme);
+   background-color/color on .event-content are only the fallback for an
+   Event with no Theme row yet (build_public_theme_css returns "" in that
+   case) -- when a Theme IS set, its inline <style> block (loaded after
+   this stylesheet, see base.html) overrides just those two properties via
+   the identical .event-content selector. */
+.event-content,
 .pub-plain-section {
-  padding: 1rem 0;
+  padding: 1.75rem 1.25rem 2.25rem;
+  margin: 1.5rem 0;
+  border-radius: var(--pub-radius-lg);
+  box-shadow: var(--pub-shadow);
+  background-color: var(--pub-chrome-bg-raised);
+  color: var(--pub-chrome-fg);
+}
+
+@media (min-width: 768px) {
+  .event-content,
+  .pub-plain-section {
+    padding: 2.5rem 2.5rem 3rem;
+  }
 }
 
 /* ---- Notices ---- */
 
 .pub-notice {
-  padding: 0.75rem 1rem;
-  border-radius: 4px;
+  padding: 0.85rem 1.1rem;
+  border-radius: var(--pub-radius);
   margin: 1rem 0;
   border: 1px solid transparent;
+  border-left-width: 4px;
 }
 
 .pub-notice--error {
@@ -172,17 +313,36 @@ a {
   border-color: var(--pub-info-fg);
 }
 
-/* ---- Buttons ---- */
+/* ---- Buttons ----
+   Deliberately bg: var(--pub-chrome-fg) / color: var(--pub-chrome-bg) on
+   the filled variant, not fixed hex values — in dark mode --pub-chrome-fg
+   and --pub-chrome-bg swap roles (see the palette block above), so a
+   filled button automatically inverts from "dark ink on paper" to "light
+   ink on dark paper" with no separate dark-mode button rule needed. */
 
 .pub-button {
   display: inline-block;
   font: inherit;
-  padding: 0.6rem 1.1rem;
-  border-radius: 4px;
+  font-weight: 600;
+  padding: 0.65rem 1.2rem;
+  border-radius: var(--pub-radius);
   border: 2px solid var(--pub-chrome-fg);
   background: var(--pub-chrome-fg);
-  color: #fff;
+  color: var(--pub-chrome-bg);
   cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .pub-button:not(:disabled):hover {
+    transform: translateY(-1px);
+    box-shadow: var(--pub-shadow);
+  }
+
+  .pub-button:not(:disabled):active {
+    transform: translateY(0);
+    box-shadow: none;
+  }
 }
 
 .pub-button--ghost {
@@ -191,14 +351,14 @@ a {
 }
 
 .pub-button--small {
-  padding: 0.3rem 0.6rem;
+  padding: 0.35rem 0.7rem;
   font-size: 0.85rem;
 }
 
 .pub-button--primary {
-  background: var(--pub-chrome-fg);
   font-size: 1.1rem;
-  padding: 0.85rem 1.5rem;
+  padding: 0.9rem 1.6rem;
+  border-radius: var(--pub-radius-lg);
 }
 
 .pub-button:disabled {
@@ -209,81 +369,229 @@ a {
 /* ---- Hero / share ---- */
 
 .pub-hero {
-  padding: 1.5rem 1rem;
-  border-radius: 8px;
+  padding: 2rem 0 1.5rem;
+  border-radius: var(--pub-radius-lg);
 }
 
 .pub-hero__logo {
   max-height: 96px;
-  margin-bottom: 0.75rem;
+  margin-bottom: 1rem;
 }
 
 .pub-hero__title {
-  margin: 0 0 0.5rem;
-  font-size: 1.75rem;
+  margin: 0 0 0.6rem;
+  font-size: 2.1rem;
+}
+
+.pub-hero__description {
+  max-width: 42rem;
+  color: var(--pub-chrome-fg-muted);
+  font-size: 1.05rem;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .pub-hero__logo,
+  .pub-hero__title,
+  .pub-hero__description,
+  .pub-share {
+    animation: pub-fade-up 0.5s ease both;
+  }
+
+  .pub-hero__title {
+    animation-delay: 0.05s;
+  }
+
+  .pub-hero__description {
+    animation-delay: 0.1s;
+  }
+
+  .pub-share {
+    animation-delay: 0.15s;
+  }
+}
+
+@keyframes pub-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .pub-share {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem;
   align-items: center;
-  margin-top: 1rem;
+  gap: 0.4rem 0.9rem;
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--pub-chrome-border);
+}
+
+.pub-share__heading {
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--pub-chrome-fg-muted);
+  margin: 0 0.5rem 0 0;
+}
+
+/* The copy-link control is a real <button> (it has JS behavior a plain
+   link can't), but it's made to look exactly like the <a> share links
+   beside it — one visually consistent row of text, not a button sitting
+   oddly among links (this is the "social in text" NOTES item: it was
+   already text-based, it just didn't look intentional). */
+.pub-share .pub-button--ghost {
+  border: 0;
+  padding: 0;
+  border-radius: 0;
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-color: var(--pub-accent);
+  text-underline-offset: 0.15em;
+}
+
+.pub-share .pub-button--ghost:hover {
+  color: var(--pub-accent);
+  transform: none;
+  box-shadow: none;
 }
 
 .pub-share__link {
   font-weight: 600;
+  text-decoration: underline;
 }
 
 /* ---- Countdown ---- */
 
 .pub-countdown-section {
-  margin: 1.5rem 0;
+  margin: 2rem 0;
 }
 
 .pub-countdown {
   text-align: center;
-  padding: 1.5rem 1rem;
-  border: 1px solid var(--pub-chrome-border);
-  border-radius: 8px;
+  padding: 2rem 1rem;
+  background: var(--pub-chrome-bg-raised);
+  border-top: 3px dashed var(--pub-chrome-border);
+  border-bottom: 3px dashed var(--pub-chrome-border);
 }
 
 .pub-countdown__label {
   margin: 0 0 0.5rem;
   font-weight: 600;
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--pub-chrome-fg-muted);
 }
 
 .pub-countdown__value {
-  font-size: 1.75rem;
+  font-family: var(--pub-font-display);
+  font-size: 2.25rem;
   font-variant-numeric: tabular-nums;
   margin: 0;
 }
 
-/* ---- Show picker / panels ---- */
+/* ---- Show picker / panels ----
+   Each option is a native radio + its <label>, exactly as before (see
+   app/static/public.js's initShowPicker — it listens for change events on
+   input[name="show_choice"] and toggles [data-show-panel] by value, so
+   this redesign only changes how the pair LOOKS, never the markup
+   contract JS depends on). The radio stays visible (small, top-right of
+   the card) as an unambiguous, always-working selection indicator; the
+   :has() rule below is a progressive enhancement that highlights the
+   whole card when its radio is checked, with no functional fallback
+   needed for browsers that don't support :has() yet — the radio itself
+   still communicates the selected state either way. */
 
 .pub-show-picker {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem 1rem;
-  border: 1px solid var(--pub-chrome-border);
-  border-radius: 6px;
-  padding: 0.75rem 1rem 1rem;
-  margin: 0 0 1.5rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: 0.75rem;
+  border: 0;
+  padding: 0;
+  margin: 0 0 2rem;
 }
 
 .pub-show-picker legend {
+  grid-column: 1 / -1;
+  font-family: var(--pub-font-display);
   font-weight: 700;
-  padding: 0 0.25rem;
+  font-size: 1.15rem;
+  padding: 0 0 0.5rem;
 }
 
 .pub-show-picker__option {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
+  position: relative;
+}
+
+.pub-show-picker__option label {
+  display: block;
+  padding: 1rem 2.25rem 1rem 1.1rem;
+  border: 1px solid var(--pub-input-border);
+  border-radius: var(--pub-radius);
+  cursor: pointer;
+  background: var(--pub-chrome-bg-raised);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.pub-show-picker__option label:hover {
+  border-color: var(--pub-chrome-fg);
+}
+
+.pub-show-picker__option:has(:checked) label {
+  border-color: var(--pub-chrome-fg);
+  border-width: 2px;
+  padding: calc(1rem - 1px) 2.25rem calc(1rem - 1px) calc(1.1rem - 1px);
+  box-shadow: var(--pub-shadow);
+}
+
+.pub-show-radio {
+  position: absolute;
+  top: 1.1rem;
+  right: 1.1rem;
+  accent-color: var(--pub-chrome-fg);
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
+.pub-show-card__date {
+  display: block;
+  font-family: var(--pub-font-display);
+  font-weight: 700;
+  font-size: 1.15rem;
+  padding-right: 1.5rem;
+}
+
+.pub-show-card__venue {
+  display: block;
+  margin-top: 0.3rem;
+}
+
+.pub-show-card__time {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.85rem;
+  color: var(--pub-chrome-fg-muted);
 }
 
 .pub-show-panel {
-  margin-bottom: 2rem;
+  margin-bottom: 2.5rem;
+  padding-top: 0.5rem;
+}
+
+.pub-venue h3 {
+  font-size: 1.3rem;
+  margin: 0 0 0.35rem;
+}
+
+.pub-venue__address {
+  color: var(--pub-chrome-fg-muted);
+  margin: 0 0 0.5rem;
 }
 
 .pub-venue-map {
@@ -294,6 +602,11 @@ a {
   width: 100%;
   height: 280px;
   border: 1px solid var(--pub-chrome-border);
+  border-radius: var(--pub-radius);
+}
+
+.pub-venue-map__fallback {
+  font-size: 0.85rem;
 }
 
 /* ---- Ticket table ---- */
@@ -301,13 +614,22 @@ a {
 .pub-ticket-table {
   width: 100%;
   border-collapse: collapse;
-  margin: 1rem 0;
+  margin: 1.25rem 0;
 }
 
-.pub-ticket-table th,
+.pub-ticket-table th {
+  text-align: left;
+  padding: 0.5rem;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--pub-chrome-fg-muted);
+  border-bottom: 2px solid var(--pub-chrome-border);
+}
+
 .pub-ticket-table td {
   text-align: left;
-  padding: 0.6rem 0.5rem;
+  padding: 0.85rem 0.5rem;
   border-bottom: 1px solid var(--pub-chrome-border);
   vertical-align: middle;
 }
@@ -320,10 +642,12 @@ a {
 .pub-badge {
   display: inline-block;
   margin-left: 0.5rem;
-  padding: 0.1rem 0.5rem;
+  padding: 0.15rem 0.6rem;
   border-radius: 999px;
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 .pub-badge--sold-out {
@@ -334,30 +658,32 @@ a {
 .pub-qty-input {
   width: 4.5rem;
   font: inherit;
-  padding: 0.3rem;
+  padding: 0.4rem;
   /* Explicit AA-passing border (not left to each browser's own unstyled
      default, which isn't guaranteed to meet the 3:1 non-text-contrast
      threshold everywhere) — see --pub-input-border above. */
   border: 1px solid var(--pub-input-border);
-  border-radius: 4px;
+  border-radius: 6px;
+  background: var(--pub-chrome-bg-raised);
+  color: var(--pub-chrome-fg);
 }
 
 .pub-remaining {
   margin-left: 0.5rem;
   font-size: 0.85rem;
-  color: #555;
+  color: var(--pub-chrome-fg-muted);
 }
 
 /* ---- Checkout form ---- */
 
 .pub-field {
-  margin: 0 0 1rem;
+  margin: 0 0 1.1rem;
 }
 
 .pub-field label {
   display: block;
   font-weight: 600;
-  margin-bottom: 0.25rem;
+  margin-bottom: 0.3rem;
 }
 
 .pub-field input,
@@ -365,27 +691,36 @@ a {
   width: 100%;
   max-width: 32rem;
   font: inherit;
-  padding: 0.5rem;
+  padding: 0.6rem 0.7rem;
   border: 1px solid var(--pub-input-border);
-  border-radius: 4px;
+  border-radius: var(--pub-radius);
+  background: var(--pub-chrome-bg-raised);
+  color: var(--pub-chrome-fg);
 }
 
 .pub-payment-methods {
   border: 1px solid var(--pub-chrome-border);
-  border-radius: 6px;
-  padding: 0.75rem 1rem;
-  margin: 0 0 1rem;
+  border-radius: var(--pub-radius);
+  padding: 0.85rem 1.1rem;
+  margin: 0 0 1.25rem;
 }
 
 .pub-payment-methods__option {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
-  margin: 0.25rem 0;
+  gap: 0.5rem;
+  margin: 0.4rem 0;
+}
+
+.pub-payment-methods__option input {
+  accent-color: var(--pub-chrome-fg);
+  width: 1.1rem;
+  height: 1.1rem;
 }
 
 .pub-order-total {
-  font-size: 1.1rem;
+  font-family: var(--pub-font-display);
+  font-size: 1.3rem;
   font-weight: 700;
 }
 
@@ -394,26 +729,30 @@ a {
 .pub-summary-list {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 0.25rem 1rem;
+  gap: 0.35rem 1rem;
 }
 
 .pub-summary-list dt {
   font-weight: 700;
+  color: var(--pub-chrome-fg-muted);
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 .pub-summary-list dd {
-  margin: 0 0 0.75rem;
+  margin: 0 0 0.9rem;
 }
 
 /* ---- Breakpoints (mobile-first: ~375 base, then 768 / 1024 / 1440) ---- */
 
 @media (min-width: 768px) {
   .pub-main {
-    padding: 1.5rem 2rem;
+    padding: 1.75rem 2rem 4rem;
   }
 
   .pub-hero__title {
-    font-size: 2.25rem;
+    font-size: 2.75rem;
   }
 
   .pub-summary-list {
@@ -432,12 +771,12 @@ a {
 @media (min-width: 1024px) {
   .pub-main {
     max-width: 1080px;
-    padding: 2rem 2.5rem;
+    padding: 2.5rem 2.5rem 4.5rem;
   }
 
   .pub-ticket-table th,
   .pub-ticket-table td {
-    padding: 0.75rem 0.75rem;
+    padding: 0.9rem 0.75rem;
   }
 
   .pub-venue-map__frame {
@@ -451,6 +790,6 @@ a {
   }
 
   .pub-hero__title {
-    font-size: 2.75rem;
+    font-size: 3.25rem;
   }
 }
