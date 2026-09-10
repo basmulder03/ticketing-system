@@ -66,43 +66,47 @@ class ContrastSuggestion:
     suggested_color: str
 
 
-def _field_name_for_color(
-    hex_color: str, *, primary_color: str, secondary_color: str, accent_color: str
-) -> str | None:
-    """Which Theme field ``hex_color`` came from, by value equality against
-    the three fixed fields -- not by parsing ``ContrastPairResult.label``
-    (a fragile string-coupling this deliberately avoids: the label is
-    presentation text, not a stable machine-readable field identifier).
-    Returns ``None`` for a comparison's fixed white/black anchor, which is
-    never adjustable."""
-    if hex_color == primary_color:
-        return "primary_color"
-    if hex_color == secondary_color:
-        return "secondary_color"
-    if hex_color == accent_color:
-        return "accent_color"
-    return None
-
-
 def _build_contrast_suggestions(
     report: ThemeContrastReport, *, primary_color: str, secondary_color: str, accent_color: str
 ) -> dict[str, ContrastSuggestion]:
     """One suggestion per FAILING pair in ``report``, keyed by
     ``ContrastPairResult.label`` -- a pair that already passes needs no
     suggestion, and gets no entry here (the template checks for that key's
-    presence rather than a sentinel value)."""
+    presence rather than a sentinel value).
+
+    Which field gets adjusted is hardcoded per pair below, deliberately
+    NEVER ``secondary_color`` -- even though ``check_theme_contrast``
+    narrowed its checks to just 2 pairs specifically so they'd be
+    independently satisfiable (see that function's docstring), the two
+    pairs still share ``secondary_color``, just in different ROLES: it's
+    the BACKGROUND in "primary vs secondary" but the FOREGROUND in
+    "secondary vs accent" (the button-label color). Suggesting a fix to
+    whichever field happens to be a pair's ``foreground`` -- the first,
+    more general approach here -- would sometimes suggest adjusting
+    ``secondary_color`` to fix "secondary vs accent", which can silently
+    un-satisfy "primary vs secondary" the moment it's applied (found live,
+    the exact "fixing one part breaks another" complaint this whole
+    narrower 2-pair check was built to eliminate). Always adjusting the
+    field that appears in ONLY ONE of the two real pairs instead
+    (``primary_color`` for the first, ``accent_color`` for the second)
+    keeps ``secondary_color`` as a fixed anchor both other colors are
+    chosen relative to -- which is always achievable, since for any fixed
+    background, either black or white clears 4.5:1 against it (their
+    contrast ratios multiply to a constant 21, so at least one always
+    reaches >= sqrt(21) ~= 4.58) -- guaranteeing every suggestion offered
+    here can be applied simultaneously and leave the whole report passing.
+    """
     suggestions: dict[str, ContrastSuggestion] = {}
     for pair in report.pairs:
         if pair.passes_normal_text:
             continue
-        field_name = _field_name_for_color(
-            pair.foreground, primary_color=primary_color, secondary_color=secondary_color, accent_color=accent_color
-        )
-        if field_name is None:
+        if pair.label == "primary vs secondary":
+            field_name, movable_color, anchor_color = "primary_color", primary_color, secondary_color
+        elif pair.label == "secondary vs accent":
+            field_name, movable_color, anchor_color = "accent_color", accent_color, secondary_color
+        else:
             continue
-        suggested = nudge_lightness_for_contrast(
-            pair.foreground, pair.background, target_ratio=AA_NORMAL_TEXT_THRESHOLD
-        )
+        suggested = nudge_lightness_for_contrast(movable_color, anchor_color, target_ratio=AA_NORMAL_TEXT_THRESHOLD)
         suggestions[pair.label] = ContrastSuggestion(field_name=field_name, suggested_color=suggested)
     return suggestions
 

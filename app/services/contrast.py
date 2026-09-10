@@ -25,9 +25,6 @@ AA_LARGE_TEXT_THRESHOLD = 3.0
 """WCAG 2.1 AA minimum contrast ratio for large-scale text (>=18pt, or
 >=14pt bold) and for UI-component/graphical-object contrast."""
 
-WHITE = "#ffffff"
-BLACK = "#000000"
-
 
 @dataclass(frozen=True)
 class ContrastPairResult:
@@ -121,34 +118,56 @@ def _check_pair(label: str, foreground: str, background: str) -> ContrastPairRes
 
 
 def check_theme_contrast(*, primary_color: str, secondary_color: str, accent_color: str) -> ThemeContrastReport:
-    """Run the AA contrast check against a theme's three fixed colors.
+    """Run the AA contrast check against the two color pairings this app
+    actually renders text on top of, everywhere a Theme is applied (the
+    public landing page, ticket/invoice PDFs, outgoing emails, and the
+    backoffice's own live-preview sample):
 
-    Pair selection (documented judgement call, since the brief names only
-    the three color fields without prescribing which combinations matter):
-    a real theme built from these three colors will realistically use each
-    one as a background behind either white or black text/icons (the two
-    most common text colors paired against an arbitrary brand color, e.g.
-    a colored header bar or button), so each of the three colors is checked
-    against both white and black (6 pairs). The three colors are also
-    realistically used directly against each other (e.g. accent-colored
-    text/links on a primary-colored section, or a secondary-colored panel
-    on a primary-colored page background), so the three unordered pairs
-    among them are checked too (3 pairs) — the ratio is symmetric, so
-    "foreground" vs "background" labeling there is illustrative, not
-    order-significant. Total: 9 pairs.
+    1. **primary on secondary** — the Theme's default body text/background
+       (``.event-content { color: primary; background: secondary; }`` —
+       see ``app.web.public_context.build_public_theme_css`` and the
+       identical pairing in ``app.services.email_render``,
+       ``app.services.ticket_pdf``, ``app.services.invoice_pdf``).
+    2. **secondary on accent** — the primary call-to-action button's label
+       on its own background (``.pub-button--primary { background: accent;
+       color: secondary; }``) — the only place ``accent_color`` is ever
+       painted as a background with real text on top of it anywhere in
+       this codebase (elsewhere it's decorative only: a border, a bar —
+       see ``app.services.ticket_pdf``/``invoice_pdf``'s accent-colored
+       rules, which carry no text).
+
+    Revision history/rationale (post-launch fix, found via the user's own
+    manual testing): earlier versions of this function additionally
+    checked each of the three colors against fixed pure white/black, plus
+    "primary vs accent" — a broader defensive net "documented judgement
+    call" per this function's own prior docstring, since the brief itself
+    doesn't prescribe which combinations matter. In practice this caused
+    two real problems: (a) none of those 7 extra pairs correspond to any
+    real rendered pixel in this app (confirmed by auditing every template/
+    CSS/PDF/email module that touches these three fields — accent is never
+    on-screen as text, primary/secondary are never painted against white/
+    black except via each other), and (b) far worse, a color literally
+    CANNOT have strong contrast against both pure white and pure black at
+    once (near-0 luminance clears one, near-1 luminance clears the other,
+    never both) — so "every pair passes" was mathematically unreachable
+    for almost any real theme, and the backoffice's old "closest compliant
+    color" suggestion feature would visibly fight itself: fixing one of
+    those synthetic pairs could regress another, with no way to ever reach
+    a fully-green table. Narrowing to just the 2 pairs above fixes both
+    problems at once: they're the only ones a viewer can actually see, and
+    — since ``secondary`` is the only field shared between them, always as
+    a BACKGROUND in both — a suggested fix for ``primary`` (against
+    ``secondary``) can never affect whether ``accent`` (against that same
+    ``secondary``) still passes, and vice versa. The two pairs are
+    independent, so applying every suggestion this module's callers offer
+    is now guaranteed to reach full compliance, not just reduce the
+    failure count.
 
     This intentionally does NOT and cannot check ``custom_css`` — see this
     module's docstring.
     """
     pairs = [
-        _check_pair("primary on white", primary_color, WHITE),
-        _check_pair("primary on black", primary_color, BLACK),
-        _check_pair("secondary on white", secondary_color, WHITE),
-        _check_pair("secondary on black", secondary_color, BLACK),
-        _check_pair("accent on white", accent_color, WHITE),
-        _check_pair("accent on black", accent_color, BLACK),
         _check_pair("primary vs secondary", primary_color, secondary_color),
-        _check_pair("primary vs accent", primary_color, accent_color),
         _check_pair("secondary vs accent", secondary_color, accent_color),
     ]
     return ThemeContrastReport(pairs=pairs)

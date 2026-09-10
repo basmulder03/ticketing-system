@@ -292,9 +292,9 @@ def render_order_confirmation_email(
     # the standard cross-client-compatible pattern PROJECT_BRIEF.md calls
     # for. Only the FIXED theme fields (primary/secondary/font) are used,
     # never Theme.custom_css. Text color is always `primary` on `secondary`
-    # background — the one color pairing Theme's own AA contrast check
-    # (app.services.contrast.check_theme_contrast) actually evaluates as a
-    # text/background pair — so this shell never risks an unvetted
+    # background — one of the two color pairings Theme's own AA contrast
+    # check (app.services.contrast.check_theme_contrast) evaluates as a
+    # real text/background pair — so this shell never risks an unvetted
     # color-on-color combination; the accent color is intentionally not
     # used for any text here, only left available to `frontend-theming`'s
     # future visual pass.
