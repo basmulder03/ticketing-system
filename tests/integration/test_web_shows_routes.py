@@ -442,6 +442,118 @@ async def test_delete_ticket_type_with_no_sold_tickets_succeeds(
     assert "flash=Ticket%20type%20deleted.&flash_kind=success" in response.headers["location"]
 
 
+# --- Issue tickets manually --------------------------------------------------
+
+
+async def test_issue_tickets_manually_happy_path_creates_a_paid_order(
+    client: AsyncClient,
+    make_admin_user: Callable[..., Awaitable[SeededAdmin]],
+    make_event: Callable[..., Awaitable[Event]],
+    make_show: Callable[..., Awaitable[Show]],
+    make_ticket_type: Callable[..., Awaitable[TicketType]],
+) -> None:
+    await _api_login(client, await make_admin_user())
+    event = await make_event()
+    show = await make_show(event_id=event.id)
+    ticket_type = await make_ticket_type(show_id=show.id, quantity_available=10)
+    token = await _get_csrf(client, f"/events/{event.id}/shows")
+
+    response = await client.post(
+        f"/events/{event.id}/shows/{show.id}/manual-orders",
+        data={
+            "csrf_token": token,
+            "buyer_name": "Walk-up Buyer",
+            f"qty_{ticket_type.id}": "2",
+            "method_label": "cash",
+            "reason": "box office walk-up sale",
+        },
+    )
+
+    assert response.status_code == 303
+    location = response.headers["location"]
+    assert location.startswith(f"/events/{event.id}/shows?open={show.id}")
+    assert "flash=Tickets%20issued.&flash_kind=success" in location
+
+    orders = await client.get(f"/api/v1/events/{event.id}/orders")
+    assert orders.status_code == 200
+    assert len(orders.json()) == 1
+    assert orders.json()[0]["status"] == "paid"
+    assert orders.json()[0]["payment_method"] == "manual"
+
+
+async def test_issue_tickets_manually_requires_buyer_name(
+    client: AsyncClient,
+    make_admin_user: Callable[..., Awaitable[SeededAdmin]],
+    make_event: Callable[..., Awaitable[Event]],
+    make_show: Callable[..., Awaitable[Show]],
+    make_ticket_type: Callable[..., Awaitable[TicketType]],
+) -> None:
+    await _api_login(client, await make_admin_user())
+    event = await make_event()
+    show = await make_show(event_id=event.id)
+    ticket_type = await make_ticket_type(show_id=show.id, quantity_available=10)
+    token = await _get_csrf(client, f"/events/{event.id}/shows")
+
+    response = await client.post(
+        f"/events/{event.id}/shows/{show.id}/manual-orders",
+        data={"csrf_token": token, "buyer_name": "", f"qty_{ticket_type.id}": "1", "method_label": "cash"},
+    )
+
+    assert response.status_code == 303
+    location = response.headers["location"]
+    assert "flash_kind=error" in location
+    assert "Buyer%20name%20is%20required." in location
+
+
+async def test_issue_tickets_manually_requires_at_least_one_selected_ticket(
+    client: AsyncClient,
+    make_admin_user: Callable[..., Awaitable[SeededAdmin]],
+    make_event: Callable[..., Awaitable[Event]],
+    make_show: Callable[..., Awaitable[Show]],
+    make_ticket_type: Callable[..., Awaitable[TicketType]],
+) -> None:
+    await _api_login(client, await make_admin_user())
+    event = await make_event()
+    show = await make_show(event_id=event.id)
+    ticket_type = await make_ticket_type(show_id=show.id, quantity_available=10)
+    token = await _get_csrf(client, f"/events/{event.id}/shows")
+
+    response = await client.post(
+        f"/events/{event.id}/shows/{show.id}/manual-orders",
+        data={
+            "csrf_token": token,
+            "buyer_name": "Buyer",
+            f"qty_{ticket_type.id}": "0",
+            "method_label": "cash",
+        },
+    )
+
+    assert response.status_code == 303
+    location = response.headers["location"]
+    assert "flash_kind=error" in location
+    assert "Select%20at%20least%20one%20ticket" in location
+
+
+async def test_issue_tickets_manually_missing_csrf_is_rejected(
+    client: AsyncClient,
+    make_admin_user: Callable[..., Awaitable[SeededAdmin]],
+    make_event: Callable[..., Awaitable[Event]],
+    make_show: Callable[..., Awaitable[Show]],
+    make_ticket_type: Callable[..., Awaitable[TicketType]],
+) -> None:
+    await _api_login(client, await make_admin_user())
+    event = await make_event()
+    show = await make_show(event_id=event.id)
+    ticket_type = await make_ticket_type(show_id=show.id, quantity_available=10)
+
+    response = await client.post(
+        f"/events/{event.id}/shows/{show.id}/manual-orders",
+        data={"buyer_name": "Buyer", f"qty_{ticket_type.id}": "1", "method_label": "cash"},
+    )
+
+    assert response.status_code == 403
+
+
 # --- CSRF ----------------------------------------------------------------------
 
 

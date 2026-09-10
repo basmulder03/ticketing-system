@@ -41,6 +41,7 @@ from app.models.ticket_type import TicketType
 from app.schemas.order import (
     ErasePiiRequest,
     ErasePiiResponse,
+    ManualOrderCreateRequest,
     MarkOrderPaidRequest,
     MarkOrderPaidResponse,
     OrderOut,
@@ -49,6 +50,7 @@ from app.schemas.order import (
 from app.services.gdpr import erase_order_pii
 from app.services.invoice_pdf import render_invoice_pdf
 from app.services.invoicing import issue_invoice_for_order
+from app.services.manual_order import ManualOrderError, ManualOrderItemInput, create_manual_order
 from app.services.order_payment import mark_order_paid
 from app.services.stock import InsufficientStockError, TicketTypeNotFoundError
 from app.services.ticket_delivery import send_order_confirmation_email, sign_order_tickets
@@ -519,3 +521,80 @@ async def download_show_tickets_batch_pdf(
         media_type="application/pdf",
         headers={"Content-Disposition": f'inline; filename="tickets-batch-{show.id}.pdf"'},
     )
+
+
+@show_router.post("/{show_id}/manual-orders", status_code=status.HTTP_201_CREATED)
+async def create_manual_order_route(
+    show_id: str,
+    body: ManualOrderCreateRequest,
+    principal: Principal = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> OrderOut:
+    """Admin-only: create and immediately settle a ``paid`` Order for
+    ``show_id`` without any buyer-side checkout request ever happening —
+    per the user's NOTES: "For people without a computer or phone, allow
+    for an admin to create/do things with tickets, like creating them for
+    a show, e.g. without having the payment process (of course with the
+    correct audit logging)." See ``app.services.manual_order`` module
+    docstring for the full design.
+
+    Deliberately admin-only (``require_admin``, not
+    ``require_admin_or_agent``): this creates a real financial Order
+    record, the same scoping every other route in this module uses.
+
+    Bypasses every buyer-facing checkout gate (draft/publish status,
+    ``sales_paused``, ``sales_live_at``, ``enabled_payment_methods``) — an
+    admin issuing a ticket by hand for a specific Show is a trusted staff
+    action, not a public checkout request. Still enforces real,
+    race-safe stock accounting via the same ``reserve_stock`` primitive
+    checkout itself uses (409 if not enough remains).
+
+    On success, signs the order's ticket QR tokens and issues its Invoice
+    (same downstream effects ``mark_paid`` triggers for a fresh
+    transition), then — only if ``buyer_email`` was actually given, since
+    this route exists specifically for buyers who may have none — sends
+    the order-confirmation email with both PDFs attached. When no email
+    was given, the admin is expected to download the invoice/tickets PDF
+    directly (existing routes above) and hand them to the buyer in
+    person.
+    """
+    parsed_show_id = parse_uuid_or_404(show_id, detail="Show not found.")
+    show = await session.get(Show, parsed_show_id)
+    if show is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Show not found.")
+
+    items = [
+        ManualOrderItemInput(
+            ticket_type_id=parse_uuid_or_404(item.ticket_type_id, detail="Ticket type not found."),
+            quantity=item.quantity,
+        )
+        for item in body.items
+    ]
+
+    try:
+        order = await create_manual_order(
+            session,
+            show_id=show.id,
+            event_id=show.event_id,
+            items=items,
+            buyer_name=body.buyer_name,
+            buyer_email=body.buyer_email,
+            buyer_address=body.buyer_address,
+            language=body.language,
+            principal=principal,
+            method_label=body.method_label,
+            reason=body.reason,
+        )
+    except ManualOrderError as exc:
+        raise HTTPException(status_code=exc.http_status, detail=exc.detail) from exc
+
+    await sign_order_tickets(session, order=order)
+    await issue_invoice_for_order(session, order=order, principal=principal)
+    await session.commit()
+
+    if body.buyer_email:
+        # Deliberately after the commit above, best-effort — same
+        # discipline as `mark_paid`'s own email dispatch.
+        await send_order_confirmation_email(session, order_id=order.id, principal=principal)
+
+    return await _order_to_out(session, order)

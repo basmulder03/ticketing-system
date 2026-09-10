@@ -27,6 +27,16 @@ value differs from its ``orig_`` twin. This avoids touching a Show/TicketType
 (and writing an audit-log entry) when the admin submits an edit form having
 changed nothing, and avoids clobbering a field that another admin changed
 concurrently between page load and this submit with a stale re-echoed value.
+
+Post-launch fix: also proxies the "Issue tickets manually" action (per the
+user's NOTES: "For people without a computer or phone, allow for an admin
+to create/do things with tickets... without having the payment process")
+to ``POST /api/v1/shows/{show_id}/manual-orders`` (``app.api.routes.
+orders.create_manual_order_route``) — see :func:`create_manual_order_web`
+below. That route lives in ``app.api.routes.orders``, not ``.shows``
+(Order is financial/PII data, admin-only — see that module's docstring),
+but its only UI is this page, where the admin is already looking at one
+Show's ticket types.
 """
 
 from typing import Any
@@ -464,3 +474,66 @@ async def delete_ticket_type_web(
             redirect_path, _error_detail(resp, "Could not delete this ticket type."), kind="error"
         )
     return redirect_with_flash(redirect_path, "Ticket type deleted.", kind="success")
+
+
+@router.post("/events/{event_id}/shows/{show_id}/manual-orders")
+async def create_manual_order_web(
+    request: Request,
+    event_id: str,
+    show_id: str,
+    principal: Principal = Depends(require_web_admin),
+) -> RedirectResponse:
+    """Create and immediately settle a ``paid`` Order for this Show without
+    any buyer-side checkout — the "Issue tickets manually" form on this
+    page (see this module's docstring). Proxies to ``POST /api/v1/shows/
+    {show_id}/manual-orders`` (``app.api.routes.orders.
+    create_manual_order_route``).
+
+    Reads the raw form body (not typed ``Form(...)`` params) because the
+    per-ticket-type quantity fields are named dynamically
+    (``qty_<ticket_type_id>``) — same reason/shape as
+    ``app.web.routes.public_site._parse_checkout_items`` reads the public
+    checkout form's own ``qty_`` fields.
+    """
+    form = await request.form()
+    form_data = {key: str(value) for key, value in form.multi_items()}
+    verify_csrf(request, form_data.get("csrf_token", ""))
+    redirect_path = f"/events/{event_id}/shows?open={quote(show_id)}"
+
+    buyer_name = form_data.get("buyer_name", "").strip()
+    if not buyer_name:
+        return redirect_with_flash(redirect_path, "Buyer name is required.", kind="error")
+    method_label = form_data.get("method_label", "").strip()
+    if not method_label:
+        return redirect_with_flash(redirect_path, "Payment method is required.", kind="error")
+    buyer_email = form_data.get("buyer_email", "").strip() or None
+    buyer_address = form_data.get("buyer_address", "").strip() or None
+    reason = form_data.get("reason", "").strip() or None
+
+    items: list[dict[str, Any]] = []
+    for key, value in form_data.items():
+        if not key.startswith("qty_"):
+            continue
+        qty = _parse_int_or_none(value)
+        if qty is not None and qty > 0:
+            items.append({"ticket_type_id": key.removeprefix("qty_"), "quantity": qty})
+
+    if not items:
+        return redirect_with_flash(redirect_path, "Select at least one ticket to issue.", kind="error")
+
+    body: dict[str, Any] = {
+        "buyer_name": buyer_name,
+        "buyer_email": buyer_email,
+        "buyer_address": buyer_address,
+        "items": items,
+        "method_label": method_label,
+        "reason": reason,
+    }
+    async with internal_api_client(request) as client:
+        resp = await client.post(f"/api/v1/shows/{show_id}/manual-orders", json=body)
+
+    if resp.status_code == 404:
+        return redirect_with_flash(redirect_path, "Show or ticket type not found.", kind="error")
+    if resp.status_code >= 400:
+        return redirect_with_flash(redirect_path, _error_detail(resp, "Could not issue tickets."), kind="error")
+    return redirect_with_flash(redirect_path, "Tickets issued.", kind="success")

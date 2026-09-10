@@ -77,11 +77,20 @@ class PaymentMethod(str, enum.Enum):
     parallel to Mollie's own initiation/webhook shape specifically so a
     THIRD real provider can be added later by implementing the same
     initiate-then-settle shape, not by special-casing checkout.py again.
+
+    ``MANUAL`` is NOT one of these buyer-selectable checkout methods —
+    it never appears in ``enabled_payment_methods`` and a buyer can never
+    choose it at checkout. It marks an Order an admin created directly,
+    from nothing, for a buyer who never submitted any checkout request at
+    all — per the user's NOTES: "for people without a computer or phone,
+    allow for an admin to create/do things with tickets... without having
+    the payment process." See ``app.services.manual_order.create_manual_order``.
     """
 
     MOLLIE = "mollie"
     DOOR = "door"
     DEMO = "demo"
+    MANUAL = "manual"
 
 
 class OrderStatus(str, enum.Enum):

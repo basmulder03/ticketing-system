@@ -40,6 +40,10 @@ Covers every route currently declared with ``Depends(require_admin)``:
   - GET    /api/v1/shows/{show_id}/tickets-batch.pdf (Milestone 9: batch
     ticket-print action across every paid Order of a Show — same
     financial/PII reasoning, addressed by Show id rather than Order id)
+  - POST   /api/v1/shows/{show_id}/manual-orders (post-launch fix: creates
+    a real financial Order directly, bypassing buyer checkout entirely —
+    same financial/PII reasoning as every other route above, see
+    ``app.services.manual_order`` module docstring)
   - POST   /api/v1/admin/admin-users (backoffice/core-management-ui:
     AdminUser account management is itself a new admin-only surface, same
     "never agent/scanner scope" reasoning as agent-account management above)
@@ -66,7 +70,7 @@ _PLACEHOLDER_EVENT_ID = "33333333-3333-3333-3333-333333333333"
 _PLACEHOLDER_SHOW_ID = "44444444-4444-4444-4444-444444444444"
 
 # (label, method, path, json_body)
-ADMIN_GATED_ROUTES: list[tuple[str, str, str, dict[str, str] | None]] = [
+ADMIN_GATED_ROUTES: list[tuple[str, str, str, dict[str, object] | None]] = [
     ("create_agent_account", "POST", "/api/v1/admin/agent-accounts", {"name": "should-not-be-created"}),
     ("list_agent_accounts", "GET", "/api/v1/admin/agent-accounts", None),
     (
@@ -131,6 +135,16 @@ ADMIN_GATED_ROUTES: list[tuple[str, str, str, dict[str, str] | None]] = [
         None,
     ),
     (
+        "create_manual_order",
+        "POST",
+        f"/api/v1/shows/{_PLACEHOLDER_SHOW_ID}/manual-orders",
+        {
+            "buyer_name": "Test",
+            "items": [{"ticket_type_id": "55555555-5555-5555-5555-555555555555", "quantity": 1}],
+            "method_label": "test",
+        },
+    ),
+    (
         "create_admin_user",
         "POST",
         "/api/v1/admin/admin-users",
@@ -160,7 +174,7 @@ ADMIN_GATED_ROUTES: list[tuple[str, str, str, dict[str, str] | None]] = [
 _IDS = [route[0] for route in ADMIN_GATED_ROUTES]
 
 
-async def _request(client: AsyncClient, method: str, path: str, json_body: dict[str, str] | None) -> int:
+async def _request(client: AsyncClient, method: str, path: str, json_body: dict[str, object] | None) -> int:
     response = await client.request(method, path, json=json_body)
     return response.status_code
 
@@ -172,7 +186,7 @@ async def test_agent_key_principal_cannot_reach_admin_gated_routes(
     label: str,
     method: str,
     path: str,
-    json_body: dict[str, str] | None,
+    json_body: dict[str, object] | None,
 ) -> None:
     seeded = await make_agent_account()
     client.headers["X-Agent-Api-Key"] = seeded.raw_key
@@ -192,7 +206,7 @@ async def test_scanner_role_admin_cannot_reach_admin_gated_routes(
     label: str,
     method: str,
     path: str,
-    json_body: dict[str, str] | None,
+    json_body: dict[str, object] | None,
 ) -> None:
     seeded = await make_admin_user(role=AdminRole.SCANNER)
     login = await client.post(
@@ -207,7 +221,7 @@ async def test_scanner_role_admin_cannot_reach_admin_gated_routes(
 
 @pytest.mark.parametrize(("label", "method", "path", "json_body"), ADMIN_GATED_ROUTES, ids=_IDS)
 async def test_unauthenticated_caller_cannot_reach_admin_gated_routes(
-    client: AsyncClient, label: str, method: str, path: str, json_body: dict[str, str] | None
+    client: AsyncClient, label: str, method: str, path: str, json_body: dict[str, object] | None
 ) -> None:
     status_code = await _request(client, method, path, json_body)
 
@@ -223,7 +237,7 @@ async def test_real_admin_principal_can_reach_admin_gated_routes(
     label: str,
     method: str,
     path: str,
-    json_body: dict[str, str] | None,
+    json_body: dict[str, object] | None,
 ) -> None:
     """Positive control: proves the 403s above are actually about role
     scoping, not e.g. a routing typo that would 403/404 for everyone."""
