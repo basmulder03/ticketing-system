@@ -278,6 +278,34 @@ async def update_show_web(
     return redirect_with_flash(redirect_path, "Show updated.", kind="success")
 
 
+@router.post("/events/{event_id}/shows/{show_id}/duplicate")
+async def duplicate_show_web(
+    request: Request,
+    event_id: str,
+    show_id: str,
+    principal: Principal = Depends(require_web_admin),
+    csrf_token: str = Form(...),
+) -> RedirectResponse:
+    """Duplicate a Show (and its TicketTypes) as a starting point for a new
+    one. Proxies to ``POST /api/v1/events/{event_id}/shows/{show_id}/
+    duplicate`` (``app.api.routes.shows.duplicate_show``), then re-expands
+    the newly created Show's panel on redirect — same ``?open=`` pattern
+    ``create_show_web`` above already uses."""
+    verify_csrf(request, csrf_token)
+    redirect_path = f"/events/{event_id}/shows"
+
+    async with internal_api_client(request) as client:
+        resp = await client.post(f"/api/v1/events/{event_id}/shows/{show_id}/duplicate")
+
+    if resp.status_code == 404:
+        return redirect_with_flash(redirect_path, "Show not found.", kind="error")
+    if resp.status_code >= 400:
+        return redirect_with_flash(redirect_path, _error_detail(resp, "Could not duplicate this show."), kind="error")
+
+    new_show_id = resp.json().get("id")
+    return redirect_with_flash(f"{redirect_path}?open={quote(new_show_id)}", "Show duplicated.", kind="success")
+
+
 @router.post("/events/{event_id}/shows/{show_id}/delete")
 async def delete_show_web(
     request: Request,

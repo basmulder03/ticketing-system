@@ -11,8 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import Principal, require_admin_or_agent
 from app.api.routes._utils import apply_partial_update, commit_or_conflict, parse_uuid_or_404
 from app.db.session import get_session
+from app.models.enums import PublishStatus
 from app.models.event import Event
 from app.models.show import Show
+from app.models.ticket_type import TicketType
 from app.schemas.show import ShowCreateRequest, ShowOut, ShowUpdateRequest
 from app.services.audit import record_audit_entry
 
@@ -108,6 +110,77 @@ async def get_show(
     event = await _get_event_or_404(session, event_id)
     show = await _get_show_or_404(session, event, show_id)
     return _to_out(show)
+
+
+@router.post("/{show_id}/duplicate", status_code=status.HTTP_201_CREATED)
+async def duplicate_show(
+    event_id: str,
+    show_id: str,
+    principal: Principal = Depends(require_admin_or_agent),
+    session: AsyncSession = Depends(get_session),
+) -> ShowOut:
+    """Create a new Show under the same Event, copying the source Show's
+    date/times/venue/capacity and every one of its TicketTypes (name,
+    price, service_fee_included, quantity_available) — per the user's
+    NOTES: "option to create shows based on other shows in the same
+    event", a starting point for "the next performance of this same
+    setup", not a live clone.
+
+    The new Show always starts life ``draft`` regardless of the source
+    Show's own status — publishing (and thereby opening it for sale) stays
+    an explicit, separate action, never an accidental side effect of
+    duplicating a published show. The new TicketTypes carry none of the
+    source's sales data because there IS none to copy: a TicketType stores
+    no sold-count of its own, ``remaining`` is always computed live from
+    real Ticket rows (see ``app.models.ticket_type.TicketType.remaining``),
+    so a freshly duplicated TicketType is simply, correctly, fully
+    available from ``quantity_available``.
+    """
+    event = await _get_event_or_404(session, event_id)
+    source = await _get_show_or_404(session, event, show_id)
+
+    result = await session.execute(select(TicketType).where(TicketType.show_id == source.id))
+    source_ticket_types = list(result.scalars().all())
+
+    new_show = Show(
+        event_id=event.id,
+        date=source.date,
+        doors_time=source.doors_time,
+        start_time=source.start_time,
+        venue_name=source.venue_name,
+        venue_address=source.venue_address,
+        capacity=source.capacity,
+        status=PublishStatus.DRAFT,
+    )
+    session.add(new_show)
+    await session.flush()
+
+    for source_ticket_type in source_ticket_types:
+        session.add(
+            TicketType(
+                show_id=new_show.id,
+                name=source_ticket_type.name,
+                price=source_ticket_type.price,
+                service_fee_included=source_ticket_type.service_fee_included,
+                quantity_available=source_ticket_type.quantity_available,
+            )
+        )
+
+    await record_audit_entry(
+        session,
+        principal,
+        action="show.duplicate",
+        target_type="Show",
+        target_id=str(new_show.id),
+        detail={
+            "event_id": str(event.id),
+            "source_show_id": str(source.id),
+            "ticket_types_copied": len(source_ticket_types),
+        },
+    )
+    await session.commit()
+    await session.refresh(new_show)
+    return _to_out(new_show)
 
 
 @router.patch("/{show_id}")

@@ -125,6 +125,11 @@
       <button type="submit" class="bo-button bo-button--small">Save show</button>
     </form>
 
+    <form method="post" action="/events/{{ event.id }}/shows/{{ show.id }}/duplicate" class="bo-inline-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit" class="bo-button bo-button--small">Duplicate show</button>
+    </form>
+
     <form method="post" action="/events/{{ event.id }}/shows/{{ show.id }}/delete" class="bo-inline-form"
           data-confirm="Delete this show and all of its ticket types? This cannot be undone. If any ticket type has purchased tickets, deletion will be blocked instead.">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

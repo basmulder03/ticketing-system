@@ -137,6 +137,93 @@ async def test_partial_update_show_leaves_omitted_fields_unchanged(
     assert body["venue_name"] == "Het Kruispunt"
 
 
+async def test_duplicate_show_copies_fields_and_ticket_types_and_always_starts_draft(
+    client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]]
+) -> None:
+    await _login(client, await make_admin_user())
+    event_id = await _create_event(client)
+    created = await client.post(
+        f"/api/v1/events/{event_id}/shows", json={**_SHOW_BODY, "status": "published"}
+    )
+    source_show_id = created.json()["id"]
+    await client.post(
+        f"/api/v1/shows/{source_show_id}/ticket-types",
+        json={"name": "Adult", "price": "15.00", "service_fee_included": True, "quantity_available": 100},
+    )
+    await client.post(
+        f"/api/v1/shows/{source_show_id}/ticket-types",
+        json={"name": "Child", "price": "5.00", "service_fee_included": False, "quantity_available": 50},
+    )
+
+    response = await client.post(f"/api/v1/events/{event_id}/shows/{source_show_id}/duplicate")
+
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["id"] != source_show_id
+    assert body["event_id"] == event_id
+    # Source was published — the duplicate must NOT inherit that; publishing
+    # a duplicate is always a separate, explicit action.
+    assert body["status"] == "draft"
+    assert body["date"] == _SHOW_BODY["date"]
+    assert body["venue_name"] == _SHOW_BODY["venue_name"]
+    assert body["capacity"] == _SHOW_BODY["capacity"]
+
+    ticket_types = (await client.get(f"/api/v1/shows/{body['id']}/ticket-types")).json()
+    names_and_prices = {(tt["name"], tt["price"]) for tt in ticket_types}
+    assert names_and_prices == {("Adult", "15.00"), ("Child", "5.00")}
+    for tt in ticket_types:
+        assert tt["remaining"] == tt["quantity_available"], "a duplicate carries no sales, so nothing is sold yet"
+
+    # The source Show/TicketTypes are untouched by duplicating them.
+    source_ticket_types = (await client.get(f"/api/v1/shows/{source_show_id}/ticket-types")).json()
+    assert len(source_ticket_types) == 2
+
+
+async def test_duplicate_show_under_unknown_event_returns_404(
+    client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]]
+) -> None:
+    await _login(client, await make_admin_user())
+    event_id = await _create_event(client)
+    created = await client.post(f"/api/v1/events/{event_id}/shows", json=_SHOW_BODY)
+    show_id = created.json()["id"]
+
+    response = await client.post(
+        f"/api/v1/events/00000000-0000-0000-0000-000000000000/shows/{show_id}/duplicate"
+    )
+
+    assert response.status_code == 404
+
+
+async def test_duplicate_unknown_show_returns_404(
+    client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]]
+) -> None:
+    await _login(client, await make_admin_user())
+    event_id = await _create_event(client)
+
+    response = await client.post(
+        f"/api/v1/events/{event_id}/shows/00000000-0000-0000-0000-000000000000/duplicate"
+    )
+
+    assert response.status_code == 404
+
+
+async def test_duplicate_show_is_scoped_to_its_parent_event(
+    client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]]
+) -> None:
+    """A Show under Event A cannot be duplicated via Event B's path, even
+    with its raw id guessed correctly — same scoping every other
+    Show route already enforces."""
+    await _login(client, await make_admin_user())
+    event_a = await _create_event(client, slug="event-a")
+    event_b = await _create_event(client, slug="event-b")
+    created = await client.post(f"/api/v1/events/{event_a}/shows", json=_SHOW_BODY)
+    show_id = created.json()["id"]
+
+    cross_event = await client.post(f"/api/v1/events/{event_b}/shows/{show_id}/duplicate")
+
+    assert cross_event.status_code == 404
+
+
 async def test_delete_show_returns_204_and_it_is_gone(
     client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]]
 ) -> None:

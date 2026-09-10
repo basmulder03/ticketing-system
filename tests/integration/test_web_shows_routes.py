@@ -165,6 +165,72 @@ async def test_delete_show_returns_404_flash_for_unknown_show(
     assert "Show%20not%20found." in location
 
 
+# --- Show duplicate ---------------------------------------------------------
+
+
+async def test_duplicate_show_happy_path_redirects_with_success_flash(
+    client: AsyncClient,
+    make_admin_user: Callable[..., Awaitable[SeededAdmin]],
+    make_event: Callable[..., Awaitable[Event]],
+    make_show: Callable[..., Awaitable[Show]],
+    make_ticket_type: Callable[..., Awaitable[TicketType]],
+) -> None:
+    await _api_login(client, await make_admin_user())
+    event = await make_event()
+    show = await make_show(event_id=event.id, status=PublishStatus.PUBLISHED)
+    await make_ticket_type(show_id=show.id, name="Adult")
+    token = await _get_csrf(client, f"/events/{event.id}/shows")
+
+    response = await client.post(f"/events/{event.id}/shows/{show.id}/duplicate", data={"csrf_token": token})
+
+    assert response.status_code == 303
+    location = response.headers["location"]
+    assert location.startswith(f"/events/{event.id}/shows?open=")
+    assert "flash=Show%20duplicated.&flash_kind=success" in location
+
+    shows_response = await client.get(f"/api/v1/events/{event.id}/shows")
+    assert shows_response.status_code == 200
+    shows = shows_response.json()
+    assert len(shows) == 2
+    duplicate = next(s for s in shows if s["id"] != str(show.id))
+    assert duplicate["status"] == "draft"
+
+    ticket_types = (await client.get(f"/api/v1/shows/{duplicate['id']}/ticket-types")).json()
+    assert [tt["name"] for tt in ticket_types] == ["Adult"]
+
+
+async def test_duplicate_show_returns_404_flash_for_unknown_show(
+    client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]], make_event: Callable[..., Awaitable[Event]]
+) -> None:
+    await _api_login(client, await make_admin_user())
+    event = await make_event()
+    token = await _get_csrf(client, f"/events/{event.id}/shows")
+
+    response = await client.post(
+        f"/events/{event.id}/shows/{uuid.uuid4()}/duplicate", data={"csrf_token": token}
+    )
+
+    assert response.status_code == 303
+    location = response.headers["location"]
+    assert "flash_kind=error" in location
+    assert "Show%20not%20found." in location
+
+
+async def test_duplicate_show_missing_csrf_is_rejected(
+    client: AsyncClient,
+    make_admin_user: Callable[..., Awaitable[SeededAdmin]],
+    make_event: Callable[..., Awaitable[Event]],
+    make_show: Callable[..., Awaitable[Show]],
+) -> None:
+    await _api_login(client, await make_admin_user())
+    event = await make_event()
+    show = await make_show(event_id=event.id)
+
+    response = await client.post(f"/events/{event.id}/shows/{show.id}/duplicate", data={})
+
+    assert response.status_code == 422
+
+
 # --- Show delete: blocked by real sold tickets under a nested TicketType -----
 
 
