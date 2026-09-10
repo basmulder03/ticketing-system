@@ -76,6 +76,7 @@ from app.web.csrf import CSRF_COOKIE_NAME
 from tests.integration.conftest import (
     SeededAdmin,
     SeededAgent,
+    _evaluate_axe_on_current_page,
     apply_set_cookie_headers,
     format_axe_violations,
     run_axe,
@@ -202,10 +203,13 @@ async def test_orders_list_page_with_erased_and_invoiced_orders_has_no_axe_viola
        redirect-then-reload path) — the "Buyer details erased." plain-text
        indicator branch, which no existing axe test reaches at all.
 
-    axe-core cannot evaluate the ``window.confirm()`` dialog itself (it's
-    OS/browser chrome, not page DOM) — see this milestone's
-    accessibility-auditor handoff for why that's fine here and what remains
-    a manual-only check.
+    The ``data-confirm`` interaction now opens a real, in-page ``<dialog>``
+    (see ``app/templates/backoffice/base.html``'s ``#bo-confirm-dialog``,
+    a post-launch fix replacing ``window.confirm()``) — its OPEN state is
+    audited separately below
+    (``test_confirm_dialog_open_state_has_no_axe_violations``), since axe
+    only evaluates whatever's actually in the DOM at scan time and this
+    page's own scan above runs before any dialog is ever triggered.
     """
     await _login_and_apply_session_cookie(axe_page, client, make_admin_user)
 
@@ -578,17 +582,40 @@ async def test_event_edit_page_has_no_axe_violations(
 ) -> None:
     """The full edit page in one pass: the edit form, the preview-link
     copy-to-clipboard affordance (``#preview-link-input`` + the shared
-    ``.bo-copy-link`` button), and the delete-event danger-zone form. axe-
-    core cannot evaluate the danger zone's ``window.confirm()`` dialog
-    itself (OS/browser chrome, not page DOM) — see this milestone's
-    accessibility-auditor handoff for why that's a manual-only checklist
-    item, same reasoning as the Orders list's erase-PII confirm() already
-    documented above."""
+    ``.bo-copy-link`` button), and the delete-event danger-zone form's
+    trigger button (the danger zone's ``#bo-confirm-dialog`` OPEN state is
+    audited separately below, same reasoning as the Orders list's
+    erase-PII confirm() case documented above)."""
     await _login_and_apply_session_cookie(axe_page, client, make_admin_user)
     event = await make_event(status=PublishStatus.PUBLISHED, name="Edit Page A11y Event")
 
     violations = await run_axe(axe_page, f"/events/{event.id}/edit")
 
+    assert violations == [], format_axe_violations(violations)
+
+
+async def test_confirm_dialog_open_state_has_no_axe_violations(
+    axe_page: Page,
+    client: AsyncClient,
+    make_admin_user: Callable[..., Awaitable[SeededAdmin]],
+    make_event: Callable[..., Awaitable[Event]],
+) -> None:
+    """The styled ``#bo-confirm-dialog`` (post-launch fix replacing
+    ``window.confirm()`` — see app/templates/backoffice/base.html) with a
+    real ``data-confirm`` form's message inside it — unlike the native
+    dialog it replaced, this one IS real page DOM, so it can actually be
+    audited here for the first time (the old ``window.confirm()`` was OS/
+    browser chrome, invisible to axe-core)."""
+    await _login_and_apply_session_cookie(axe_page, client, make_admin_user)
+    event = await make_event(status=PublishStatus.PUBLISHED, name="Confirm Dialog A11y Event")
+
+    await axe_page.goto(f"/events/{event.id}/edit")
+    await axe_page.click('form[data-confirm] button[type="submit"]')
+
+    is_open = await axe_page.evaluate("() => document.getElementById('bo-confirm-dialog').open")
+    assert is_open is True
+
+    violations = await _evaluate_axe_on_current_page(axe_page)
     assert violations == [], format_axe_violations(violations)
 
 

@@ -48,23 +48,90 @@
      message instead of a purely visual affordance. #}
   <div id="bo-status-announcer" class="bo-visually-hidden" role="status" aria-live="polite"></div>
 
+  {# Shared, styled replacement for window.confirm() (see the script
+     below) and the window.prompt() clipboard-copy fallback — native
+     browser dialogs looked jarringly out of place against this app's own
+     design system. Built on the native <dialog> element rather than a
+     hand-rolled overlay: showModal() gives real focus-trapping, ESC-to-
+     close, and background inertness for free, still fully under this
+     app's own CSS. One shared instance per page, reused by every
+     data-confirm form. #}
+  <dialog id="bo-confirm-dialog" class="bo-dialog" aria-labelledby="bo-confirm-dialog-heading">
+    <h2 id="bo-confirm-dialog-heading">Are you sure?</h2>
+    <p id="bo-confirm-dialog-message"></p>
+    <form method="dialog" class="bo-dialog__actions">
+      <button type="submit" value="cancel" class="bo-button bo-button--ghost" autofocus>Cancel</button>
+      <button type="submit" value="confirm" class="bo-button bo-button--danger">Confirm</button>
+    </form>
+  </dialog>
+
+  {# Styled replacement for the window.prompt() clipboard-copy fallback
+     (see the ".bo-copy-link" click handler below) -- shown only when the
+     Clipboard API itself isn't available (a non-secure-context/older
+     browser edge case), so the buyer/admin still has a way to manually
+     select and copy the link. #}
+  <dialog id="bo-copy-fallback-dialog" class="bo-dialog" aria-labelledby="bo-copy-fallback-dialog-heading">
+    <h2 id="bo-copy-fallback-dialog-heading">Copy this link</h2>
+    <p>Your browser didn't allow copying automatically — select the text below and copy it manually.</p>
+    <p class="bo-field">
+      <label for="bo-copy-fallback-input" class="bo-visually-hidden">Link to copy</label>
+      <input type="text" id="bo-copy-fallback-input" readonly>
+    </p>
+    <form method="dialog" class="bo-dialog__actions">
+      <button type="submit" value="close" class="bo-button bo-button--primary">Close</button>
+    </form>
+  </dialog>
+
   <script>
     // Shared "are you sure?" guard for irreversible form actions (e.g. the
     // Orders list's "Erase buyer PII" action — see
     // app/templates/backoffice/orders_list.html). Any <form> carrying a
-    // data-confirm="..." attribute gets that exact text shown in a native
-    // confirm() dialog before it's allowed to submit; cancelling the dialog
-    // cancels the submission. Delegated on document (same pattern as the
-    // click listeners below) so any current or future form can opt in just
-    // by adding the attribute, with no per-page JS required.
-    document.addEventListener("submit", function (event) {
-      var form = event.target;
-      if (!(form instanceof HTMLFormElement)) return;
-      var message = form.getAttribute("data-confirm");
-      if (message && !window.confirm(message)) {
+    // data-confirm="..." attribute gets that exact text shown in the
+    // styled #bo-confirm-dialog (see above) before it's allowed to
+    // submit; cancelling the dialog cancels the submission. Delegated on
+    // document (same pattern as the click listeners below) so any
+    // current or future form can opt in just by adding the attribute,
+    // with no per-page JS required.
+    //
+    // One shared <dialog> reused by every such form: a real submit is
+    // intercepted, the pending form is stashed, and the dialog is shown.
+    // If the dialog's own (native method="dialog") form closes with
+    // returnValue "confirm", the pending form is marked approved and
+    // re-submitted via requestSubmit() — which re-enters this exact
+    // listener, but the approved-flag short-circuits it straight through
+    // on that second pass, so this never loops.
+    (function () {
+      var dialog = document.getElementById("bo-confirm-dialog");
+      var messageEl = document.getElementById("bo-confirm-dialog-message");
+      var pendingForm = null;
+      var invoker = null;
+
+      document.addEventListener("submit", function (event) {
+        var form = event.target;
+        if (!(form instanceof HTMLFormElement)) return;
+        var message = form.getAttribute("data-confirm");
+        if (!message) return;
+        if (form.dataset.confirmApproved === "true") {
+          delete form.dataset.confirmApproved;
+          return;
+        }
         event.preventDefault();
-      }
-    });
+        pendingForm = form;
+        invoker = document.activeElement;
+        messageEl.textContent = message;
+        dialog.showModal();
+      });
+
+      dialog.addEventListener("close", function () {
+        if (dialog.returnValue === "confirm" && pendingForm) {
+          pendingForm.dataset.confirmApproved = "true";
+          pendingForm.requestSubmit();
+        }
+        pendingForm = null;
+        if (invoker && typeof invoker.focus === "function") invoker.focus();
+        invoker = null;
+      });
+    })();
 
     // Keeps each color swatch's visible hex readout in sync with its
     // <input type="color">. Deliberately not HTMX's job (no server round
@@ -79,9 +146,10 @@
 
     // Copy-to-clipboard for shareable links (e.g. an event's unguessable
     // preview link — see app/templates/backoffice/events_list.html). Falls
-    // back to a manual "select the text yourself" prompt on browsers/
-    // contexts without Clipboard API access (e.g. non-HTTPS local network
-    // access) rather than failing silently.
+    // back to the styled #bo-copy-fallback-dialog (see above) — a
+    // manual "select the text yourself" affordance — on browsers/contexts
+    // without Clipboard API access (e.g. non-HTTPS local network access)
+    // rather than failing silently.
     document.addEventListener("click", function (event) {
       var button = event.target.closest(".bo-copy-link");
       if (!button) return;
@@ -96,12 +164,18 @@
           if (announcer) announcer.textContent = "";
         }, 1500);
       }
+      function showCopyFallback() {
+        var dialog = document.getElementById("bo-copy-fallback-dialog");
+        var input = document.getElementById("bo-copy-fallback-input");
+        input.value = value;
+        dialog.showModal();
+        input.focus();
+        input.select();
+      }
       if (navigator.clipboard && window.isSecureContext) {
-        navigator.clipboard.writeText(value).then(showCopied, function () {
-          window.prompt("Copy this link:", value);
-        });
+        navigator.clipboard.writeText(value).then(showCopied, showCopyFallback);
       } else {
-        window.prompt("Copy this link:", value);
+        showCopyFallback();
       }
     });
   </script>
