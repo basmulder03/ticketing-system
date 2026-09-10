@@ -27,7 +27,7 @@ from app.core.rate_limit import (
     rate_limit_dependency,
 )
 from app.db.session import get_session
-from app.models.enums import OrderStatus, PublishStatus
+from app.models.enums import OrderStatus, PaymentMethod, PublishStatus
 from app.models.event import Event
 from app.models.order import Order
 from app.models.show import Show
@@ -36,6 +36,7 @@ from app.schemas.order import CheckoutRequest, OrderOut, TicketOut
 from app.schemas.public import PublicEventOut, PublicShowOut, PublicThemeOut, PublicTicketTypeOut
 from app.services.audit import record_audit_entry
 from app.services.checkout import CheckoutError, CheckoutItemInput, CheckoutResult, perform_checkout
+from app.services.door_reservation_email import send_door_payment_confirmation_email
 from app.services.invoicing import issue_invoice_for_order
 from app.services.mollie import MollieApiError, fetch_mollie_payment_status, resolve_mollie_api_key
 from app.services.order_payment import SYSTEM_PRINCIPAL, mark_order_paid, release_order_stock
@@ -76,6 +77,17 @@ async def _build_public_event_out(
     passes ``published_only=False`` so every Show is included regardless of
     its own draft/published state, per PROJECT_BRIEF.md's Draft & Preview
     section.
+
+    Deliberately does NOT drop a Show with zero TicketType rows here, even
+    though one has nothing a buyer could select on the landing page's
+    ticket picker -- this same nested response also backs the beamer/TV
+    countdown view (``app.web.routes.public_site._render_beamer``), which
+    only needs a Show's date/venue/doors-time and has no ticket picker at
+    all, so a Show awaiting its ticket types is still a completely valid
+    thing to count down to on a lobby screen. The landing page's own
+    ticket-picker filters such shows out itself (see
+    ``app.web.routes.public_site._sellable_shows``) rather than this
+    shared API response doing it for every consumer.
     """
     shows = [s for s in event.shows if not published_only or s.status == PublishStatus.PUBLISHED]
     all_ticket_types = [tt for show in shows for tt in show.ticket_types]
@@ -244,6 +256,14 @@ async def checkout(
     separate, best-effort step (see ``app.services.ticket_delivery``
     module docstring for why it must never be allowed to roll back a real
     payment confirmation, or in this case a real order creation).
+
+    Post-launch fix: a ``payment_method="door"`` Order is genuinely
+    ``pending_door`` here, not paid — but it still gets its own,
+    ticket-free reservation-confirmation email dispatched the same way
+    (after the commit, best-effort), closing a real gap where a door-pay
+    buyer previously got no email at all until they were later paid/
+    scanned in at the venue (see
+    ``app.services.door_reservation_email`` module docstring).
     """
     items = [
         CheckoutItemInput(ticket_type_id=_parse_ticket_type_id(item.ticket_type_id), quantity=item.quantity)
@@ -267,6 +287,8 @@ async def checkout(
     await session.commit()
     if result.simulated_payment:
         await send_order_confirmation_email(session, order_id=result.order.id, principal=SYSTEM_PRINCIPAL)
+    elif result.order.payment_method == PaymentMethod.DOOR:
+        await send_door_payment_confirmation_email(session, order_id=result.order.id, principal=SYSTEM_PRINCIPAL)
     return await _order_to_out(session, result.order, mollie_checkout_url=result.mollie_checkout_url)
 
 

@@ -83,6 +83,18 @@
   "email.order_confirmation.logo_alt": "{event_name} logo",
   "email.order_confirmation.footer": "{event_name} — sent via Beacon",
 
+  "email.door_confirmation.subject": "Your order for {{event_name}} — pay at the door",
+  "email.door_confirmation.body": "<p>Hi {{buyer_name}},</p><p>Thank you for your order for <strong>{{event_name}}</strong>. This is a reservation, not a paid ticket — please pay <strong>{{order_total}}</strong> in cash or by card when you arrive.</p><p>Show details: {{show_date}} at {{show_time}}, {{venue_name}}.</p><p>Keep this email as proof of your order.</p>",
+  "email.door_confirmation.heading": "Your order (pay at the door)",
+  "email.door_confirmation.order_reference_label": "Order reference",
+  "email.door_confirmation.items_heading": "Your order",
+  "email.door_confirmation.ticket_type_column": "Ticket type",
+  "email.door_confirmation.quantity_column": "Quantity",
+  "email.door_confirmation.subtotal_column": "Subtotal",
+  "email.door_confirmation.total_label": "Total due at the door",
+  "email.door_confirmation.logo_alt": "{event_name} logo",
+  "email.door_confirmation.footer": "{event_name} — sent via Beacon",
+
   "pdf.ticket.show_label": "Show",
   "pdf.ticket.venue_label": "Venue",
   "pdf.ticket.ticket_type_label": "Ticket type",

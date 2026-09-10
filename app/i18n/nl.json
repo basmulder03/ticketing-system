@@ -83,6 +83,18 @@
   "email.order_confirmation.logo_alt": "Logo van {event_name}",
   "email.order_confirmation.footer": "{event_name} — verzonden via Beacon",
 
+  "email.door_confirmation.subject": "Uw bestelling voor {{event_name}} — betalen aan de deur",
+  "email.door_confirmation.body": "<p>Beste {{buyer_name}},</p><p>Hartelijk dank voor uw bestelling voor <strong>{{event_name}}</strong>. Dit is een reservering, nog geen betaald ticket — betaal <strong>{{order_total}}</strong> contant of per pin bij aankomst.</p><p>Voorstelling: {{show_date}} om {{show_time}}, {{venue_name}}.</p><p>Bewaar deze e-mail als bewijs van uw bestelling.</p>",
+  "email.door_confirmation.heading": "Uw bestelling (betalen aan de deur)",
+  "email.door_confirmation.order_reference_label": "Bestelreferentie",
+  "email.door_confirmation.items_heading": "Uw bestelling",
+  "email.door_confirmation.ticket_type_column": "Ticketsoort",
+  "email.door_confirmation.quantity_column": "Aantal",
+  "email.door_confirmation.subtotal_column": "Subtotaal",
+  "email.door_confirmation.total_label": "Te betalen aan de deur",
+  "email.door_confirmation.logo_alt": "Logo van {event_name}",
+  "email.door_confirmation.footer": "{event_name} — verzonden via Beacon",
+
   "pdf.ticket.show_label": "Voorstelling",
   "pdf.ticket.venue_label": "Locatie",
   "pdf.ticket.ticket_type_label": "Ticketsoort",

@@ -140,12 +140,12 @@ class EmailTemplateType(str, enum.Enum):
     section ("subject and body for each email type (order confirmation/
     ticket, invoice, door-payment reminder, etc.)").
 
-    Only ``ORDER_CONFIRMATION_TICKET`` is wired to an actual send path in
-    Milestone 4 (see ``app.services.ticket_delivery``). Future values the
-    brief names for later milestones (an invoice email — Milestone 5; a
-    door-payment reminder — Milestone 6) are deliberately NOT pre-declared
-    here — add them when those milestones actually need to look up a
-    template by type, per KISS ("don't build unused machinery now").
+    ``ORDER_CONFIRMATION_TICKET`` (Milestone 4) and
+    ``DOOR_PAYMENT_CONFIRMATION`` (post-launch fix, see
+    ``app.services.door_reservation_email``) are wired to an actual send
+    path. A future invoice-specific email type is deliberately NOT
+    pre-declared here — add it when it's actually needed, per KISS ("don't
+    build unused machinery now").
 
     ``EmailTemplate.template_type`` stores this enum's value as a plain
     string column (not a native Postgres enum), the same choice
@@ -155,6 +155,7 @@ class EmailTemplateType(str, enum.Enum):
     """
 
     ORDER_CONFIRMATION_TICKET = "order_confirmation_ticket"
+    DOOR_PAYMENT_CONFIRMATION = "door_payment_confirmation"
 
 
 class ScanOutcome(str, enum.Enum):
