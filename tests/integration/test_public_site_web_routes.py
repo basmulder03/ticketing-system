@@ -93,6 +93,58 @@ async def test_draft_event_slug_404s(
     assert response.status_code == 404
 
 
+async def test_landing_page_hides_published_show_with_no_ticket_types(
+    client: AsyncClient,
+    make_event: Callable[..., Awaitable[Event]],
+    make_show: Callable[..., Awaitable[Show]],
+    make_ticket_type: Callable[..., Awaitable[TicketType]],
+) -> None:
+    """A published Show with zero TicketType rows must never appear as a
+    choosable date -- there is nothing for a buyer to select, so it would
+    otherwise be a dead end (found via manual testing)."""
+    event = await make_event(status=PublishStatus.PUBLISHED)
+    sellable_show = await make_show(event_id=event.id, status=PublishStatus.PUBLISHED, venue_name="Sellable Venue")
+    await make_ticket_type(show_id=sellable_show.id)
+    await make_show(event_id=event.id, status=PublishStatus.PUBLISHED, venue_name="Ticketless Venue")
+
+    response = await client.get(f"/e/{event.slug}")
+
+    assert response.status_code == 200
+    assert "Sellable Venue" in response.text
+    assert "Ticketless Venue" not in response.text
+
+
+async def test_landing_page_shows_no_shows_message_when_only_ticketless_shows_exist(
+    client: AsyncClient,
+    make_event: Callable[..., Awaitable[Event]],
+    make_show: Callable[..., Awaitable[Show]],
+) -> None:
+    event = await make_event(status=PublishStatus.PUBLISHED)
+    await make_show(event_id=event.id, status=PublishStatus.PUBLISHED)
+
+    response = await client.get(f"/e/{event.slug}")
+
+    assert response.status_code == 200
+    assert "No shows are currently available for this event." in response.text
+
+
+async def test_preview_page_still_shows_published_show_with_no_ticket_types(
+    client: AsyncClient,
+    make_event: Callable[..., Awaitable[Event]],
+    make_show: Callable[..., Awaitable[Show]],
+) -> None:
+    """Unlike the buyer-facing route above, preview deliberately keeps a
+    ticket-type-less Show visible so an organizer reviewing a draft can see
+    the gap, rather than it silently vanishing from what they're checking."""
+    event = await make_event(status=PublishStatus.DRAFT)
+    await make_show(event_id=event.id, status=PublishStatus.PUBLISHED, venue_name="Ticketless Venue")
+
+    response = await client.get(f"/preview/{event.preview_token}")
+
+    assert response.status_code == 200
+    assert "Ticketless Venue" in response.text
+
+
 async def test_unknown_slug_404s(client: AsyncClient) -> None:
     response = await client.get("/e/no-such-event")
     assert response.status_code == 404

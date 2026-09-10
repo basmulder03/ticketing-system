@@ -144,6 +144,21 @@ def _default_beamer_show_id(event: dict[str, Any]) -> str | None:
     return str(max(event["shows"], key=doors_at)["id"])
 
 
+def _sellable_shows(event: dict[str, Any]) -> list[dict[str, Any]]:
+    """Shows a buyer could actually select on the landing page's ticket
+    picker -- a Show with zero TicketType rows has nothing to sell yet, so
+    listing it as a choosable date leads to a dead end (its panel would
+    just be an empty ticket-type table with no way to buy anything; found
+    via the user's own manual testing).
+
+    Deliberately a presentation-layer filter here, not something
+    ``app.api.routes.public``'s shared nested-event response does itself —
+    that same response also backs the beamer/TV countdown view, which has
+    no ticket picker and is a completely valid thing to point at a Show
+    still awaiting its ticket types (see that module's own docstring)."""
+    return [show for show in event["shows"] if show["ticket_types"]]
+
+
 def _render_landing(
     request: Request,
     event: dict[str, Any],
@@ -155,6 +170,16 @@ def _render_landing(
     checkout_error: str | None = None,
     status_code: int = 200,
 ) -> Response:
+    # The real, buyer-facing landing page only ever offers a sellable Show
+    # as a choice; preview mode deliberately keeps every Show (including
+    # one still missing its ticket types) so an organizer reviewing a
+    # draft sees that gap instead of it silently vanishing from what
+    # they're checking. Every use of `event["shows"]` below (the picker,
+    # the default-show-selection helpers, JSON-LD) sees this same filtered
+    # list once it's swapped in here.
+    if not is_preview:
+        event = {**event, "shows": _sellable_shows(event)}
+
     settings = get_settings()
     base_url = settings.public_base_url.rstrip("/")
 
