@@ -8,6 +8,7 @@
   "public.not_found.title": "Evenement niet gevonden",
   "public.not_found.body": "We konden het evenement dat u zocht niet vinden. Mogelijk is het niet meer beschikbaar.",
 
+  "public.share.heading": "Delen",
   "public.share.copy_link": "Kopieer link naar deze voorstelling",
   "public.share.copy_ticket_link": "Kopieer link naar dit ticketsoort",
   "public.share.copied": "Gekopieerd!",

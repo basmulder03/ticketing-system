@@ -8,6 +8,7 @@
   "public.not_found.title": "Event not found",
   "public.not_found.body": "We couldn't find the event you were looking for. It may no longer be available.",
 
+  "public.share.heading": "Share",
   "public.share.copy_link": "Copy link to this show",
   "public.share.copy_ticket_link": "Copy link to this ticket type",
   "public.share.copied": "Copied!",

@@ -17,6 +17,7 @@ from fastapi import Request
 from app.core.css_sanitizer import EVENT_CONTENT_CLASS
 from app.i18n import DEFAULT_LOCALE, SUPPORTED_LOCALES
 from app.models.enums import ThemeFont
+from app.services.color import derive_dark_palette
 from app.services.theme_preview import FONT_STACKS
 
 LOCALE_COOKIE_NAME = "beacon_locale"
@@ -63,6 +64,19 @@ def build_public_theme_css(theme: dict[str, Any] | None) -> str:
     default that can't be overridden; an Event with no Theme row yet simply
     renders with no theme CSS at all (plain, unstyled content), not a
     silently-baked-in poster palette.
+
+    Also emits a ``@media (prefers-color-scheme: dark)`` block, scoped to
+    ``.event-content``, that redefines the three ``--beacon-color-*``
+    custom properties to a dark-mode variant computed by
+    ``app.services.color.derive_dark_palette`` — since every rule below
+    already reads color from those custom properties rather than hardcoded
+    hex values, redefining just the three variables is enough to flip the
+    whole themed surface to dark mode with no separate dark-mode copy of
+    each rule. Computed at render time from the Theme's current colors, not
+    stored — there is no separate "dark mode colors" field for an admin to
+    keep in sync. The site-wide chrome (header/footer/nav/notices/buttons)
+    has its own, completely separate hand-picked dark palette in
+    app/static/public.css, since the chrome must stay theme-agnostic.
     """
     if theme is None:
         return ""
@@ -77,7 +91,15 @@ def build_public_theme_css(theme: dict[str, Any] | None) -> str:
         f"  color: var(--beacon-color-primary);\n"
         f"  background-color: var(--beacon-color-secondary);\n"
         f"}}\n"
-        f".{EVENT_CONTENT_CLASS} .pub-button {{\n"
+        # Scoped to --primary only (the actual call-to-action, e.g. the
+        # checkout submit button) -- NOT plain .pub-button, which would also
+        # catch .pub-button--ghost/--small utility buttons (the share-link
+        # and copy-ticket-link buttons) and force them solid-accent-filled
+        # too, fighting their own "look like a plain link/outline, not a
+        # CTA" styling in app/static/public.css at equal specificity. Found
+        # visually while redesigning the public landing page: a ghost
+        # button rendered as an unwanted solid red block.
+        f".{EVENT_CONTENT_CLASS} .pub-button--primary {{\n"
         f"  background: var(--beacon-color-accent);\n"
         f"  color: var(--beacon-color-secondary);\n"
         f"  border-color: var(--beacon-color-accent);\n"
@@ -100,11 +122,30 @@ def build_public_theme_css(theme: dict[str, Any] | None) -> str:
             f"}}\n"
         )
 
+    dark = derive_dark_palette(
+        primary_color=theme["primary_color"],
+        secondary_color=theme["secondary_color"],
+        accent_color=theme["accent_color"],
+    )
+    base_css += (
+        f"@media (prefers-color-scheme: dark) {{\n"
+        f"  .{EVENT_CONTENT_CLASS} {{\n"
+        f"    --beacon-color-primary: {dark['text']};\n"
+        f"    --beacon-color-secondary: {dark['background']};\n"
+        f"    --beacon-color-accent: {dark['accent']};\n"
+        f"  }}\n"
+        f"}}\n"
+    )
+
     custom_css = theme.get("custom_css") or ""
     # custom_css already went through app.core.css_sanitizer.sanitize_custom_css
     # at save time (see app.schemas.public.PublicThemeOut docstring) and is
     # guaranteed scoped to EVENT_CONTENT_CLASS and safe for <style> embedding
     # (angle brackets pre-escaped) — never re-sanitized or re-escaped here.
+    # Appended after the dark-mode block so an admin's custom CSS can still
+    # override the computed dark palette too, if they wrote a dark-mode
+    # rule of their own — same "custom CSS wins" precedence as the fixed
+    # fields already have via source order.
     return base_css if not custom_css else f"{base_css}\n{custom_css}\n"
 
 

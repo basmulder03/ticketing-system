@@ -127,7 +127,30 @@ def test_build_public_theme_css_appends_custom_css_verbatim() -> None:
 
 def test_build_public_theme_css_omits_custom_css_block_when_none_set() -> None:
     css = build_public_theme_css(_theme(custom_css=None))
-    assert css.count(".event-content {") == 1  # only the base rule, nothing appended
+    # Base rule + the dark-mode override rule (always emitted) — nothing
+    # beyond those two when there's no custom_css.
+    assert css.count(".event-content {") == 2
+
+
+def test_build_public_theme_css_includes_dark_mode_block() -> None:
+    css = build_public_theme_css(_theme())
+    assert "@media (prefers-color-scheme: dark)" in css
+    dark_block = css.split("@media (prefers-color-scheme: dark)")[1]
+    assert "--beacon-color-primary:" in dark_block
+    assert "--beacon-color-secondary:" in dark_block
+    assert "--beacon-color-accent:" in dark_block
+    # The dark-mode values must differ from the light-mode fixed fields —
+    # this is a computed palette, not a copy of the light one.
+    assert "--beacon-color-primary: #111111;" not in dark_block
+    assert "--beacon-color-secondary: #eeeeee;" not in dark_block
+
+
+def test_build_public_theme_css_dark_mode_block_precedes_custom_css() -> None:
+    # A custom_css author must be able to override the computed dark
+    # palette with a dark-mode rule of their own via normal CSS source
+    # order (last rule wins) — so the dark-mode block has to come first.
+    css = build_public_theme_css(_theme(custom_css=".event-content h1 { color: red; }"))
+    assert css.index("@media (prefers-color-scheme: dark)") < css.index(".event-content h1 { color: red; }")
 
 
 # --- build_event_json_ld -------------------------------------------------

@@ -32,6 +32,7 @@
     {% if event.description %}<p class="pub-hero__description">{{ event.description }}</p>{% endif %}
 
     <div class="pub-share">
+      <span class="pub-share__heading">{{ translate('public.share.heading', locale) }}</span>
       <button type="button" class="pub-button pub-button--ghost" data-copy-url="{{ page_url }}"
         data-copied-label="{{ translate('public.share.copied', locale) }}">
         {{ translate('public.share.copy_link', locale) }}
@@ -77,7 +78,13 @@
           <div class="pub-show-picker__option">
             <input type="radio" name="show_choice" id="show-radio-{{ show.id }}" value="{{ show.id }}"
               class="pub-show-radio" {% if show.id == selected_show_id %}checked{% endif %}>
-            <label for="show-radio-{{ show.id }}">{{ show.date | format_date(locale) }} — {{ show.venue_name }}</label>
+            <label for="show-radio-{{ show.id }}">
+              <span class="pub-show-card__date">{{ show.date | format_date(locale) }}</span>
+              <span class="pub-show-card__venue">{{ show.venue_name }}</span>
+              <span class="pub-show-card__time">
+                {{ translate('public.landing.start_time_label', locale) }} {{ show.start_time | format_time(locale) }}
+              </span>
+            </label>
           </div>
           {% endfor %}
         </fieldset>
