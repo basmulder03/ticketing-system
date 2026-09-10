@@ -53,9 +53,6 @@ def _error_detail(response: Any, fallback: str) -> str:
     return detail if isinstance(detail, str) else fallback
 
 
-@router.get("/")
-async def index() -> RedirectResponse:
-    return RedirectResponse(url="/events", status_code=303)
 
 
 @router.get("/events", response_model=None)
@@ -269,3 +266,45 @@ async def delete_event(
             f"/events/{event_id}/edit", _error_detail(resp, "Could not delete event."), kind="error"
         )
     return redirect_with_flash("/events", "Event deleted.", kind="success")
+
+
+@router.post("/events/{event_id}/set-default")
+async def set_default_event(
+    request: Request,
+    event_id: str,
+    principal: Principal = Depends(require_web_admin),
+    csrf_token: str = Form(...),
+) -> RedirectResponse:
+    """Mark this Event as the default (see ``app.web.routes.homepage`` and
+    ``app.api.routes.events.set_default_event``'s docstring) — proxies to
+    ``POST /api/v1/events/{event_id}/set-default``, which also clears any
+    previously-default Event in the same transaction."""
+    verify_csrf(request, csrf_token)
+    async with internal_api_client(request) as client:
+        resp = await client.post(f"/api/v1/events/{event_id}/set-default")
+
+    if resp.status_code == 404:
+        return redirect_with_flash("/events", "Event not found.", kind="error")
+    if resp.status_code >= 400:
+        return redirect_with_flash("/events", _error_detail(resp, "Could not set default event."), kind="error")
+    return redirect_with_flash("/events", "Default event set.", kind="success")
+
+
+@router.post("/events/{event_id}/unset-default")
+async def unset_default_event(
+    request: Request,
+    event_id: str,
+    principal: Principal = Depends(require_web_admin),
+    csrf_token: str = Form(...),
+) -> RedirectResponse:
+    """Clear this Event's default-Event status. Proxies to ``POST /api/v1/
+    events/{event_id}/unset-default`` — idempotent, same as that route."""
+    verify_csrf(request, csrf_token)
+    async with internal_api_client(request) as client:
+        resp = await client.post(f"/api/v1/events/{event_id}/unset-default")
+
+    if resp.status_code == 404:
+        return redirect_with_flash("/events", "Event not found.", kind="error")
+    if resp.status_code >= 400:
+        return redirect_with_flash("/events", _error_detail(resp, "Could not unset default event."), kind="error")
+    return redirect_with_flash("/events", "Default event unset.", kind="success")

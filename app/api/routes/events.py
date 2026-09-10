@@ -30,6 +30,7 @@ def _to_out(event: Event) -> EventOut:
         status=event.status,
         sales_paused=event.sales_paused,
         preview_token=event.preview_token,
+        is_default_event=event.is_default_event,
         created_at=event.created_at,
         updated_at=event.updated_at,
     )
@@ -119,6 +120,80 @@ async def update_event(
     )
     await session.commit()
     await session.refresh(event)
+    return _to_out(event)
+
+
+@router.post("/{event_id}/set-default")
+async def set_default_event(
+    event_id: str,
+    principal: Principal = Depends(require_admin_or_agent),
+    session: AsyncSession = Depends(get_session),
+) -> EventOut:
+    """Mark this Event as THE default Event — per the user's NOTES: "event
+    can be set to the default event, which causes that event page to
+    automagically open" (see ``app.web.routes.homepage``). At most one
+    Event may hold this at a time: clears any previously-default Event in
+    the same transaction, and the ``is_default_event`` column also carries
+    a partial unique index (migration ``0013``) as defense in depth against
+    a genuine race between two concurrent requests.
+
+    Setting this on a still-``draft`` Event is allowed (an admin may want
+    to line it up before publishing) — it simply has no visible effect
+    until the Event is actually published, since the homepage only
+    auto-redirects to a default Event that's both set AND published.
+    """
+    event = await _get_event_or_404(session, event_id)
+    if not event.is_default_event:
+        # Lock whichever Event currently holds the default (if any) before
+        # clearing it, so two concurrent set-default requests can't both
+        # read "no current default" and both proceed to set themselves —
+        # same row-locking discipline as app.services.stock.reserve_stock/
+        # app.services.order_payment._lock_order. The partial unique index
+        # (migration 0013) is the ultimate backstop either way.
+        previous_default_result = await session.execute(
+            select(Event).where(Event.is_default_event.is_(True)).with_for_update()
+        )
+        previous_default = previous_default_result.scalar_one_or_none()
+        if previous_default is not None:
+            previous_default.is_default_event = False
+
+        event.is_default_event = True
+        await record_audit_entry(
+            session,
+            principal,
+            action="event.set_default",
+            target_type="Event",
+            target_id=str(event.id),
+            detail={"name": event.name, "slug": event.slug},
+        )
+        await session.commit()
+        await session.refresh(event)
+    return _to_out(event)
+
+
+@router.post("/{event_id}/unset-default")
+async def unset_default_event(
+    event_id: str,
+    principal: Principal = Depends(require_admin_or_agent),
+    session: AsyncSession = Depends(get_session),
+) -> EventOut:
+    """Clear this Event's default-Event status, if it currently holds it.
+    Idempotent — calling this on an Event that isn't the default is a
+    safe no-op, same convention as ``app.services.order_payment.
+    mark_order_paid``'s own idempotency."""
+    event = await _get_event_or_404(session, event_id)
+    if event.is_default_event:
+        event.is_default_event = False
+        await record_audit_entry(
+            session,
+            principal,
+            action="event.unset_default",
+            target_type="Event",
+            target_id=str(event.id),
+            detail={"name": event.name, "slug": event.slug},
+        )
+        await session.commit()
+        await session.refresh(event)
     return _to_out(event)
 
 

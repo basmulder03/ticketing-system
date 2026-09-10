@@ -3,7 +3,9 @@
 {% block content %}
 <h1>Events</h1>
 <p class="bo-hint">Select an event to edit its theme (colors, logo, background image, font, and an optional
-  advanced custom CSS override for its public landing page).</p>
+  advanced custom CSS override for its public landing page). At most one event can be the
+  <strong>default event</strong> — while it's published, visitors to the site root are sent
+  straight to its page.</p>
 
 <p><a class="bo-button bo-button--primary" href="/events/new">New event</a></p>
 
@@ -16,6 +18,9 @@
     <header class="bo-event-card__header">
       <h2 class="bo-event-card__name">{{ event.name }}</h2>
       <span class="bo-badge bo-badge--{{ event.status }}">{{ event.status }}</span>
+      {% if event.is_default_event %}
+      <span class="bo-badge bo-badge--default">Default</span>
+      {% endif %}
     </header>
 
     <nav class="bo-event-card__links" aria-label="{{ event.name }} sections">
@@ -38,6 +43,17 @@
               data-copy-value="{{ public_base_url }}/preview/{{ event.preview_token }}">
         Copy preview link
       </button>
+      {% if event.is_default_event %}
+      <form method="post" action="/events/{{ event.id }}/unset-default" class="bo-inline-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" class="bo-button bo-button--small bo-button--ghost">Unset as default</button>
+      </form>
+      {% else %}
+      <form method="post" action="/events/{{ event.id }}/set-default" class="bo-inline-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" class="bo-button bo-button--small bo-button--ghost">Set as default</button>
+      </form>
+      {% endif %}
     </div>
   </article>
   {% endfor %}

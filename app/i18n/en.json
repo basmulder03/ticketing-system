@@ -8,6 +8,12 @@
   "public.not_found.title": "Event not found",
   "public.not_found.body": "We couldn't find the event you were looking for. It may no longer be available.",
 
+  "public.homepage.title": "Beacon",
+  "public.homepage.intro": "Beacon is a self-hosted event ticketing platform. Browse the events currently open below, or sign in to manage one.",
+  "public.homepage.events_heading": "Events",
+  "public.homepage.no_events": "There are no events open right now — check back later.",
+  "public.homepage.admin_sign_in": "Admin sign in",
+
   "public.share.heading": "Share",
   "public.share.copy_link": "Copy link to this show",
   "public.share.copy_ticket_link": "Copy link to this ticket type",

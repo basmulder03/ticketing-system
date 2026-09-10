@@ -720,6 +720,13 @@ textarea:focus-visible {
   color: var(--bo-color-muted);
 }
 
+/* Event.is_default_event (post-launch fix: the public homepage's
+   "automagically open" default event, app.web.routes.homepage) */
+.bo-badge--default {
+  background: var(--bo-color-success-bg);
+  color: var(--bo-color-success-text);
+}
+
 /* Images */
 
 .bo-image-preview {

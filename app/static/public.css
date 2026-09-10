@@ -378,6 +378,37 @@ a.pub-chrome-header__brand:hover {
   margin-top: 1.5rem;
 }
 
+/* ---- Homepage directory ---- */
+
+.pub-homepage-events {
+  list-style: none;
+  margin: 0 0 1.5rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.pub-homepage-events li {
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--pub-chrome-border);
+}
+
+.pub-homepage-events li:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.pub-homepage-events a {
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+
+.pub-homepage-admin-link {
+  margin-top: 2rem;
+  font-size: 0.9rem;
+}
+
 /* ---- Hero / share ---- */
 
 .pub-hero {

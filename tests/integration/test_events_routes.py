@@ -311,3 +311,69 @@ async def test_get_and_list_events_include_preview_token_for_agent(
         list_response = await agent_client.get("/api/v1/events", headers=headers)
         assert list_response.status_code == 200
         assert all(event["preview_token"] for event in list_response.json())
+
+
+# --- Default event ------------------------------------------------------------
+
+
+async def test_set_default_event_marks_it_and_new_events_default_to_false(
+    client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]]
+) -> None:
+    await _login(client, await make_admin_user())
+    created = await client.post("/api/v1/events", json={"name": "Event", "slug": "default-event-basic"})
+    assert created.json()["is_default_event"] is False
+    event_id = created.json()["id"]
+
+    response = await client.post(f"/api/v1/events/{event_id}/set-default")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["is_default_event"] is True
+
+    fetched = await client.get(f"/api/v1/events/{event_id}")
+    assert fetched.json()["is_default_event"] is True
+
+
+async def test_setting_a_new_default_event_clears_the_previous_one(
+    client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]]
+) -> None:
+    await _login(client, await make_admin_user())
+    first = await client.post("/api/v1/events", json={"name": "First", "slug": "default-event-first"})
+    second = await client.post("/api/v1/events", json={"name": "Second", "slug": "default-event-second"})
+    first_id, second_id = first.json()["id"], second.json()["id"]
+
+    await client.post(f"/api/v1/events/{first_id}/set-default")
+    response = await client.post(f"/api/v1/events/{second_id}/set-default")
+
+    assert response.status_code == 200
+    assert response.json()["is_default_event"] is True
+
+    first_after = await client.get(f"/api/v1/events/{first_id}")
+    assert first_after.json()["is_default_event"] is False
+
+
+async def test_unset_default_event_clears_it_and_is_idempotent(
+    client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]]
+) -> None:
+    await _login(client, await make_admin_user())
+    created = await client.post("/api/v1/events", json={"name": "Event", "slug": "default-event-unset"})
+    event_id = created.json()["id"]
+    await client.post(f"/api/v1/events/{event_id}/set-default")
+
+    first = await client.post(f"/api/v1/events/{event_id}/unset-default")
+    assert first.status_code == 200
+    assert first.json()["is_default_event"] is False
+
+    # Calling it again on an Event that isn't the default is a safe no-op.
+    second = await client.post(f"/api/v1/events/{event_id}/unset-default")
+    assert second.status_code == 200
+    assert second.json()["is_default_event"] is False
+
+
+async def test_set_default_event_returns_404_for_unknown_event(
+    client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]]
+) -> None:
+    await _login(client, await make_admin_user())
+
+    response = await client.post("/api/v1/events/00000000-0000-0000-0000-000000000000/set-default")
+
+    assert response.status_code == 404

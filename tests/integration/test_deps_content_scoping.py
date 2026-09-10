@@ -92,6 +92,8 @@ CONTENT_GATED_ROUTES: list[tuple[str, str, str, dict[str, object] | None]] = [
     ("list_events", "GET", "/api/v1/events", None),
     ("get_event", "GET", "/api/v1/events/{event_id}", None),
     ("update_event", "PATCH", "/api/v1/events/{event_id}", {"description": "updated"}),
+    ("set_default_event", "POST", "/api/v1/events/{event_id}/set-default", None),
+    ("unset_default_event", "POST", "/api/v1/events/{event_id}/unset-default", None),
     ("delete_event", "DELETE", "/api/v1/events/{event_id}", None),
     # Show routes
     ("create_show", "POST", "/api/v1/events/{event_id}/shows", _SHOW_CREATE_BODY),

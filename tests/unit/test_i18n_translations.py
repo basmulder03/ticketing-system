@@ -44,6 +44,7 @@ def test_every_dutch_value_is_non_empty_and_not_a_placeholder() -> None:
 _LEGITIMATELY_IDENTICAL_KEYS = frozenset(
     {
         "app.name",  # proper noun, not translated in either locale
+        "public.homepage.title",  # same proper noun ("Beacon"), used as the homepage's own heading
         "public.landing.countdown_unit_days",  # "d" abbreviates "dagen" in nl too
         "public.landing.countdown_unit_minutes",  # "m" abbreviates "minuten" in nl too
         "public.landing.countdown_unit_seconds",  # "s" abbreviates "seconden" in nl too

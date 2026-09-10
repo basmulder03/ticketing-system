@@ -92,3 +92,33 @@ class PublicEventOut(BaseModel):
     theme: PublicThemeOut | None
     shows: list[PublicShowOut]
     is_preview: bool
+
+
+class PublicEventSummaryOut(BaseModel):
+    """One row in the homepage's directory of published Events (see
+    ``app.web.routes.homepage``) — deliberately lightweight compared to
+    :class:`PublicEventOut`: no Theme, no Shows, no TicketTypes. A visitor
+    browsing the homepage's directory just needs enough to decide which
+    event to click into; the full nested payload is fetched once they
+    actually land on that Event's own ``/e/{slug}`` page."""
+
+    name: str
+    slug: str
+    description: str | None
+
+
+class PublicHomepageOut(BaseModel):
+    """Response of ``GET /api/v1/public/homepage`` — per the user's NOTES:
+    "a homepage... event can be set to the default event, which causes
+    that event page to automagically open... or show an overview of the
+    app... which events are currently able to have shows booked on."
+
+    ``default_event_slug`` is only ever populated when an Event both
+    holds ``is_default_event`` AND is actually ``published`` — a draft
+    default Event (set in advance, before publishing — see
+    ``app.api.routes.events.set_default_event``'s docstring) has no
+    visible effect yet, so the homepage falls back to the plain directory
+    below exactly as if no default were set at all."""
+
+    default_event_slug: str | None
+    events: list[PublicEventSummaryOut]

@@ -36,7 +36,14 @@ from app.models.ticket import Ticket
 from app.models.ticket_type import TicketType
 from app.schemas.demo_payment import DemoPaymentItemOut, DemoPaymentOut
 from app.schemas.order import CheckoutRequest, OrderOut, TicketOut
-from app.schemas.public import PublicEventOut, PublicShowOut, PublicThemeOut, PublicTicketTypeOut
+from app.schemas.public import (
+    PublicEventOut,
+    PublicEventSummaryOut,
+    PublicHomepageOut,
+    PublicShowOut,
+    PublicThemeOut,
+    PublicTicketTypeOut,
+)
 from app.services.audit import record_audit_entry
 from app.services.checkout import CheckoutError, CheckoutItemInput, CheckoutResult, perform_checkout
 from app.services.door_reservation_email import send_door_payment_confirmation_email
@@ -146,6 +153,40 @@ async def _build_public_event_out(
         theme=theme_out,
         shows=show_outs,
         is_preview=is_preview,
+    )
+
+
+@router.get("/homepage")
+async def get_public_homepage(session: AsyncSession = Depends(get_session)) -> PublicHomepageOut:
+    """Backs the site root ``/`` (``app.web.routes.homepage``) — per the
+    user's NOTES: "a homepage... event can be set to the default event,
+    which causes that event page to automagically open... or show an
+    overview of the app... which events are currently able to have shows
+    booked on."
+
+    Deliberately lightweight (see :class:`~app.schemas.public.
+    PublicEventSummaryOut`'s docstring) and, like ``/sitemap.xml`` (see
+    ``app.api.routes.seo``), lists every ``published`` Event with no
+    further sales-timing filtering — a draft Event never appears here,
+    same "never expose unpublished content on an unauthenticated,
+    undiscoverable-by-design route" posture as the sitemap.
+
+    ``default_event_slug`` is only populated when the default Event (if
+    any — see ``app.models.event.Event.is_default_event``) is ALSO
+    published; a draft default Event set in advance has no visible effect
+    yet (see that column's docstring).
+    """
+    result = await session.execute(
+        select(Event).where(Event.status == PublishStatus.PUBLISHED).order_by(Event.created_at.desc())
+    )
+    published_events = result.scalars().all()
+    default_slug = next((e.slug for e in published_events if e.is_default_event), None)
+    return PublicHomepageOut(
+        default_event_slug=default_slug,
+        events=[
+            PublicEventSummaryOut(name=e.name, slug=e.slug, description=e.description)
+            for e in published_events
+        ],
     )
 
 

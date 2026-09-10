@@ -47,6 +47,7 @@ from app.web.routes import demo_payment as web_demo_payment
 from app.web.routes import email_templates as web_email_templates
 from app.web.routes import event_config as web_event_config
 from app.web.routes import events as web_events
+from app.web.routes import homepage as web_homepage
 from app.web.routes import orders as web_orders
 from app.web.routes import public_site as web_public_site
 from app.web.routes import scan as web_scan
@@ -143,6 +144,12 @@ def create_app() -> FastAPI:
     # unauthenticated public-site path space; there is no path clash
     # today (/demo-payment/... is a namespace of its own).
     app.include_router(web_demo_payment.router)
+
+    # The public site root (`/`) — post-launch fix (see app/web/routes/
+    # homepage.py's module docstring). `/` used to belong to
+    # app.web.routes.events (an unconditional redirect into the
+    # backoffice, now removed) — this is its real replacement.
+    app.include_router(web_homepage.router)
 
     @app.exception_handler(WebAuthRequired)
     async def _redirect_to_login(request: Request, exc: WebAuthRequired) -> RedirectResponse:
