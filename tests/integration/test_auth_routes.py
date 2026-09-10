@@ -4,11 +4,15 @@ See ``tests/integration/conftest.py`` for the ``client``/``make_admin_user``
 fixtures.
 """
 
+import uuid
 from collections.abc import Awaitable, Callable
 
 from httpx import AsyncClient
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import ADMIN_SESSION_COOKIE_NAME
+from app.models.audit_log import AuditLogEntry
 from app.models.enums import AdminRole
 from tests.integration.conftest import SeededAdmin
 
@@ -114,3 +118,110 @@ async def test_logout_is_idempotent_when_not_logged_in(client: AsyncClient) -> N
     second = await client.post("/api/v1/auth/logout")
     assert first.status_code == 200
     assert second.status_code == 200
+
+
+# --- Initial admin setup -----------------------------------------------------
+
+
+async def test_setup_required_is_true_with_no_admins(client: AsyncClient) -> None:
+    response = await client.get("/api/v1/auth/setup-required")
+    assert response.status_code == 200
+    assert response.json() == {"setup_required": True}
+
+
+async def test_setup_required_is_false_once_an_admin_exists(
+    client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]]
+) -> None:
+    await make_admin_user()
+
+    response = await client.get("/api/v1/auth/setup-required")
+
+    assert response.status_code == 200
+    assert response.json() == {"setup_required": False}
+
+
+async def test_setup_creates_the_first_admin_and_logs_them_in(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    # db_session isn't otherwise used, but its cleanup fixture deletes every
+    # AdminUser row after this test — without it, the admin this test
+    # creates via the bare JSON route (not `make_admin_user`, which already
+    # depends on `db_session` itself) would leak into later tests and make
+    # `setup_required` wrongly return False for them.
+    response = await client.post(
+        "/api/v1/auth/setup", json={"email": "First.Admin@Example.Test", "password": "s3cret-pass"}
+    )
+
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["actor_type"] == "human"
+    assert body["role"] == "admin"
+
+    set_cookie = response.headers.get("set-cookie", "")
+    assert ADMIN_SESSION_COOKIE_NAME in set_cookie
+    assert "HttpOnly" in set_cookie
+
+    me_response = await client.get("/api/v1/auth/me")
+    assert me_response.status_code == 200
+    assert me_response.json()["role"] == "admin"
+
+    setup_required_response = await client.get("/api/v1/auth/setup-required")
+    assert setup_required_response.json() == {"setup_required": False}
+
+
+async def test_setup_lowercases_the_email_matching_login(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    # db_session: see the identical comment on
+    # test_setup_creates_the_first_admin_and_logs_them_in above.
+    await client.post("/api/v1/auth/setup", json={"email": "Mixed.Case@Example.Test", "password": "s3cret-pass"})
+
+    login_response = await client.post(
+        "/api/v1/auth/login", json={"email": "mixed.case@example.test", "password": "s3cret-pass"}
+    )
+
+    assert login_response.status_code == 200
+
+
+async def test_setup_returns_409_once_an_admin_already_exists(
+    client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]]
+) -> None:
+    await make_admin_user()
+
+    response = await client.post(
+        "/api/v1/auth/setup", json={"email": "second-admin@example.test", "password": "s3cret-pass"}
+    )
+
+    assert response.status_code == 409
+    assert ADMIN_SESSION_COOKIE_NAME not in response.headers.get("set-cookie", "")
+
+
+async def test_setup_rejects_a_too_short_password(client: AsyncClient) -> None:
+    response = await client.post(
+        "/api/v1/auth/setup", json={"email": "short-pw@example.test", "password": "short"}
+    )
+
+    assert response.status_code == 422
+
+    setup_required_response = await client.get("/api/v1/auth/setup-required")
+    assert setup_required_response.json() == {"setup_required": True}
+
+
+async def test_setup_writes_an_initial_setup_audit_entry(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    response = await client.post(
+        "/api/v1/auth/setup", json={"email": "audited-admin@example.test", "password": "s3cret-pass"}
+    )
+    admin_id = response.json()["id"]
+
+    result = await db_session.execute(
+        select(AuditLogEntry)
+        .where(AuditLogEntry.action == "admin_user.initial_setup")
+        .where(AuditLogEntry.target_id == admin_id)
+    )
+    entries = result.scalars().all()
+    assert len(entries) == 1
+    assert entries[0].actor_id == uuid.UUID(admin_id)
+    assert entries[0].detail is not None
+    assert entries[0].detail["email"] == "audited-admin@example.test"

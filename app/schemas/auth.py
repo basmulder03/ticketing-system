@@ -28,3 +28,22 @@ class PrincipalOut(BaseModel):
     id: str
     name: str
     role: str | None = None
+
+
+class SetupRequiredOut(BaseModel):
+    """Response of ``GET /api/v1/auth/setup-required``."""
+
+    setup_required: bool
+
+
+class InitialAdminSetupRequest(BaseModel):
+    """Body of ``POST /api/v1/auth/setup`` — post-launch fix, per the
+    user's NOTES: "The initial admin account is currently being created by
+    setting the environment variables. I don't really like that flow."
+
+    Same field constraints as ``app.schemas.admin_user.
+    AdminUserCreateRequest`` (no ``role`` field here — the very first
+    account is always ``AdminRole.ADMIN``, never ``scanner``)."""
+
+    email: str = Field(min_length=1, max_length=255)
+    password: str = Field(min_length=8)

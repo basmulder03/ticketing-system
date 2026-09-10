@@ -235,7 +235,14 @@ async def _login_and_apply_session_cookie(
     await apply_set_cookie_headers(axe_page.context, session_cookies)
 
 
-async def test_login_page_has_no_horizontal_scroll_at_any_breakpoint(axe_page: Page) -> None:
+async def test_login_page_has_no_horizontal_scroll_at_any_breakpoint(
+    axe_page: Page, make_admin_user: Callable[..., Awaitable[SeededAdmin]]
+) -> None:
+    # Post-launch fix: GET /login redirects to /setup while zero AdminUser
+    # rows exist at all (see app.web.routes.auth module docstring) — seed
+    # one first (without logging in as them) so this test actually reaches
+    # the login page it's named for, not /setup.
+    await make_admin_user()
     await _assert_no_horizontal_scroll_across_breakpoints(axe_page, "/login")
 
 

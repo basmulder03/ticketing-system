@@ -389,21 +389,37 @@ async def test_stats_page_with_no_shows_has_no_axe_violations(
 # conventions throughout.
 
 
-async def test_login_page_has_no_axe_violations(axe_page: Page) -> None:
-    """Unauthenticated GET /login — the default, no-error render path."""
+async def test_login_page_has_no_axe_violations(
+    axe_page: Page, make_admin_user: Callable[..., Awaitable[SeededAdmin]]
+) -> None:
+    """Unauthenticated GET /login — the default, no-error render path.
+
+    Seeds an AdminUser first (without logging in as them — ``axe_page``'s
+    browser stays unauthenticated throughout) purely so ``/login`` itself
+    renders normally: post-launch fix, ``GET /login`` now redirects to
+    ``/setup`` while zero AdminUser rows exist at all (see
+    ``app.web.routes.auth`` module docstring) — without a seeded admin,
+    this test would silently audit ``/setup`` instead of ``/login``."""
+    await make_admin_user()
+
     violations = await run_axe(axe_page, "/login")
 
     assert violations == [], format_axe_violations(violations)
 
 
-async def test_login_page_error_state_has_no_axe_violations(axe_page: Page) -> None:
+async def test_login_page_error_state_has_no_axe_violations(
+    axe_page: Page, make_admin_user: Callable[..., Awaitable[SeededAdmin]]
+) -> None:
     """The ``role="alert"`` invalid-credentials banner
     (``app/templates/backoffice/login.html``), reached by really submitting
     the form with wrong credentials through Playwright (this page has no
-    prerequisite seeded state, so a real form click — rather than
-    ``httpx`` + cookie handoff, as the orders/stats tests above use for
-    pages that DO need seeded data — is the simplest way to reach this
+    OTHER prerequisite seeded state — see :func:`test_login_page_has_no_axe_violations`
+    just above for why an AdminUser must still exist at all, purely so
+    ``/login`` doesn't redirect to ``/setup`` — so a real form click, rather
+    than ``httpx`` + cookie handoff, as the orders/stats tests above use for
+    pages that DO need seeded data, is the simplest way to reach this
     branch)."""
+    await make_admin_user()
     await axe_page.goto("/login")
     await axe_page.fill("#email", "nobody@example.test")
     await axe_page.fill("#password", "wrong-password")
@@ -424,6 +440,16 @@ async def test_login_page_error_state_has_no_axe_violations(axe_page: Page) -> N
         """
     )
     assert result["violations"] == [], format_axe_violations(result["violations"])
+
+
+async def test_setup_page_has_no_axe_violations(axe_page: Page) -> None:
+    """The initial-admin-account setup page (post-launch fix, ``app.web.
+    routes.auth.setup_page``) — deliberately does NOT seed an admin first
+    (the opposite of the ``/login`` tests just above): this page only
+    renders while zero AdminUser rows exist at all."""
+    violations = await run_axe(axe_page, "/setup")
+
+    assert violations == [], format_axe_violations(violations)
 
 
 async def test_theme_editor_page_has_no_axe_violations(
