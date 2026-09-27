@@ -21,8 +21,8 @@ if TYPE_CHECKING:
 
 
 class Order(UUIDPrimaryKeyMixin, TimestampMixin, Base):
-    """A buyer's purchase. Created ``pending``/``pending_door`` at checkout (or
-    ``paid`` for admin-issued manual orders) and settled or released later.
+    """A buyer's purchase. Created ``pending``/``pending_door`` at checkout and
+    settled or released later (admin-issued manual orders settle immediately).
 
     Belongs to an Event, not a Show: all its Tickets must be for one Show, but
     that's enforced at checkout, not in the schema. ``language`` is the buyer's
