@@ -1,20 +1,25 @@
 """Integration tests for the backoffice audit-log viewer web surface
-(``app/web/routes/audit_log.py``, this branch's audit-log section):
-``GET /audit-log``.
+(``app/web/routes/audit_log.py``): ``GET /audit-log``.
 
 Per this task's discipline note, does NOT re-test the underlying JSON API's
-own business logic (what gets recorded and when) — that lives in ``tests/
-integration/test_audit_log.py``. Focuses on what the WEB layer adds:
-rendering real entries with correct actor/action/target attribution, the
-``limit`` snapping behavior, and ``require_web_admin`` scoping (this page
-has no mutating routes, so no CSRF surface at all).
+own business logic (what gets recorded and when, or the filter/cursor
+mechanics themselves) — that lives in ``tests/integration/test_audit_log.py``.
+Focuses on what the WEB layer adds: rendering real entries with correct
+actor/action/target attribution, the ``limit`` snapping behavior, translating
+query params into the API's filter/cursor params (and building the "load
+older" link from a real page's last row), and ``require_web_admin`` scoping
+(this page has no mutating routes, so no CSRF surface at all).
 """
 
+import html
+import re
 from collections.abc import Awaitable, Callable
 
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.enums import AdminRole
+from app.models.audit_log import AuditLogEntry
+from app.models.enums import ActorType, AdminRole
 from tests.integration.conftest import SeededAdmin
 
 
@@ -99,6 +104,109 @@ async def test_audit_log_valid_limit_is_honored(
 
     assert response.status_code == 200
     assert 'value="50" selected' in response.text
+
+
+# --- Filtering -------------------------------------------------------------
+
+
+async def test_audit_log_action_filter_excludes_non_matching_entries(
+    client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]]
+) -> None:
+    await _api_login(client, await make_admin_user())
+    await client.post("/api/v1/admin/agent-accounts", json={"name": "content-bot"})
+
+    response = await client.get("/audit-log?action=agent_account")
+
+    assert response.status_code == 200
+    assert "agent_account.create" in response.text
+    assert "admin_user.login" not in response.text
+    assert "No entries match these filters." not in response.text
+
+
+async def test_audit_log_actor_type_filter_with_no_matches_shows_the_empty_state(
+    client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]]
+) -> None:
+    await _api_login(client, await make_admin_user())
+
+    response = await client.get("/audit-log?actor_type=ai_agent")
+
+    assert response.status_code == 200
+    assert "No entries match these filters." in response.text
+
+
+async def test_audit_log_unknown_actor_type_is_ignored_rather_than_erroring(
+    client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]]
+) -> None:
+    await _api_login(client, await make_admin_user())
+
+    response = await client.get("/audit-log?actor_type=not-a-real-type")
+
+    assert response.status_code == 200
+    assert "No entries match these filters." not in response.text
+
+
+# --- Keyset pagination ("load older") ---------------------------------------
+
+
+async def _insert_dummy_entries(db_session: AsyncSession, *, count: int, action_prefix: str) -> None:
+    """Bulk-insert plain audit rows directly, bypassing ``record_audit_entry``
+    — this file tests the WEB layer's pagination/link-building, not what
+    gets written or when (see the module docstring), so real HTTP round
+    trips through every write path would only make this slower.
+    """
+    for i in range(count):
+        db_session.add(
+            AuditLogEntry(
+                actor_type=ActorType.SYSTEM,
+                actor_name="test-fixture",
+                action=f"{action_prefix}.{i}",
+            )
+        )
+    await db_session.commit()
+
+
+_SMALLEST_ALLOWED_LIMIT = 50
+"""Matches app.web.routes.audit_log._ALLOWED_LIMITS[0] -- any other value
+snaps to the default (100), so these pagination tests need at least this
+many entries on top of the login to force a real "load older" page."""
+
+
+async def test_audit_log_shows_a_load_older_link_when_more_entries_exist(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    make_admin_user: Callable[..., Awaitable[SeededAdmin]],
+) -> None:
+    await _api_login(client, await make_admin_user())
+    await _insert_dummy_entries(db_session, count=_SMALLEST_ALLOWED_LIMIT, action_prefix="dummy.load_more")
+
+    response = await client.get(f"/audit-log?limit={_SMALLEST_ALLOWED_LIMIT}")
+
+    assert response.status_code == 200
+    assert "Load older entries" in response.text
+    assert "before=" in response.text
+
+
+async def test_audit_log_following_the_load_older_link_shows_different_entries(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    make_admin_user: Callable[..., Awaitable[SeededAdmin]],
+) -> None:
+    await _api_login(client, await make_admin_user())
+    await _insert_dummy_entries(db_session, count=_SMALLEST_ALLOWED_LIMIT, action_prefix="dummy.page")
+    newest_action = f"dummy.page.{_SMALLEST_ALLOWED_LIMIT - 1}"
+
+    first_page = await client.get(f"/audit-log?limit={_SMALLEST_ALLOWED_LIMIT}")
+    assert newest_action in first_page.text
+    assert "admin_user.login" not in first_page.text  # the oldest entry, pushed off page 1
+
+    older_link_match = re.search(r'href="(/audit-log\?[^"]+)"[^>]*>Load older entries', first_page.text)
+    assert older_link_match, "expected a 'Load older entries' link on the page"
+    older_href = html.unescape(older_link_match.group(1))  # the template renders "&" as "&amp;"
+    second_page = await client.get(older_href)
+
+    assert second_page.status_code == 200
+    assert "admin_user.login" in second_page.text
+    assert newest_action not in second_page.text  # only shown on the first (newer) page
 
 
 # --- require_web_admin scoping --------------------------------------------------

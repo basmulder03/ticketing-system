@@ -393,7 +393,7 @@ async def test_reset_password_audit_detail_never_contains_the_plaintext_password
 
     audit = await client.get("/api/v1/admin/audit-log", params={"limit": 20})
     assert audit.status_code == 200
-    entries = audit.json()
+    entries = audit.json()["entries"]
     password_reset_entries = [e for e in entries if e["action"] == "admin_user.password_reset"]
     assert password_reset_entries
     for entry in password_reset_entries:

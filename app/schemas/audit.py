@@ -1,4 +1,4 @@
-"""Pydantic response model for the audit-log viewer route."""
+"""Pydantic response models for the audit-log viewer route."""
 
 from datetime import datetime
 
@@ -17,3 +17,15 @@ class AuditLogEntryOut(BaseModel):
     target_id: str | None
     detail: dict[str, object] | None
     created_at: datetime
+
+
+class AuditLogPageOut(BaseModel):
+    """One page of entries, newest first, plus whether an older page exists.
+
+    ``has_more`` lets the viewer show/hide a "load older" control without a
+    separate count query — the route fetches one extra row internally and
+    never returns it.
+    """
+
+    entries: list[AuditLogEntryOut]
+    has_more: bool
