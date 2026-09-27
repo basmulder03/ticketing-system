@@ -48,6 +48,19 @@ from app.services.ticket_delivery import send_order_confirmation_email, sign_ord
 
 router = APIRouter(prefix="/api/v1/public", tags=["public"])
 
+
+class CheckoutHTTPException(HTTPException):
+    """An :class:`~app.services.checkout.CheckoutError` translated to HTTP.
+    Carries ``error_code`` alongside the usual string ``detail``, so a client
+    can branch on the stable code instead of matching English text (see
+    ``app/main.py``'s handler for the response shape).
+    """
+
+    def __init__(self, *, status_code: int, detail: str, error_code: str) -> None:
+        super().__init__(status_code=status_code, detail=detail)
+        self.error_code = error_code
+
+
 # One round trip: theme, config (non-secret fields only), shows and ticket types.
 _EVENT_LOAD_OPTIONS = (
     selectinload(Event.theme),
@@ -244,7 +257,9 @@ async def checkout(
         )
     except CheckoutError as exc:
         await session.rollback()
-        raise HTTPException(status_code=exc.http_status, detail=exc.detail) from exc
+        raise CheckoutHTTPException(
+            status_code=exc.http_status, detail=exc.detail, error_code=exc.error_code
+        ) from exc
 
     await session.commit()
     if result.simulated_payment:

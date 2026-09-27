@@ -12,7 +12,7 @@ from fastapi import Request
 from fastapi.templating import Jinja2Templates
 
 from app.i18n import translate
-from app.i18n.formatting import format_currency, format_date, format_datetime, format_time
+from app.i18n.formatting import format_currency, format_date, format_time
 
 PUBLIC_TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "templates"
 """Shared with the backoffice environment; public templates live in ``public/``."""
@@ -23,7 +23,6 @@ public_templates.env.globals["translate"] = translate
 # e.g. {{ show.date | format_date(locale) }}, {{ tt.price | format_currency(locale) }}
 public_templates.env.filters["format_date"] = format_date
 public_templates.env.filters["format_time"] = format_time
-public_templates.env.filters["format_datetime"] = format_datetime
 public_templates.env.filters["format_currency"] = format_currency
 
 

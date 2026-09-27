@@ -115,54 +115,54 @@ def test_parse_checkout_items_all_zero_quantities_yields_empty_list() -> None:
 # --- _translate_checkout_error ------------------------------------------
 
 
-def test_translate_checkout_error_404_maps_to_unavailable() -> None:
-    assert _translate_checkout_error(404, "This event is not currently available.", "en") == (
-        "This event is not currently available."
-    )
+def test_translate_checkout_error_event_not_available_maps_to_unavailable() -> None:
+    assert _translate_checkout_error("event_not_available", "en") == "This event is not currently available."
 
 
-def test_translate_checkout_error_403_paused_maps_to_sales_paused_message() -> None:
-    message = _translate_checkout_error(403, "Sales are currently paused for this event.", "en")
+def test_translate_checkout_error_sales_paused_maps_to_sales_paused_message() -> None:
+    message = _translate_checkout_error("sales_paused", "en")
     assert message == "Sales are currently paused for this event. Please check back later."
 
 
-def test_translate_checkout_error_403_not_live_maps_to_sales_not_live_message() -> None:
-    message = _translate_checkout_error(403, "Sales are not live yet for this event.", "en")
+def test_translate_checkout_error_sales_not_live_maps_to_sales_not_live_message() -> None:
+    message = _translate_checkout_error("sales_not_live", "en")
     assert message == "Tickets are not on sale yet for this event."
 
 
-def test_translate_checkout_error_409_maps_to_sold_out_message() -> None:
-    message = _translate_checkout_error(409, "Only 1 ticket(s) remain for one of the requested ticket types.", "en")
+def test_translate_checkout_error_insufficient_stock_maps_to_sold_out_message() -> None:
+    message = _translate_checkout_error("insufficient_stock", "en")
     assert message == "Sorry, not enough tickets remain for one of the ticket types you selected."
 
 
 def test_translate_checkout_error_distinct_messages_for_each_mapped_reason() -> None:
-    """The four explicitly-mapped rejection reasons must never collapse to
-    the same string as each other (the whole point of this mapper, per
+    """The explicitly-mapped rejection codes must never collapse to the same
+    string as each other (the whole point of this mapper, per
     PROJECT_BRIEF.md/this milestone's commit message)."""
     messages = {
-        _translate_checkout_error(404, "This event is not currently available.", "en"),
-        _translate_checkout_error(403, "Sales are currently paused for this event.", "en"),
-        _translate_checkout_error(403, "Sales are not live yet for this event.", "en"),
-        _translate_checkout_error(409, "Only 1 ticket(s) remain...", "en"),
+        _translate_checkout_error("event_not_available", "en"),
+        _translate_checkout_error("sales_paused", "en"),
+        _translate_checkout_error("sales_not_live", "en"),
+        _translate_checkout_error("insufficient_stock", "en"),
+        _translate_checkout_error("payment_method_not_enabled", "en"),
     }
-    assert len(messages) == 4
+    assert len(messages) == 5
 
 
 def test_translate_checkout_error_payment_method_not_enabled_gets_its_own_message() -> None:
-    """``PaymentMethodNotEnabledCheckoutError`` (HTTP 422) previously fell
-    through to the generic message since its detail text didn't contain
-    "paused"/"not live" — fixed by matching on "payment method" in the
-    (lowercased) detail text, same brittleness-acknowledged approach as the
-    other status/text-matched branches (see this function's docstring for
-    why a proper error_code would be better)."""
-    detail = "Payment method 'mollie' is not enabled for this event."
-    message = _translate_checkout_error(422, detail, "en")
+    message = _translate_checkout_error("payment_method_not_enabled", "en")
     assert message == "That payment method isn't available for this event. Please choose another."
     assert message != "We couldn't process your order. Please check your details and try again."
 
 
-def test_translate_checkout_error_unmapped_status_falls_back_to_generic() -> None:
-    assert _translate_checkout_error(500, "boom", "en") == (
+def test_translate_checkout_error_unmapped_code_falls_back_to_generic() -> None:
+    assert _translate_checkout_error("mixed_show", "en") == (
+        "We couldn't process your order. Please check your details and try again."
+    )
+
+
+def test_translate_checkout_error_missing_code_falls_back_to_generic() -> None:
+    """A plain Pydantic 422 (bad request shape) has no ``error_code`` at all —
+    the caller passes ``""`` rather than crash on a missing key."""
+    assert _translate_checkout_error("", "en") == (
         "We couldn't process your order. Please check your details and try again."
     )

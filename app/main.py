@@ -7,7 +7,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from fastapi import FastAPI, Request
-from starlette.responses import RedirectResponse
+from starlette.responses import JSONResponse, RedirectResponse
 from starlette.staticfiles import StaticFiles
 
 from app.api.routes import (
@@ -121,6 +121,13 @@ def create_app() -> FastAPI:
     async def _redirect_to_login(request: Request, exc: WebAuthRequired) -> RedirectResponse:
         """Unauthenticated backoffice pages redirect to login instead of a JSON 401."""
         return RedirectResponse(url=f"/login?next={quote(exc.next_path)}", status_code=303)
+
+    @app.exception_handler(public.CheckoutHTTPException)
+    async def _checkout_error_response(request: Request, exc: public.CheckoutHTTPException) -> JSONResponse:
+        """Add ``error_code`` alongside the usual string ``detail``, so callers can
+        branch on a stable code instead of matching English error text.
+        """
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail, "error_code": exc.error_code})
 
     # Uploaded theme images (a docker volume). Created eagerly: StaticFiles
     # requires the directory to exist at mount time.

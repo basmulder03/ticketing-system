@@ -273,22 +273,26 @@ async def preview_beamer_page(request: Request, token: str) -> Response:
     return await _handle_beamer_page(request, slug=None, token=token)
 
 
-def _translate_checkout_error(status_code: int, detail: str, locale: str) -> str:
-    """Turn a checkout error into a specific translated message (sold out, paused
-    and not-yet-live must stay distinct). Matches on status and English
-    ``detail`` text because the API has no error codes — brittle; an
-    ``error_code`` field would be better.
+_CHECKOUT_ERROR_TRANSLATION_KEYS = {
+    "event_not_available": "public.checkout.error_unavailable",
+    "sales_paused": "public.checkout.error_sales_paused",
+    "sales_not_live": "public.checkout.error_sales_not_live",
+    "insufficient_stock": "public.checkout.error_sold_out",
+    "payment_method_not_enabled": "public.checkout.error_payment_method_not_enabled",
+}
+"""Maps ``CheckoutHTTPException.error_code`` (see ``app/api/routes/public.py``)
+to a translated message. Codes with no specific message here (e.g.
+``mixed_show``, ``ticket_types_not_found``) fall back to the generic one.
+"""
+
+
+def _translate_checkout_error(error_code: str, locale: str) -> str:
+    """Turn a checkout error's ``error_code`` into a specific translated message
+    (sold out, paused and not-yet-live must stay distinct).
     """
-    if status_code == 404:
-        return translate("public.checkout.error_unavailable", locale)
-    if status_code == 403 and "paused" in detail:
-        return translate("public.checkout.error_sales_paused", locale)
-    if status_code == 403 and "not live" in detail:
-        return translate("public.checkout.error_sales_not_live", locale)
-    if status_code == 409:
-        return translate("public.checkout.error_sold_out", locale)
-    if status_code == 422 and "payment method" in detail.lower():
-        return translate("public.checkout.error_payment_method_not_enabled", locale)
+    key = _CHECKOUT_ERROR_TRANSLATION_KEYS.get(error_code)
+    if key is not None:
+        return translate(key, locale)
     return translate("public.checkout.error_generic", locale)
 
 
@@ -355,12 +359,13 @@ async def _handle_checkout_submission(
 
     if checkout_response.status_code >= 400:
         try:
-            raw_detail = checkout_response.json().get("detail", "")
+            payload = checkout_response.json()
         except ValueError:
-            raw_detail = ""
-        # A Pydantic 422 has a list ``detail``, not a string; normalize it so
-        # _translate_checkout_error doesn't crash.
-        detail = raw_detail if isinstance(raw_detail, str) else ""
+            payload = {}
+        # A body-shape rejection (e.g. an invalid payment_method enum value) is a
+        # plain Pydantic 422 with no error_code, not a CheckoutHTTPException;
+        # that falls back to the generic message.
+        error_code = payload.get("error_code") if isinstance(payload, dict) else None
         return _render_landing(
             request,
             event,
@@ -368,7 +373,7 @@ async def _handle_checkout_submission(
             preview_token=token,
             locale=locale,
             sticky=sticky,
-            checkout_error=_translate_checkout_error(checkout_response.status_code, detail, locale),
+            checkout_error=_translate_checkout_error(error_code or "", locale),
             status_code=checkout_response.status_code,
         )
 

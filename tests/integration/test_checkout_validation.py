@@ -2,8 +2,8 @@
 ``app.services.checkout.perform_checkout`` (Milestone 2), exercised both
 directly against the service (for exact error-type/attribute assertions)
 and through the real ``POST /api/v1/public/checkout`` route (for the HTTP
-status/detail every ``CheckoutError`` subclass actually translates to —
-see ``app.services.checkout.CheckoutError`` and
+status/``error_code`` every ``CheckoutError`` subclass actually translates
+to — see ``app.services.checkout.CheckoutError`` and
 ``app.api.routes.public.checkout``).
 """
 
@@ -489,6 +489,7 @@ async def test_insufficient_stock_reports_non_negative_remaining(
 async def test_checkout_route_404s_for_unknown_ticket_type(client: AsyncClient) -> None:
     response = await client.post("/api/v1/public/checkout", json=_payload([uuid.uuid4()]))
     assert response.status_code == 404
+    assert response.json()["error_code"] == "ticket_types_not_found"
 
 
 async def test_checkout_route_404s_for_draft_event_without_token(
@@ -507,6 +508,7 @@ async def test_checkout_route_404s_for_draft_event_without_token(
 
     response = await client.post("/api/v1/public/checkout", json=_payload([ticket_type.id]))
     assert response.status_code == 404
+    assert response.json()["error_code"] == "event_not_available"
 
 
 async def test_checkout_route_201s_for_draft_event_with_valid_preview_token(
@@ -546,6 +548,7 @@ async def test_checkout_route_403s_when_sales_not_live(
 
     response = await client.post("/api/v1/public/checkout", json=_payload([ticket_type.id]))
     assert response.status_code == 403
+    assert response.json()["error_code"] == "sales_not_live"
 
 
 async def test_checkout_route_403s_when_sales_paused(
@@ -564,6 +567,7 @@ async def test_checkout_route_403s_when_sales_paused(
 
     response = await client.post("/api/v1/public/checkout", json=_payload([ticket_type.id]))
     assert response.status_code == 403
+    assert response.json()["error_code"] == "sales_paused"
 
 
 async def test_checkout_route_422s_when_payment_method_not_enabled(
@@ -585,6 +589,7 @@ async def test_checkout_route_422s_when_payment_method_not_enabled(
         json=_payload([ticket_type.id], payment_method=PaymentMethod.MOLLIE),
     )
     assert response.status_code == 422
+    assert response.json()["error_code"] == "payment_method_not_enabled"
 
 
 async def test_checkout_route_409s_on_insufficient_stock(
@@ -606,6 +611,7 @@ async def test_checkout_route_409s_on_insufficient_stock(
     )
     assert response.status_code == 409
     assert "1" in response.json()["detail"]
+    assert response.json()["error_code"] == "insufficient_stock"
 
 
 async def test_checkout_route_422s_when_total_quantity_across_items_exceeds_cap(

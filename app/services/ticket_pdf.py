@@ -17,7 +17,7 @@ from weasyprint import HTML
 
 from app.core.config import get_settings
 from app.i18n import translate
-from app.i18n.formatting import format_date, format_time
+from app.i18n.formatting import format_datetime, format_time
 from app.models.event import Event
 from app.models.order import Order
 from app.models.show import Show
@@ -97,7 +97,7 @@ def _ticket_page_html(
   <h2 style="font-size:14pt;margin:0 0 4mm;color:{primary};">{_esc(event.name)}</h2>
   <dl style="margin:0 0 6mm;font-size:11pt;color:{primary};">
     <dt style="font-weight:bold;">{_esc(translate("pdf.ticket.show_label", locale))}</dt>
-    <dd style="margin:0 0 3mm;">{_esc(format_date(show.date, locale))}, {_esc(format_time(show.start_time, locale))}
+    <dd style="margin:0 0 3mm;">{_esc(format_datetime(show.date, show.start_time, locale))}
       (doors {_esc(format_time(show.doors_time, locale))})</dd>
     <dt style="font-weight:bold;">{_esc(translate("pdf.ticket.venue_label", locale))}</dt>
     <dd style="margin:0 0 3mm;">{_esc(show.venue_name)} — {_esc(show.venue_address)}</dd>

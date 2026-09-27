@@ -30,9 +30,12 @@ from app.services.ticket_delivery import sign_order_tickets
 
 
 class CheckoutError(Exception):
-    """Base rejection; carries the HTTP status. The route catches only this base class."""
+    """Base rejection; carries the HTTP status and a stable machine-readable
+    ``error_code`` (the route catches only this base class and exposes both).
+    """
 
     http_status: int = 422
+    error_code: str = "checkout_failed"
 
     def __init__(self, detail: str) -> None:
         self.detail = detail
@@ -43,6 +46,7 @@ class TicketTypesNotFoundCheckoutError(CheckoutError):
     """One or more requested ``ticket_type_id`` values don't exist."""
 
     http_status = 404
+    error_code = "ticket_types_not_found"
 
     def __init__(self) -> None:
         super().__init__("One or more ticket types were not found.")
@@ -50,6 +54,8 @@ class TicketTypesNotFoundCheckoutError(CheckoutError):
 
 class MixedShowCheckoutError(CheckoutError):
     """Items span more than one show (an order is for a single show)."""
+
+    error_code = "mixed_show"
 
     def __init__(self) -> None:
         super().__init__("All items in one order must belong to the same show.")
@@ -61,6 +67,7 @@ class EventNotAvailableCheckoutError(CheckoutError):
     """
 
     http_status = 404
+    error_code = "event_not_available"
 
     def __init__(self) -> None:
         super().__init__("This event is not currently available.")
@@ -70,6 +77,7 @@ class SalesNotLiveCheckoutError(CheckoutError):
     """The Event's ``EventConfig.sales_live_at`` is in the future."""
 
     http_status = 403
+    error_code = "sales_not_live"
 
     def __init__(self) -> None:
         super().__init__("Sales are not live yet for this event.")
@@ -79,6 +87,7 @@ class SalesPausedCheckoutError(CheckoutError):
     """``Event.sales_paused`` is set."""
 
     http_status = 403
+    error_code = "sales_paused"
 
     def __init__(self) -> None:
         super().__init__("Sales are currently paused for this event.")
@@ -86,6 +95,8 @@ class SalesPausedCheckoutError(CheckoutError):
 
 class PaymentMethodNotEnabledCheckoutError(CheckoutError):
     """The method isn't enabled for this event."""
+
+    error_code = "payment_method_not_enabled"
 
     def __init__(self, method: PaymentMethod) -> None:
         super().__init__(f"Payment method '{method.value}' is not enabled for this event.")
@@ -95,6 +106,7 @@ class InsufficientStockCheckoutError(CheckoutError):
     """Not enough stock, determined under the row lock."""
 
     http_status = 409
+    error_code = "insufficient_stock"
 
     def __init__(self, ticket_type_id: uuid.UUID, remaining: int) -> None:
         self.ticket_type_id = ticket_type_id
@@ -109,6 +121,7 @@ class PaymentInitiationCheckoutError(CheckoutError):
     """
 
     http_status = 502
+    error_code = "payment_initiation_failed"
 
     def __init__(self) -> None:
         super().__init__("Could not initiate payment with Mollie. Please try again shortly.")
