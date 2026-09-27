@@ -32,7 +32,8 @@ class EmailTemplateOut(BaseModel):
 
 class EmailTemplatePreviewRequest(BaseModel):
     """Render unsaved values against sample data (nothing is persisted).
-    ``template_type`` is accepted but not yet used by the renderer.
+    ``template_type`` picks which of the two render paths (and sample shell
+    text) is used — see ``app.services.email_render.render_email_template_preview``.
     """
 
     template_type: str = Field(default=EmailTemplateType.ORDER_CONFIRMATION_TICKET.value)

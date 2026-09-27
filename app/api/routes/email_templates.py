@@ -207,6 +207,7 @@ async def preview_email_template(
         language=body.language,
         subject=body.subject,
         body=body.body,
+        template_type=body.template_type,
     )
     return EmailTemplatePreviewResponse(
         subject=rendered.subject, html_body=rendered.html_body, text_body=rendered.text_body
