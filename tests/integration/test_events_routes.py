@@ -351,6 +351,26 @@ async def test_setting_a_new_default_event_clears_the_previous_one(
     assert first_after.json()["is_default_event"] is False
 
 
+async def test_switching_the_default_back_and_forth_never_violates_the_unique_index(
+    client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]]
+) -> None:
+    """Regression: SQLAlchemy orders same-table UPDATEs by primary key, not
+    by mutation order, so "set new default" could hit the partial unique
+    index before "clear old default" ran. Switching both directions
+    guarantees one switch has new-id < old-id, making the old bug
+    deterministic here instead of a ~50% flake."""
+    await _login(client, await make_admin_user())
+    first = await client.post("/api/v1/events", json={"name": "First", "slug": "default-swap-first"})
+    second = await client.post("/api/v1/events", json={"name": "Second", "slug": "default-swap-second"})
+    first_id, second_id = first.json()["id"], second.json()["id"]
+
+    for target_id, other_id in [(first_id, second_id), (second_id, first_id), (first_id, second_id)]:
+        response = await client.post(f"/api/v1/events/{target_id}/set-default")
+        assert response.status_code == 200
+        other = await client.get(f"/api/v1/events/{other_id}")
+        assert other.json()["is_default_event"] is False
+
+
 async def test_unset_default_event_clears_it_and_is_idempotent(
     client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]]
 ) -> None:
