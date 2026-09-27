@@ -402,6 +402,8 @@ async def _handle_checkout_submission(
             "payment_method": order["payment_method"],
             "status": order["status"],
             "total": str(order["total"]),
+            "subtotal": str(order["subtotal"]),
+            "service_fee_total": str(order["service_fee_total"]),
             "language": order["language"],
             "tickets": order["tickets"],
         },

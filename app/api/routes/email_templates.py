@@ -52,9 +52,12 @@ async def _get_event_or_404(session: AsyncSession, event_id: str) -> Event:
 
 
 async def _get_event_with_theme_or_404(session: AsyncSession, event_id: str) -> Event:
+    """Also loads ``config`` (not just ``theme``): the door-payment-confirmation
+    preview reads its service fee from ``event.config.service_fee_amount``.
+    """
     parsed_id = parse_uuid_or_404(event_id, detail="Event not found.")
     result = await session.execute(
-        select(Event).where(Event.id == parsed_id).options(selectinload(Event.theme))
+        select(Event).where(Event.id == parsed_id).options(selectinload(Event.theme), selectinload(Event.config))
     )
     event = result.scalar_one_or_none()
     if event is None:

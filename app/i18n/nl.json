@@ -69,6 +69,8 @@
   "public.order_confirmation.door_pending_notice": "Uw bestelling is gereserveerd — bedankt! Er is nog niets afgeschreven: u betaalt aan de deur, dus neem {amount} mee en reken ter plekke af wanneer u aankomt voor de voorstelling.",
   "public.order_confirmation.order_id_label": "Bestelnummer",
   "public.order_confirmation.payment_method_label": "Betaalmethode",
+  "public.order_confirmation.subtotal_label": "Subtotaal",
+  "public.order_confirmation.service_fee_label": "Servicekosten",
   "public.order_confirmation.total_label": "Totaal",
   "public.order_confirmation.tickets_heading": "Tickets",
   "public.order_confirmation.back_to_event_link": "Terug naar de evenementpagina",
@@ -109,6 +111,7 @@
   "email.door_confirmation.quantity_column": "Aantal",
   "email.door_confirmation.subtotal_column": "Subtotaal",
   "email.door_confirmation.total_label": "Te betalen aan de deur",
+  "email.door_confirmation.service_fee_line_name": "Servicekosten",
   "email.door_confirmation.logo_alt": "Logo van {event_name}",
   "email.door_confirmation.footer": "{event_name} — verzonden via Beacon",
 
@@ -125,5 +128,6 @@
   "pdf.invoice.qty_column": "Aantal",
   "pdf.invoice.unit_price_column": "Stukprijs",
   "pdf.invoice.line_total_column": "Bedrag",
-  "pdf.invoice.total_label": "Totaal"
+  "pdf.invoice.total_label": "Totaal",
+  "pdf.invoice.service_fee_line_name": "Servicekosten"
 }

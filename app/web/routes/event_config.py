@@ -7,6 +7,7 @@ or "clear" was ticked (sent as an empty string); otherwise it's omitted and
 the saved value is left alone.
 """
 
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
@@ -116,6 +117,7 @@ async def save_event_config(
     invoice_company_address: str = Form(""),
     invoice_company_vat_number: str = Form(""),
     invoice_number_prefix: str = Form(""),
+    service_fee_amount: str = Form("0.00"),
     sales_live_at: str = Form(""),
     enabled_payment_methods: list[str] = Form([]),
     csrf_token: str = Form(...),
@@ -134,6 +136,17 @@ async def save_event_config(
     else:
         port_value = None
 
+    fee_raw = service_fee_amount.strip()
+    fee_value: str | None
+    if fee_raw:
+        try:
+            Decimal(fee_raw)
+        except InvalidOperation:
+            return redirect_with_flash(redirect_path, "Service fee amount must be a valid number.", kind="error")
+        fee_value = fee_raw
+    else:
+        fee_value = None
+
     body: dict[str, Any] = {
         "smtp_host": smtp_host.strip() or None,
         "smtp_port": port_value,
@@ -146,6 +159,7 @@ async def save_event_config(
         "invoice_company_address": invoice_company_address.strip() or None,
         "invoice_company_vat_number": invoice_company_vat_number.strip() or None,
         "invoice_number_prefix": invoice_number_prefix.strip() or None,
+        "service_fee_amount": fee_value,
         # datetime-local has no timezone; the form says UTC, so append "Z".
         "sales_live_at": f"{sales_live_at.strip()}:00Z" if sales_live_at.strip() else None,
         "enabled_payment_methods": enabled_payment_methods,

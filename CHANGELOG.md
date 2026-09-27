@@ -10,6 +10,11 @@ once it reaches a tagged release.
 
 ### Added
 
+- Per-event flat service fee (`EventConfig.service_fee_amount`), charged at
+  checkout for ticket types whose price doesn't already include it
+  (`TicketType.service_fee_included=False`) — applied consistently across
+  online checkout, door orders and staff-issued manual orders, and itemized
+  on invoices, the door-reservation email and the order confirmation page.
 - First-run setup: a fresh deployment creates its first admin at `/setup`
   in the browser; later admins are managed from the backoffice (#25).
 - Public homepage at `/`: redirects to an optional default event, otherwise

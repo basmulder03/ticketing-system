@@ -87,6 +87,7 @@ _DOOR_CONFIRMATION_SHELL_KEYS: tuple[str, ...] = (
     "quantity_column",
     "subtotal_column",
     "total_label",
+    "service_fee_line_name",
     "logo_alt",
     "footer",
 )
@@ -284,8 +285,15 @@ def _group_tickets_by_type(
     return grouped
 
 
-def _order_item_rows_html(grouped: list[tuple[TicketType, int]], locale: str) -> str:
+def _order_item_rows_html(
+    grouped: list[tuple[TicketType, int]], locale: str, *, service_fee_amount: Decimal, service_fee_line_name: str
+) -> str:
+    """One row per ticket type, plus a trailing service-fee row when applicable —
+    see ``app.services.invoicing._build_line_items`` for the identical
+    reconciliation reasoning (these rows must sum to ``order.total``).
+    """
     rows: list[str] = []
+    fee_eligible_count = 0
     for ticket_type, quantity in grouped:
         subtotal = format_currency(ticket_type.price * quantity, locale)
         rows.append(
@@ -293,6 +301,18 @@ def _order_item_rows_html(grouped: list[tuple[TicketType, int]], locale: str) ->
             f'<td style="border:1px solid #dddddd;padding:8px;">{html.escape(ticket_type.name)}</td>'
             f'<td style="border:1px solid #dddddd;padding:8px;text-align:center;">{quantity}</td>'
             f'<td style="border:1px solid #dddddd;padding:8px;text-align:right;">{html.escape(subtotal)}</td>'
+            "</tr>"
+        )
+        if not ticket_type.service_fee_included:
+            fee_eligible_count += quantity
+
+    if fee_eligible_count > 0 and service_fee_amount > 0:
+        fee_total = format_currency(service_fee_amount * fee_eligible_count, locale)
+        rows.append(
+            "<tr>"
+            f'<td style="border:1px solid #dddddd;padding:8px;">{html.escape(service_fee_line_name)}</td>'
+            f'<td style="border:1px solid #dddddd;padding:8px;text-align:center;">{fee_eligible_count}</td>'
+            f'<td style="border:1px solid #dddddd;padding:8px;text-align:right;">{html.escape(fee_total)}</td>'
             "</tr>"
         )
     return "\n".join(rows)
@@ -307,6 +327,7 @@ def render_door_payment_confirmation_email(
     theme: Theme | None,
     tickets: list[Ticket],
     ticket_types_by_id: dict[str, TicketType],
+    service_fee_amount: Decimal = Decimal("0.00"),
 ) -> RenderedEmail:
     """Render the door-reservation email: an order summary and amount due, sent
     before any payment.
@@ -314,6 +335,12 @@ def render_door_payment_confirmation_email(
     Separate from :func:`render_order_confirmation_email` on purpose: it must
     never include real scannable tickets, or a buyer could forward one without
     paying.
+
+    ``service_fee_amount`` is a plain argument rather than read from
+    ``event.config`` here on purpose: this function must stay safely callable
+    with an ``event`` whose ``config`` relationship isn't loaded (an async
+    lazy-load would raise ``MissingGreenlet``) — the caller already has to
+    load ``EventConfig`` for other reasons anyway.
     """
     locale = order.language if order.language in DOOR_CONFIRMATION_DEFAULT_SUBJECT else "en"
     shell = _door_confirmation_shell(locale)
@@ -331,7 +358,9 @@ def render_door_payment_confirmation_email(
     font_stack = FONT_STACKS.get(theme.font_choice, _DEFAULT_FONT_STACK) if theme is not None else _DEFAULT_FONT_STACK
 
     grouped = _group_tickets_by_type(tickets, ticket_types_by_id)
-    item_rows = _order_item_rows_html(grouped, locale)
+    item_rows = _order_item_rows_html(
+        grouped, locale, service_fee_amount=service_fee_amount, service_fee_line_name=shell["service_fee_line_name"]
+    )
     event_name_escaped = html.escape(event.name)
     total = format_currency(order.total, locale)
 
@@ -382,8 +411,14 @@ def render_door_payment_confirmation_email(
         "",
         shell["items_heading"] + ":",
     ]
+    fee_eligible_count = 0
     for ticket_type, quantity in grouped:
         text_lines.append(f"- {ticket_type.name} x{quantity}")
+        if not ticket_type.service_fee_included:
+            fee_eligible_count += quantity
+    if fee_eligible_count > 0 and service_fee_amount > 0:
+        fee_total = format_currency(service_fee_amount * fee_eligible_count, locale)
+        text_lines.append(f"- {shell['service_fee_line_name']} x{fee_eligible_count}: {fee_total}")
     text_lines += ["", f"{shell['total_label']}: {total}"]
     text_body = "\n".join(text_lines)
 
@@ -423,19 +458,38 @@ def render_email_template_preview(
         venue_address="1 Example Street, Sample Town",
         capacity=100,
     )
-    sample_ticket_type = TicketType(show_id=sample_show.id, name="Adult", price=Decimal("42.50"), quantity_available=100)
+    sample_ticket_type = TicketType(
+        show_id=sample_show.id,
+        name="Adult",
+        price=Decimal("42.50"),
+        quantity_available=100,
+        # False (fee NOT already included in the price), so the door-
+        # reservation preview's service-fee row actually shows up when a fee
+        # is configured. Also explicit rather than relied on as the column
+        # default: a transient (never flushed) instance never gets
+        # SQLAlchemy's column default applied.
+        service_fee_included=False,
+    )
     sample_ticket = Ticket(order_id=sample_order.id, ticket_type_id=sample_ticket_type.id)
     sample_ticket.qr_token = "PREVIEW-SAMPLE-TOKEN"
     sample_ticket.ticket_type = sample_ticket_type
 
     template = EmailTemplate(event_id=event.id, language=language, template_type="preview", subject=subject, body=body)
-    render = (
-        render_door_payment_confirmation_email
-        if template_type == EmailTemplateType.DOOR_PAYMENT_CONFIRMATION.value
-        else render_order_confirmation_email
-    )
 
-    return render(
+    if template_type == EmailTemplateType.DOOR_PAYMENT_CONFIRMATION.value:
+        service_fee_amount = event.config.service_fee_amount if event.config is not None else Decimal("0.00")
+        return render_door_payment_confirmation_email(
+            template=template,
+            order=sample_order,
+            event=event,
+            show=sample_show,
+            theme=theme,
+            tickets=[sample_ticket],
+            ticket_types_by_id={str(sample_ticket_type.id): sample_ticket_type},
+            service_fee_amount=service_fee_amount,
+        )
+
+    return render_order_confirmation_email(
         template=template,
         order=sample_order,
         event=event,

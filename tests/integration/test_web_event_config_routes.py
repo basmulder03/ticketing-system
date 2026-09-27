@@ -308,6 +308,42 @@ async def test_copy_from_another_event_happy_path(
     assert target_config["invoice_company_name"] == "Copy Me BV"
 
 
+# --- Service fee amount --------------------------------------------------------
+
+
+async def test_save_service_fee_amount_persists_it(
+    client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]], make_event: Callable[..., Awaitable[Event]]
+) -> None:
+    await _api_login(client, await make_admin_user())
+    event = await make_event()
+    token = await _get_csrf(client, f"/events/{event.id}/config")
+
+    form = dict(_MINIMAL_FORM)
+    form.update({"csrf_token": token, "service_fee_amount": "1.50"})
+    response = await client.post(f"/events/{event.id}/config", data=form)
+
+    assert response.status_code == 303
+    assert "flash_kind=success" in response.headers["location"]
+    config = await _fetch_config(client, str(event.id))
+    assert config["service_fee_amount"] == "1.50"
+
+
+async def test_save_non_numeric_service_fee_amount_is_flashed_as_an_error(
+    client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]], make_event: Callable[..., Awaitable[Event]]
+) -> None:
+    await _api_login(client, await make_admin_user())
+    event = await make_event()
+    token = await _get_csrf(client, f"/events/{event.id}/config")
+
+    form = dict(_MINIMAL_FORM)
+    form.update({"csrf_token": token, "service_fee_amount": "not-a-number"})
+    response = await client.post(f"/events/{event.id}/config", data=form)
+
+    assert response.status_code == 303
+    assert "flash_kind=error" in response.headers["location"]
+    assert "valid%20number" in response.headers["location"]
+
+
 # --- CSRF ----------------------------------------------------------------------
 
 

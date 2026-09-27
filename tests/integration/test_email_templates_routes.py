@@ -290,6 +290,33 @@ async def test_preview_of_door_payment_confirmation_uses_its_own_render_path(
     assert "<img" not in html_body, "the door-reservation email must never include a scannable QR code"
 
 
+async def test_preview_of_door_payment_confirmation_shows_the_service_fee_when_one_is_configured(
+    client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]], make_event: Callable[..., Awaitable[Event]]
+) -> None:
+    """``EventConfig.service_fee_amount`` must actually reach the preview — a
+    regression test for the ``event.config`` relationship not being eagerly
+    loaded for this route (would 500 with a lazy-load ``MissingGreenlet``
+    rather than silently show no fee)."""
+    await _admin_client(client, make_admin_user)
+    event = await make_event()
+    await client.put(f"/api/v1/events/{event.id}/config", json={"service_fee_amount": "2.50"})
+
+    response = await client.post(
+        f"/api/v1/events/{event.id}/email-templates/preview",
+        json={
+            "template_type": EmailTemplateType.DOOR_PAYMENT_CONFIRMATION.value,
+            "language": "en",
+            "subject": "Preview subject",
+            "body": "<p>Preview body</p>",
+        },
+    )
+
+    assert response.status_code == 200
+    html_body = response.json()["html_body"]
+    assert "Service fee" in html_body
+    assert "2.50" in html_body or "2,50" in html_body
+
+
 async def test_preview_rejects_an_unsupported_language(
     client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]], make_event: Callable[..., Awaitable[Event]]
 ) -> None:

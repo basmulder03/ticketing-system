@@ -18,8 +18,10 @@ if TYPE_CHECKING:
 class TicketType(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     """A purchasable ticket category under a ``Show``. ``price`` is fixed-point.
 
-    ``service_fee_included`` is stored and editable, but no service fee is
-    calculated anywhere yet — totals are always price x quantity.
+    ``service_fee_included=True`` (the default) means ``price`` already
+    includes the event's service fee, so nothing extra is added at checkout.
+    Set it to ``False`` to have ``EventConfig.service_fee_amount`` charged on
+    top, per ticket (see ``app.services.pricing``).
     """
 
     __tablename__ = "ticket_types"

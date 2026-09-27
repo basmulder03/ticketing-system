@@ -75,6 +75,12 @@ class OrderOut(BaseModel):
     first (Mollie, or the demo-payment page); otherwise go straight to order
     confirmation. ``status`` is only reliably ``paid`` here for the preview
     sandbox path — real payments settle later.
+
+    ``subtotal``/``service_fee_total`` are derived from the tickets' current
+    ticket-type prices, not frozen at checkout the way ``total`` is (there is
+    no per-order price snapshot — same caveat as ``TicketOut.price``), so on
+    an order whose ticket type price changed since purchase they're a
+    best-effort breakdown of ``total``, not an independently authoritative one.
     """
 
     id: str
@@ -86,6 +92,8 @@ class OrderOut(BaseModel):
     buyer_address: str
     language: str
     total: Decimal
+    subtotal: Decimal
+    service_fee_total: Decimal
     tickets: list[TicketOut]
     created_at: datetime
     payment_redirect_url: str | None = None

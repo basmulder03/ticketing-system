@@ -153,6 +153,18 @@
   </section>
 
   <section class="bo-panel">
+    <h2>Pricing</h2>
+    <div class="bo-field">
+      <label for="service_fee_amount">Service fee per ticket (&euro;)</label>
+      <input type="number" id="service_fee_amount" name="service_fee_amount" step="0.01" min="0"
+             value="{{ config.service_fee_amount if config else '0.00' }}">
+      <p class="bo-hint bo-hint--small">Charged at checkout, on top of the price, for each ticket of a type whose
+        "Price includes service fee" checkbox is <strong>unchecked</strong> (see each show's ticket types). Leave at
+        0.00 to never add anything on top.</p>
+    </div>
+  </section>
+
+  <section class="bo-panel">
     <h2>Sales timing</h2>
     <div class="bo-field">
       <label for="sales_live_at">Sales go live at (UTC)</label>

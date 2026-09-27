@@ -99,6 +99,7 @@ async def send_door_payment_confirmation_email(
             theme=event.theme,
             tickets=tickets,
             ticket_types_by_id=ticket_types_by_id,
+            service_fee_amount=config.service_fee_amount,
         )
 
         message = EmailMessage()

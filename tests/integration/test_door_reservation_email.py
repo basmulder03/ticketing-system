@@ -22,6 +22,7 @@ Mocking-boundary decisions, mirroring ``tests/integration/test_ticket_delivery.p
 import uuid
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from email.message import EmailMessage
 
 import aiosmtplib
@@ -125,6 +126,52 @@ async def test_door_checkout_dispatches_reservation_confirmation_email(
 
     assert await _audit_action_count(db_session, order_id, _SENT_ACTION) == 1
     assert await _audit_action_count(db_session, order_id, _FAILED_ACTION) == 0
+
+
+async def test_door_checkout_reservation_email_shows_the_service_fee_line(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    make_event: Callable[..., Awaitable[Event]],
+    make_show: Callable[..., Awaitable[Show]],
+    make_ticket_type: Callable[..., Awaitable[TicketType]],
+    make_event_config: Callable[..., Awaitable[EventConfig]],
+) -> None:
+    """A ticket type with ``service_fee_included=False`` gets its own row in
+    the email's order summary, reconciling with ``order.total`` (see
+    ``app.services.email_render._order_item_rows_html``)."""
+    event = await make_event(status=PublishStatus.PUBLISHED)
+    show = await make_show(event_id=event.id, status=PublishStatus.PUBLISHED)
+    ticket_type = await make_ticket_type(
+        show_id=show.id, price=Decimal("15.00"), service_fee_included=False, quantity_available=5
+    )
+    await make_event_config(
+        event_id=event.id,
+        sales_live_at=_PAST,
+        enabled_payment_methods=[PaymentMethod.DOOR],
+        service_fee_amount=Decimal("2.00"),
+    )
+    buyer_email = f"door-buyer-{uuid.uuid4().hex[:8]}@example.test"
+
+    sent: list[EmailMessage] = []
+
+    async def _fake_send(message: EmailMessage, **kwargs: object) -> None:
+        sent.append(message)
+
+    monkeypatch.setattr(aiosmtplib, "send", _fake_send)
+
+    response = await client.post(
+        "/api/v1/public/checkout", json=_payload(ticket_type.id, buyer_email=buyer_email, quantity=2)
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["total"] == "34.00"  # 2 * (15.00 + 2.00)
+
+    assert len(sent) == 1
+    html_part = sent[0].get_body(("html",))
+    assert html_part is not None
+    assert "Service fee" in html_part.get_content()
+    text_part = sent[0].get_body(("plain",))
+    assert text_part is not None
+    assert "Service fee" in text_part.get_content()
 
 
 async def test_mollie_door_checkout_does_not_dispatch_door_confirmation_email(

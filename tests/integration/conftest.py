@@ -321,6 +321,7 @@ async def make_event_config(db_session: AsyncSession) -> Callable[..., Awaitable
         invoice_company_address: str | None = "1 Test Street",
         invoice_company_vat_number: str | None = "NL000000000B01",
         invoice_number_prefix: str | None = "TEST-",
+        service_fee_amount: Decimal = Decimal("0.00"),
         sales_live_at: datetime | None = None,
         enabled_payment_methods: list[PaymentMethod] | None = None,
     ) -> EventConfig:
@@ -339,6 +340,7 @@ async def make_event_config(db_session: AsyncSession) -> Callable[..., Awaitable
             invoice_company_address=invoice_company_address,
             invoice_company_vat_number=invoice_company_vat_number,
             invoice_number_prefix=invoice_number_prefix,
+            service_fee_amount=service_fee_amount,
             sales_live_at=sales_live_at,
             enabled_payment_methods=enabled_payment_methods if enabled_payment_methods is not None else [],
         )
