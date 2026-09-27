@@ -27,7 +27,7 @@ from starlette.responses import Response
 from app.api.deps import Principal
 from app.core.templating import templates
 from app.i18n import translate
-from app.web.api_client import internal_api_client
+from app.web.api_client import api_error_detail, internal_api_client
 from app.web.csrf import attach_csrf_cookie, read_or_generate_csrf_token, verify_csrf
 from app.web.deps import require_web_admin
 from app.web.flash import redirect_with_flash
@@ -131,7 +131,7 @@ async def _fetch_editor_context(request: Request, event_id: str, language: str) 
         )
 
     preview = preview_response.json() if preview_response.status_code == 200 else None
-    preview_error = None if preview else _error_detail(preview_response, "Could not build preview.")
+    preview_error = None if preview else api_error_detail(preview_response, "Could not build preview.")
 
     return {
         "event": event,
@@ -142,17 +142,6 @@ async def _fetch_editor_context(request: Request, event_id: str, language: str) 
         "preview_doc": preview["html_body"] if preview else None,
         "error": preview_error,
     }
-
-
-def _error_detail(response: Any, fallback: str) -> str:
-    """FastAPI/Pydantic validation failures (422) return ``detail`` as a
-    list of error objects, not a string — fall back to a generic message
-    rather than rendering a Python list repr in the page."""
-    try:
-        detail = response.json().get("detail", fallback)
-    except Exception:  # noqa: BLE001 - defensive, response body may not be JSON at all
-        return fallback
-    return detail if isinstance(detail, str) else fallback
 
 
 @router.get("/events/{event_id}/email-templates", response_model=None)
@@ -221,7 +210,7 @@ async def email_template_preview_fragment(
         )
 
     if preview_response.status_code != 200:
-        detail = _error_detail(preview_response, "Enter a subject and body to preview.")
+        detail = api_error_detail(preview_response, "Enter a subject and body to preview.")
         return templates.TemplateResponse(
             request,
             "backoffice/_email_template_preview_fragment.html",
@@ -258,7 +247,7 @@ async def save_email_template(
     if put_response.status_code >= 400:
         return redirect_with_flash(
             redirect_path,
-            _error_detail(put_response, "Could not save email template."),
+            api_error_detail(put_response, "Could not save email template."),
             kind="error",
         )
     return redirect_with_flash(redirect_path, "Email template saved.", kind="success")
@@ -284,7 +273,7 @@ async def reset_email_template(
     redirect_path = f"/events/{event_id}/email-templates?language={language}"
     if resp.status_code >= 400 and resp.status_code != 404:
         return redirect_with_flash(
-            redirect_path, _error_detail(resp, "Could not reset email template."), kind="error"
+            redirect_path, api_error_detail(resp, "Could not reset email template."), kind="error"
         )
     return redirect_with_flash(
         redirect_path, "Reverted to the built-in default template.", kind="success"

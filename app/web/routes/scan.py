@@ -28,26 +28,17 @@ it directly, same-origin, with no CSRF token needed (see
 double-submit-cookie scheme the HTML forms in this module do).
 """
 
-from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from starlette.responses import Response
 
 from app.api.deps import Principal
 from app.core.templating import templates
-from app.web.api_client import internal_api_client
+from app.web.api_client import api_error_detail, internal_api_client
 from app.web.csrf import attach_csrf_cookie, read_or_generate_csrf_token
 from app.web.deps import require_web_scanner_or_admin
 
 router = APIRouter(tags=["scan-app"])
-
-
-def _error_detail(response: Any, fallback: str) -> str:
-    try:
-        detail = response.json().get("detail", fallback)
-    except Exception:  # noqa: BLE001 - response body may not be JSON at all
-        return fallback
-    return detail if isinstance(detail, str) else fallback
 
 
 @router.get("/scan", response_model=None)
@@ -66,7 +57,7 @@ async def scan_show_picker(
         shows_error = None
     else:
         shows = []
-        shows_error = _error_detail(shows_response, "Could not load shows.")
+        shows_error = api_error_detail(shows_response, "Could not load shows.")
 
     # Issued here purely to back the shared header partial's "Log out" form
     # (see templates/scan/_header.html) -- this page has no other form.

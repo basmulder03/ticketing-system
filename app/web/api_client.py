@@ -1,19 +1,8 @@
-"""In-process HTTP client for backoffice web routes to call the existing
-JSON API (``app.api.routes.*``) without duplicating any of its validation,
-sanitization, or business logic.
+"""In-process client for web routes to call the JSON API, so validation and
+business rules live only in ``app.api.routes``.
 
-Uses httpx's ASGI transport bound directly to this same app instance — no
-real network hop, no extra process — so the page/form routes under
-``app.web.routes`` stay thin (render templates, translate HTML form fields
-<-> JSON) while every actual rule (hex color validation, CSS sanitization,
-AA contrast calculation, audit logging, image validation) continues to
-live in exactly one place: ``app.api.routes.themes`` and the services it
-calls.
-
-The ``app.main`` import is deferred to call time (not module load time) to
-avoid a circular import: ``app.main`` imports and mounts this package's
-routers, so importing ``app.main.app`` at module scope here would run
-before ``app.main`` has finished defining ``app``.
+``app.main`` is imported at call time: importing it at module scope would be
+circular, since ``app.main`` mounts these web routers.
 """
 
 from collections.abc import AsyncIterator
@@ -25,11 +14,8 @@ from fastapi import Request
 
 @asynccontextmanager
 async def internal_api_client(request: Request) -> AsyncIterator[httpx.AsyncClient]:
-    """An ``httpx.AsyncClient`` bound to this app's own ASGI app, forwarding
-    the incoming request's cookies (the admin session cookie) so the JSON
-    API's own auth re-validates the same principal on every call — defense
-    in depth, not just a convenience shortcut.
-    """
+    """Client bound to this app, forwarding the caller's cookies so the API
+    re-checks the same principal on every call."""
     from app.main import app as asgi_app
 
     transport = httpx.ASGITransport(app=asgi_app)
@@ -37,3 +23,29 @@ async def internal_api_client(request: Request) -> AsyncIterator[httpx.AsyncClie
         transport=transport, base_url="http://internal", cookies=dict(request.cookies)
     ) as client:
         yield client
+
+
+def api_error_detail(response: httpx.Response, fallback: str) -> str:
+    """A readable message from a JSON API error response.
+
+    Handles a plain-string ``detail`` and Pydantic's 422 list of field
+    errors; anything else (non-JSON, unexpected shape) returns ``fallback``.
+    """
+    try:
+        payload = response.json()
+    except ValueError:
+        return fallback
+    detail = payload.get("detail") if isinstance(payload, dict) else None
+    if isinstance(detail, str):
+        return detail
+    if isinstance(detail, list):
+        messages = []
+        for err in detail:
+            if not isinstance(err, dict):
+                continue
+            field = ".".join(str(part) for part in err.get("loc", []) if part != "body")
+            msg = err.get("msg") or "Invalid value."
+            messages.append(f"{field}: {msg}" if field else msg)
+        if messages:
+            return "; ".join(messages)
+    return fallback

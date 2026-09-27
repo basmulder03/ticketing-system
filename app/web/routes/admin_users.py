@@ -30,7 +30,6 @@ it entirely, since the API neither needs nor wants it for an admin-assisted
 reset of someone else's account.
 """
 
-from typing import Any
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import RedirectResponse
@@ -38,7 +37,7 @@ from starlette.responses import Response
 
 from app.api.deps import Principal
 from app.core.templating import templates
-from app.web.api_client import internal_api_client
+from app.web.api_client import api_error_detail, internal_api_client
 from app.web.csrf import attach_csrf_cookie, read_or_generate_csrf_token, verify_csrf
 from app.web.deps import require_web_admin
 from app.web.flash import redirect_with_flash
@@ -50,17 +49,6 @@ _ROLE_CHOICES = (("admin", "Admin"), ("scanner", "Scanner"))
 (``app.models.enums.AdminRole``) without importing the API-layer enum into
 the web layer, matching how other web routes pass template-facing choice
 tuples (e.g. ``app.web.routes.shows``'s ``status_choices``)."""
-
-
-def _error_detail(response: Any, fallback: str) -> str:
-    """Best-effort extraction of a JSON API error's ``detail`` string,
-    falling back to a generic message if the body isn't the expected shape
-    (mirrors ``app.web.routes.orders._error_detail`` exactly)."""
-    try:
-        detail = response.json().get("detail", fallback)
-    except Exception:  # noqa: BLE001 - response body may not be JSON at all
-        return fallback
-    return detail if isinstance(detail, str) else fallback
 
 
 async def _render_list(
@@ -83,7 +71,7 @@ async def _render_list(
         accounts_error = None
     else:
         accounts = []
-        accounts_error = _error_detail(accounts_response, "Could not load admin users.")
+        accounts_error = api_error_detail(accounts_response, "Could not load admin users.")
 
     token = read_or_generate_csrf_token(request)
     response = templates.TemplateResponse(
@@ -141,11 +129,11 @@ async def create_admin_user_web(
 
     if resp.status_code == 409:
         return redirect_with_flash(
-            "/admin-users", _error_detail(resp, "An admin user with this email already exists."), kind="error"
+            "/admin-users", api_error_detail(resp, "An admin user with this email already exists."), kind="error"
         )
     if resp.status_code >= 400:
         return redirect_with_flash(
-            "/admin-users", _error_detail(resp, "Could not create the admin user."), kind="error"
+            "/admin-users", api_error_detail(resp, "Could not create the admin user."), kind="error"
         )
 
     created = resp.json()
@@ -177,7 +165,7 @@ async def deactivate_admin_user_web(
         return redirect_with_flash(redirect_path, "Admin user not found.", kind="error")
     if resp.status_code >= 400:
         return redirect_with_flash(
-            redirect_path, _error_detail(resp, "Could not deactivate this admin user."), kind="error"
+            redirect_path, api_error_detail(resp, "Could not deactivate this admin user."), kind="error"
         )
 
     return redirect_with_flash(redirect_path, "Admin user deactivated.", kind="success")
@@ -203,7 +191,7 @@ async def reactivate_admin_user_web(
         return redirect_with_flash(redirect_path, "Admin user not found.", kind="error")
     if resp.status_code >= 400:
         return redirect_with_flash(
-            redirect_path, _error_detail(resp, "Could not reactivate this admin user."), kind="error"
+            redirect_path, api_error_detail(resp, "Could not reactivate this admin user."), kind="error"
         )
 
     return redirect_with_flash(redirect_path, "Admin user reactivated.", kind="success")
@@ -247,12 +235,12 @@ async def reset_admin_user_password_web(
     if resp.status_code == 401:
         return redirect_with_flash(
             redirect_path,
-            _error_detail(resp, "Current password is required and must be correct to reset your own password."),
+            api_error_detail(resp, "Current password is required and must be correct to reset your own password."),
             kind="error",
         )
     if resp.status_code >= 400:
         return redirect_with_flash(
-            redirect_path, _error_detail(resp, "Could not reset this admin user's password."), kind="error"
+            redirect_path, api_error_detail(resp, "Could not reset this admin user's password."), kind="error"
         )
 
     return redirect_with_flash(redirect_path, "Password reset.", kind="success")

@@ -23,13 +23,12 @@ creation instead of a login form for an account that doesn't exist.
 import re
 from urllib.parse import urlsplit
 
-import httpx
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import RedirectResponse
 from starlette.responses import Response
 
 from app.core.templating import templates
-from app.web.api_client import internal_api_client
+from app.web.api_client import api_error_detail, internal_api_client
 from app.web.csrf import attach_csrf_cookie, read_or_generate_csrf_token, verify_csrf
 
 router = APIRouter(tags=["backoffice-auth"])
@@ -163,19 +162,6 @@ async def logout(request: Request, csrf_token: str = Form(...)) -> RedirectRespo
     return redirect
 
 
-def _setup_error_detail(response: httpx.Response) -> str:
-    """Same convention as every other web-route module's copy of this
-    helper (``app.web.routes.shows``, ``.events``, ``.orders``): a 422
-    from Pydantic's own request-body validation returns ``detail`` as a
-    list of error objects, not a string — fall back to a generic message
-    rather than rendering a Python list repr on the setup form."""
-    try:
-        detail = response.json().get("detail", "Could not create the admin account.")
-    except Exception:  # noqa: BLE001 - response body may not be JSON at all
-        return "Could not create the admin account."
-    return detail if isinstance(detail, str) else "Could not create the admin account."
-
-
 @router.get("/setup", response_model=None)
 async def setup_page(request: Request) -> Response:
     """Render the initial-admin-account creation form — post-launch fix,
@@ -234,7 +220,7 @@ async def setup_submit(
         response = templates.TemplateResponse(
             request,
             "backoffice/setup.html",
-            {"error": _setup_error_detail(api_response), "csrf_token": token},
+            {"error": api_error_detail(api_response, "Could not create the admin account."), "csrf_token": token},
             status_code=422,
         )
         attach_csrf_cookie(response, token)

@@ -29,7 +29,6 @@ carry no secret and use the normal redirect-with-flash pattern like every
 other route here.
 """
 
-from typing import Any
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import RedirectResponse
@@ -37,23 +36,12 @@ from starlette.responses import Response
 
 from app.api.deps import Principal
 from app.core.templating import templates
-from app.web.api_client import internal_api_client
+from app.web.api_client import api_error_detail, internal_api_client
 from app.web.csrf import attach_csrf_cookie, read_or_generate_csrf_token, verify_csrf
 from app.web.deps import require_web_admin
 from app.web.flash import redirect_with_flash
 
 router = APIRouter(tags=["backoffice-agent-accounts"])
-
-
-def _error_detail(response: Any, fallback: str) -> str:
-    """Best-effort extraction of a JSON API error's ``detail`` string,
-    falling back to a generic message if the body isn't the expected shape
-    (mirrors ``app.web.routes.orders._error_detail`` exactly)."""
-    try:
-        detail = response.json().get("detail", fallback)
-    except Exception:  # noqa: BLE001 - response body may not be JSON at all
-        return fallback
-    return detail if isinstance(detail, str) else fallback
 
 
 async def _render_list(
@@ -77,7 +65,7 @@ async def _render_list(
         accounts_error = None
     else:
         accounts = []
-        accounts_error = _error_detail(accounts_response, "Could not load agent accounts.")
+        accounts_error = api_error_detail(accounts_response, "Could not load agent accounts.")
 
     token = read_or_generate_csrf_token(request)
     response = templates.TemplateResponse(
@@ -129,12 +117,12 @@ async def create_agent_account_web(
     if resp.status_code == 409:
         return redirect_with_flash(
             "/agent-accounts",
-            _error_detail(resp, "An agent account with this name already exists."),
+            api_error_detail(resp, "An agent account with this name already exists."),
             kind="error",
         )
     if resp.status_code >= 400:
         return redirect_with_flash(
-            "/agent-accounts", _error_detail(resp, "Could not create the agent account."), kind="error"
+            "/agent-accounts", api_error_detail(resp, "Could not create the agent account."), kind="error"
         )
 
     created = resp.json()
@@ -173,7 +161,7 @@ async def revoke_agent_account_web(
         return redirect_with_flash(redirect_path, "Agent account not found.", kind="error")
     if resp.status_code >= 400:
         return redirect_with_flash(
-            redirect_path, _error_detail(resp, "Could not revoke this agent account."), kind="error"
+            redirect_path, api_error_detail(resp, "Could not revoke this agent account."), kind="error"
         )
 
     return redirect_with_flash(redirect_path, "Agent account revoked.", kind="success")

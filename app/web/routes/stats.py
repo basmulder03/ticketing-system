@@ -21,26 +21,17 @@ with no CSRF-relevant side effect, already authenticated by the admin
 session cookie the browser sends directly to the JSON API.
 """
 
-from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from starlette.responses import Response
 
 from app.api.deps import Principal
 from app.core.templating import templates
-from app.web.api_client import internal_api_client
+from app.web.api_client import api_error_detail, internal_api_client
 from app.web.csrf import attach_csrf_cookie, read_or_generate_csrf_token
 from app.web.deps import require_web_admin
 
 router = APIRouter(tags=["backoffice-stats"])
-
-
-def _error_detail(response: Any, fallback: str) -> str:
-    try:
-        detail = response.json().get("detail", fallback)
-    except Exception:  # noqa: BLE001 - response body may not be JSON at all
-        return fallback
-    return detail if isinstance(detail, str) else fallback
 
 
 @router.get("/events/{event_id}/stats", response_model=None)
@@ -75,7 +66,7 @@ async def event_stats(
         stats_error = None
     else:
         stats = None
-        stats_error = _error_detail(stats_response, "Could not load stats for this event.")
+        stats_error = api_error_detail(stats_response, "Could not load stats for this event.")
 
     token = read_or_generate_csrf_token(request)
     response = templates.TemplateResponse(

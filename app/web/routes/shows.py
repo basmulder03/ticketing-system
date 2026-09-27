@@ -42,14 +42,13 @@ Show's ticket types.
 from typing import Any
 from urllib.parse import quote
 
-import httpx
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from starlette.responses import Response
 
 from app.api.deps import Principal
 from app.core.templating import templates
-from app.web.api_client import internal_api_client
+from app.web.api_client import api_error_detail, internal_api_client
 from app.web.csrf import attach_csrf_cookie, read_or_generate_csrf_token, verify_csrf
 from app.web.deps import require_web_admin
 from app.web.flash import redirect_with_flash
@@ -64,39 +63,6 @@ STATUS_CHOICES = [
     ("draft", "Draft"),
     ("published", "Published"),
 ]
-
-
-def _error_detail(response: httpx.Response, fallback: str) -> str:
-    """Extract a human-readable message from a JSON API error response.
-
-    Handles both shapes the API can return: a plain string ``detail`` (every
-    hand-written ``HTTPException`` in this codebase, e.g. 404/409 responses),
-    and FastAPI/Pydantic's own ``detail`` shape for a 422 validation error —
-    a list of ``{"loc": [...], "msg": ..., ...}`` objects. Falls back to
-    ``fallback`` for anything else (non-JSON body, unexpected shape), so a
-    caller never has to worry about a raw/opaque error reaching the admin —
-    per this milestone's brief: "surface that as a clear form-level error...
-    don't just show a raw 422."
-    """
-    try:
-        payload = response.json()
-    except Exception:  # noqa: BLE001 - response body may not be JSON at all
-        return fallback
-    detail = payload.get("detail") if isinstance(payload, dict) else None
-    if isinstance(detail, str):
-        return detail
-    if isinstance(detail, list):
-        messages = []
-        for err in detail:
-            if not isinstance(err, dict):
-                continue
-            loc = [str(part) for part in err.get("loc", []) if part != "body"]
-            field = ".".join(loc)
-            msg = err.get("msg") or "Invalid value."
-            messages.append(f"{field}: {msg}" if field else msg)
-        if messages:
-            return "; ".join(messages)
-    return fallback
 
 
 def _parse_int_or_none(raw: str) -> int | None:
@@ -134,7 +100,7 @@ async def _fetch_shows_context(request: Request, event_id: str) -> dict[str, Any
             return {
                 "event": event,
                 "shows": [],
-                "shows_error": _error_detail(shows_response, "Could not load shows for this event."),
+                "shows_error": api_error_detail(shows_response, "Could not load shows for this event."),
             }
         shows = shows_response.json()
 
@@ -222,7 +188,7 @@ async def create_show_web(
         resp = await client.post(f"/api/v1/events/{event_id}/shows", json=body)
 
     if resp.status_code >= 400:
-        return redirect_with_flash(redirect_path, _error_detail(resp, "Could not add this show."), kind="error")
+        return redirect_with_flash(redirect_path, api_error_detail(resp, "Could not add this show."), kind="error")
 
     new_show_id = resp.json().get("id")
     return redirect_with_flash(f"{redirect_path}?open={quote(new_show_id)}", "Show added.", kind="success")
@@ -284,7 +250,7 @@ async def update_show_web(
     if resp.status_code == 404:
         return redirect_with_flash(redirect_path, "Show not found.", kind="error")
     if resp.status_code >= 400:
-        return redirect_with_flash(redirect_path, _error_detail(resp, "Could not update this show."), kind="error")
+        return redirect_with_flash(redirect_path, api_error_detail(resp, "Could not update this show."), kind="error")
     return redirect_with_flash(redirect_path, "Show updated.", kind="success")
 
 
@@ -310,7 +276,7 @@ async def duplicate_show_web(
     if resp.status_code == 404:
         return redirect_with_flash(redirect_path, "Show not found.", kind="error")
     if resp.status_code >= 400:
-        return redirect_with_flash(redirect_path, _error_detail(resp, "Could not duplicate this show."), kind="error")
+        return redirect_with_flash(redirect_path, api_error_detail(resp, "Could not duplicate this show."), kind="error")
 
     new_show_id = resp.json().get("id")
     return redirect_with_flash(f"{redirect_path}?open={quote(new_show_id)}", "Show duplicated.", kind="success")
@@ -342,7 +308,7 @@ async def delete_show_web(
     if resp.status_code == 404:
         return redirect_with_flash(redirect_path, "Show not found.", kind="error")
     if resp.status_code >= 400:
-        return redirect_with_flash(redirect_path, _error_detail(resp, "Could not delete this show."), kind="error")
+        return redirect_with_flash(redirect_path, api_error_detail(resp, "Could not delete this show."), kind="error")
     return redirect_with_flash(redirect_path, "Show deleted.", kind="success")
 
 
@@ -385,7 +351,7 @@ async def create_ticket_type_web(
         return redirect_with_flash(redirect_path, "Show not found.", kind="error")
     if resp.status_code >= 400:
         return redirect_with_flash(
-            redirect_path, _error_detail(resp, "Could not add this ticket type."), kind="error"
+            redirect_path, api_error_detail(resp, "Could not add this ticket type."), kind="error"
         )
     return redirect_with_flash(redirect_path, "Ticket type added.", kind="success")
 
@@ -438,7 +404,7 @@ async def update_ticket_type_web(
         return redirect_with_flash(redirect_path, "Ticket type not found.", kind="error")
     if resp.status_code >= 400:
         return redirect_with_flash(
-            redirect_path, _error_detail(resp, "Could not update this ticket type."), kind="error"
+            redirect_path, api_error_detail(resp, "Could not update this ticket type."), kind="error"
         )
     return redirect_with_flash(redirect_path, "Ticket type updated.", kind="success")
 
@@ -471,7 +437,7 @@ async def delete_ticket_type_web(
         return redirect_with_flash(redirect_path, "Ticket type not found.", kind="error")
     if resp.status_code >= 400:
         return redirect_with_flash(
-            redirect_path, _error_detail(resp, "Could not delete this ticket type."), kind="error"
+            redirect_path, api_error_detail(resp, "Could not delete this ticket type."), kind="error"
         )
     return redirect_with_flash(redirect_path, "Ticket type deleted.", kind="success")
 
@@ -535,5 +501,5 @@ async def create_manual_order_web(
     if resp.status_code == 404:
         return redirect_with_flash(redirect_path, "Show or ticket type not found.", kind="error")
     if resp.status_code >= 400:
-        return redirect_with_flash(redirect_path, _error_detail(resp, "Could not issue tickets."), kind="error")
+        return redirect_with_flash(redirect_path, api_error_detail(resp, "Could not issue tickets."), kind="error")
     return redirect_with_flash(redirect_path, "Tickets issued.", kind="success")

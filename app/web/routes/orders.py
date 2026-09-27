@@ -47,7 +47,7 @@ from starlette.responses import Response
 
 from app.api.deps import Principal
 from app.core.templating import templates
-from app.web.api_client import internal_api_client
+from app.web.api_client import api_error_detail, internal_api_client
 from app.web.csrf import attach_csrf_cookie, read_or_generate_csrf_token, verify_csrf
 from app.web.deps import require_web_admin
 from app.web.flash import redirect_with_flash
@@ -80,14 +80,6 @@ def _safe_return_to(candidate: str, *, default: str) -> str:
     return candidate
 
 
-def _error_detail(response: Any, fallback: str) -> str:
-    try:
-        detail = response.json().get("detail", fallback)
-    except Exception:  # noqa: BLE001 - response body may not be JSON at all
-        return fallback
-    return detail if isinstance(detail, str) else fallback
-
-
 async def _fetch_orders_context(request: Request, event_id: str) -> dict[str, Any]:
     async with internal_api_client(request) as client:
         event_response = await client.get(f"/api/v1/events/{event_id}")
@@ -103,7 +95,7 @@ async def _fetch_orders_context(request: Request, event_id: str) -> dict[str, An
     # Defensive fallback (event genuinely not found got its own 404 above,
     # via event_response) — an unexpected error here degrades to an empty
     # list + banner rather than crashing the whole page.
-    orders_error = _error_detail(orders_response, "Could not load orders for this event.")
+    orders_error = api_error_detail(orders_response, "Could not load orders for this event.")
     return {"event": event, "orders": [], "orders_error": orders_error}
 
 
@@ -152,12 +144,12 @@ async def resend_order_confirmation(
         return redirect_with_flash(redirect_path, "Order not found.", kind="error")
     if resp.status_code == 409:
         return redirect_with_flash(
-            redirect_path, _error_detail(resp, "Only paid orders can be resent."), kind="error"
+            redirect_path, api_error_detail(resp, "Only paid orders can be resent."), kind="error"
         )
     if resp.status_code >= 400:
         return redirect_with_flash(
             redirect_path,
-            _error_detail(resp, "Could not resend the confirmation email."),
+            api_error_detail(resp, "Could not resend the confirmation email."),
             kind="error",
         )
 
@@ -223,7 +215,7 @@ async def mark_order_paid_web(
     if resp.status_code >= 400:
         return redirect_with_flash(
             redirect_path,
-            _error_detail(resp, "Could not mark this order as paid."),
+            api_error_detail(resp, "Could not mark this order as paid."),
             kind="error",
         )
 
@@ -290,7 +282,7 @@ async def erase_order_pii_web(
     if resp.status_code == 404:
         return redirect_with_flash(redirect_path, "Order not found.", kind="error")
     if resp.status_code == 409:
-        warning = _error_detail(resp, "This order has an issued invoice and requires confirmation to erase.")
+        warning = api_error_detail(resp, "This order has an issued invoice and requires confirmation to erase.")
         return redirect_with_flash(
             redirect_path,
             f"{warning} Use the \"Erase anyway (has an invoice)\" button below to proceed.",
@@ -299,7 +291,7 @@ async def erase_order_pii_web(
     if resp.status_code >= 400:
         return redirect_with_flash(
             redirect_path,
-            _error_detail(resp, "Could not erase this order's buyer details."),
+            api_error_detail(resp, "Could not erase this order's buyer details."),
             kind="error",
         )
 

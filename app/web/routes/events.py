@@ -22,7 +22,7 @@ from starlette.responses import Response
 from app.api.deps import Principal
 from app.core.config import get_settings
 from app.core.templating import templates
-from app.web.api_client import internal_api_client
+from app.web.api_client import api_error_detail, internal_api_client
 from app.web.csrf import attach_csrf_cookie, read_or_generate_csrf_token, verify_csrf
 from app.web.deps import require_web_admin
 from app.web.flash import redirect_with_flash
@@ -37,22 +37,6 @@ STATUS_CHOICES = [
     ("draft", "Draft"),
     ("published", "Published"),
 ]
-
-
-def _error_detail(response: Any, fallback: str) -> str:
-    """Same convention as every other web-route module's copy of this
-    helper (``app.web.routes.orders``, ``app.web.routes.email_templates``,
-    ``app.web.routes.themes``'s inline equivalent): FastAPI/Pydantic
-    validation failures (422) return ``detail`` as a list of error objects,
-    not a string — fall back to a generic message rather than rendering a
-    Python list repr in the page."""
-    try:
-        detail = response.json().get("detail", fallback)
-    except Exception:  # noqa: BLE001 - response body may not be JSON at all
-        return fallback
-    return detail if isinstance(detail, str) else fallback
-
-
 
 
 @router.get("/events", response_model=None)
@@ -129,7 +113,7 @@ async def create_event(
         resp = await client.post("/api/v1/events", json=body)
 
     if resp.status_code >= 400:
-        return redirect_with_flash("/events/new", _error_detail(resp, "Could not create event."), kind="error")
+        return redirect_with_flash("/events/new", api_error_detail(resp, "Could not create event."), kind="error")
 
     event = resp.json()
     return redirect_with_flash(f"/events/{event['id']}/edit", "Event created.", kind="success")
@@ -222,7 +206,7 @@ async def update_event(
         resp = await client.patch(f"/api/v1/events/{event_id}", json=changes)
 
     if resp.status_code >= 400:
-        return redirect_with_flash(redirect_path, _error_detail(resp, "Could not save event."), kind="error")
+        return redirect_with_flash(redirect_path, api_error_detail(resp, "Could not save event."), kind="error")
     return redirect_with_flash(redirect_path, "Event saved.", kind="success")
 
 
@@ -258,12 +242,12 @@ async def delete_event(
     if resp.status_code == 409:
         return redirect_with_flash(
             f"/events/{event_id}/edit",
-            _error_detail(resp, "This event has ticket types with existing orders and cannot be deleted."),
+            api_error_detail(resp, "This event has ticket types with existing orders and cannot be deleted."),
             kind="error",
         )
     if resp.status_code >= 400:
         return redirect_with_flash(
-            f"/events/{event_id}/edit", _error_detail(resp, "Could not delete event."), kind="error"
+            f"/events/{event_id}/edit", api_error_detail(resp, "Could not delete event."), kind="error"
         )
     return redirect_with_flash("/events", "Event deleted.", kind="success")
 
@@ -286,7 +270,7 @@ async def set_default_event(
     if resp.status_code == 404:
         return redirect_with_flash("/events", "Event not found.", kind="error")
     if resp.status_code >= 400:
-        return redirect_with_flash("/events", _error_detail(resp, "Could not set default event."), kind="error")
+        return redirect_with_flash("/events", api_error_detail(resp, "Could not set default event."), kind="error")
     return redirect_with_flash("/events", "Default event set.", kind="success")
 
 
@@ -306,5 +290,5 @@ async def unset_default_event(
     if resp.status_code == 404:
         return redirect_with_flash("/events", "Event not found.", kind="error")
     if resp.status_code >= 400:
-        return redirect_with_flash("/events", _error_detail(resp, "Could not unset default event."), kind="error")
+        return redirect_with_flash("/events", api_error_detail(resp, "Could not unset default event."), kind="error")
     return redirect_with_flash("/events", "Default event unset.", kind="success")

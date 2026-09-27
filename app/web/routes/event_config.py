@@ -34,7 +34,7 @@ from starlette.responses import Response
 
 from app.api.deps import Principal
 from app.core.templating import templates
-from app.web.api_client import internal_api_client
+from app.web.api_client import api_error_detail, internal_api_client
 from app.web.csrf import attach_csrf_cookie, read_or_generate_csrf_token, verify_csrf
 from app.web.deps import require_web_admin
 from app.web.flash import redirect_with_flash
@@ -62,16 +62,6 @@ PAYMENT_METHOD_CHOICES = [
     ("door", "Pay at the door"),
     ("demo", "Demo / test payment (no real charge)"),
 ]
-
-
-def _error_detail(response: Any, fallback: str) -> str:
-    """Same convention as every other web-route module's copy of this
-    helper — see ``app.web.routes.orders._error_detail``."""
-    try:
-        detail = response.json().get("detail", fallback)
-    except Exception:  # noqa: BLE001 - response body may not be JSON at all
-        return fallback
-    return detail if isinstance(detail, str) else fallback
 
 
 def _secret_field_update(body: dict[str, Any], key: str, *, new_value: str, clear: bool) -> None:
@@ -211,7 +201,7 @@ async def save_event_config(
         resp = await client.put(f"/api/v1/events/{event_id}/config", json=body)
 
     if resp.status_code >= 400:
-        return redirect_with_flash(redirect_path, _error_detail(resp, "Could not save configuration."), kind="error")
+        return redirect_with_flash(redirect_path, api_error_detail(resp, "Could not save configuration."), kind="error")
     return redirect_with_flash(redirect_path, "Configuration saved.", kind="success")
 
 
@@ -236,10 +226,10 @@ async def test_email_web(
 
     if resp.status_code == 404:
         return redirect_with_flash(
-            redirect_path, _error_detail(resp, "Save SMTP settings before sending a test email."), kind="error"
+            redirect_path, api_error_detail(resp, "Save SMTP settings before sending a test email."), kind="error"
         )
     if resp.status_code >= 400:
-        return redirect_with_flash(redirect_path, _error_detail(resp, "Could not send test email."), kind="error")
+        return redirect_with_flash(redirect_path, api_error_detail(resp, "Could not send test email."), kind="error")
 
     result = resp.json()
     kind = "success" if result.get("success") else "error"
@@ -266,11 +256,11 @@ async def test_mollie_web(
 
     if resp.status_code == 404:
         return redirect_with_flash(
-            redirect_path, _error_detail(resp, "Save a Mollie API key before testing the connection."), kind="error"
+            redirect_path, api_error_detail(resp, "Save a Mollie API key before testing the connection."), kind="error"
         )
     if resp.status_code >= 400:
         return redirect_with_flash(
-            redirect_path, _error_detail(resp, "Could not test the Mollie connection."), kind="error"
+            redirect_path, api_error_detail(resp, "Could not test the Mollie connection."), kind="error"
         )
 
     result = resp.json()
@@ -298,6 +288,6 @@ async def copy_event_config_web(
 
     if resp.status_code >= 400:
         return redirect_with_flash(
-            redirect_path, _error_detail(resp, "Could not copy configuration."), kind="error"
+            redirect_path, api_error_detail(resp, "Could not copy configuration."), kind="error"
         )
     return redirect_with_flash(redirect_path, "Configuration copied from the selected event.", kind="success")

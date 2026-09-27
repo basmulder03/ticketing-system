@@ -21,7 +21,7 @@ from starlette.responses import Response
 
 from app.api.deps import Principal
 from app.core.templating import templates
-from app.web.api_client import internal_api_client
+from app.web.api_client import api_error_detail, internal_api_client
 from app.web.csrf import attach_csrf_cookie, read_or_generate_csrf_token, verify_csrf
 from app.web.deps import require_web_admin
 
@@ -103,7 +103,7 @@ async def _fetch_editor_context(request: Request, event_id: str) -> dict[str, An
         preview_response = await client.post(f"/api/v1/events/{event_id}/theme/preview", json=preview_payload)
 
     preview = preview_response.json() if preview_response.status_code == 200 else None
-    preview_error = None if preview else preview_response.json().get("detail", "Could not build preview.")
+    preview_error = None if preview else api_error_detail(preview_response, "Could not build preview.")
 
     return {
         "event": event,
@@ -173,7 +173,7 @@ async def theme_preview_fragment(
         )
 
     if preview_response.status_code != 200:
-        detail = preview_response.json().get("detail", "Enter valid colors to preview.")
+        detail = api_error_detail(preview_response, "Enter valid colors to preview.")
         return templates.TemplateResponse(
             request, "backoffice/_theme_preview_fragment.html", {"preview": None, "error": detail}
         )
@@ -218,7 +218,7 @@ async def save_theme_fields(
         )
 
     if put_response.status_code >= 400:
-        detail = put_response.json().get("detail", "Could not save theme.")
+        detail = api_error_detail(put_response, "Could not save theme.")
         return _redirect_with_flash(f"/events/{event_id}/theme", detail, kind="error")
     return _redirect_with_flash(f"/events/{event_id}/theme", "Theme saved.", kind="success")
 
@@ -244,7 +244,7 @@ async def upload_logo(
     resp = await _forward_upload(request, f"/api/v1/events/{event_id}/theme/logo", file)
     if resp.status_code >= 400:
         return _redirect_with_flash(
-            f"/events/{event_id}/theme", resp.json().get("detail", "Logo upload failed."), kind="error"
+            f"/events/{event_id}/theme", api_error_detail(resp, "Logo upload failed."), kind="error"
         )
     return _redirect_with_flash(f"/events/{event_id}/theme", "Logo uploaded.", kind="success")
 
@@ -258,7 +258,7 @@ async def delete_logo(
         resp = await client.delete(f"/api/v1/events/{event_id}/theme/logo")
     if resp.status_code >= 400:
         return _redirect_with_flash(
-            f"/events/{event_id}/theme", resp.json().get("detail", "Could not remove logo."), kind="error"
+            f"/events/{event_id}/theme", api_error_detail(resp, "Could not remove logo."), kind="error"
         )
     return _redirect_with_flash(f"/events/{event_id}/theme", "Logo removed.", kind="success")
 
@@ -275,7 +275,7 @@ async def upload_background(
     resp = await _forward_upload(request, f"/api/v1/events/{event_id}/theme/background", file)
     if resp.status_code >= 400:
         return _redirect_with_flash(
-            f"/events/{event_id}/theme", resp.json().get("detail", "Background upload failed."), kind="error"
+            f"/events/{event_id}/theme", api_error_detail(resp, "Background upload failed."), kind="error"
         )
     return _redirect_with_flash(f"/events/{event_id}/theme", "Background image uploaded.", kind="success")
 
@@ -289,7 +289,7 @@ async def delete_background(
         resp = await client.delete(f"/api/v1/events/{event_id}/theme/background")
     if resp.status_code >= 400:
         return _redirect_with_flash(
-            f"/events/{event_id}/theme", resp.json().get("detail", "Could not remove background."), kind="error"
+            f"/events/{event_id}/theme", api_error_detail(resp, "Could not remove background."), kind="error"
         )
     return _redirect_with_flash(f"/events/{event_id}/theme", "Background image removed.", kind="success")
 
@@ -307,6 +307,6 @@ async def copy_theme_from(
         resp = await client.post(f"/api/v1/events/{event_id}/theme/copy-from/{source_event_id}")
     if resp.status_code >= 400:
         return _redirect_with_flash(
-            f"/events/{event_id}/theme", resp.json().get("detail", "Could not copy theme."), kind="error"
+            f"/events/{event_id}/theme", api_error_detail(resp, "Could not copy theme."), kind="error"
         )
     return _redirect_with_flash(f"/events/{event_id}/theme", "Theme copied from the selected event.", kind="success")
