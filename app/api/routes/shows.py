@@ -1,8 +1,4 @@
-"""Show CRUD routes, nested under an Event.
-
-Content-type data per PROJECT_BRIEF.md's AI/Agent Access section — gated by
-``require_admin_or_agent``, same as Event.
-"""
+"""Show CRUD, nested under an Event. Admin or agent."""
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
@@ -60,7 +56,7 @@ async def create_show(
     principal: Principal = Depends(require_admin_or_agent),
     session: AsyncSession = Depends(get_session),
 ) -> ShowOut:
-    """Create a new Show under the given Event."""
+    """Create a show under the event."""
     event = await _get_event_or_404(session, event_id)
 
     show = Show(
@@ -93,7 +89,7 @@ async def list_shows(
     principal: Principal = Depends(require_admin_or_agent),
     session: AsyncSession = Depends(get_session),
 ) -> list[ShowOut]:
-    """List all shows under the given Event, ordered by date."""
+    """The event's shows, by date."""
     event = await _get_event_or_404(session, event_id)
     result = await session.execute(select(Show).where(Show.event_id == event.id).order_by(Show.date))
     return [_to_out(show) for show in result.scalars().all()]
@@ -106,7 +102,7 @@ async def get_show(
     principal: Principal = Depends(require_admin_or_agent),
     session: AsyncSession = Depends(get_session),
 ) -> ShowOut:
-    """Fetch a single Show by id, scoped to its parent Event."""
+    """One show, scoped to its event."""
     event = await _get_event_or_404(session, event_id)
     show = await _get_show_or_404(session, event, show_id)
     return _to_out(show)
@@ -119,22 +115,9 @@ async def duplicate_show(
     principal: Principal = Depends(require_admin_or_agent),
     session: AsyncSession = Depends(get_session),
 ) -> ShowOut:
-    """Create a new Show under the same Event, copying the source Show's
-    date/times/venue/capacity and every one of its TicketTypes (name,
-    price, service_fee_included, quantity_available) — per the user's
-    NOTES: "option to create shows based on other shows in the same
-    event", a starting point for "the next performance of this same
-    setup", not a live clone.
-
-    The new Show always starts life ``draft`` regardless of the source
-    Show's own status — publishing (and thereby opening it for sale) stays
-    an explicit, separate action, never an accidental side effect of
-    duplicating a published show. The new TicketTypes carry none of the
-    source's sales data because there IS none to copy: a TicketType stores
-    no sold-count of its own, ``remaining`` is always computed live from
-    real Ticket rows (see ``app.models.ticket_type.TicketType.remaining``),
-    so a freshly duplicated TicketType is simply, correctly, fully
-    available from ``quantity_available``.
+    """Copy a show and its ticket types as a starting point for the next
+    performance. The copy is always ``draft`` (publishing stays explicit) and
+    starts fully available — ticket types store no sales of their own.
     """
     event = await _get_event_or_404(session, event_id)
     source = await _get_show_or_404(session, event, show_id)
@@ -191,16 +174,12 @@ async def update_show(
     principal: Principal = Depends(require_admin_or_agent),
     session: AsyncSession = Depends(get_session),
 ) -> ShowOut:
-    """Partially update a Show. Only fields present in the body are changed."""
+    """PATCH; only fields present are changed."""
     event = await _get_event_or_404(session, event_id)
     show = await _get_show_or_404(session, event, show_id)
 
     changes = apply_partial_update(show, body)
-    # Stringify every value (not just the non-JSON-native ones like `date`/
-    # `time`) before writing to the audit log's JSON column — same
-    # convention as ticket_types.py's update route. Passing `changes` as-is
-    # would crash on `date`/`time` fields (json.dumps has no default
-    # encoder for either), turning a routine PATCH into a 500.
+    # Stringify values: the audit JSON column can't encode date/time.
     await record_audit_entry(
         session,
         principal,
@@ -221,11 +200,7 @@ async def delete_show(
     principal: Principal = Depends(require_admin_or_agent),
     session: AsyncSession = Depends(get_session),
 ) -> None:
-    """Delete a Show and its TicketTypes (cascade).
-
-    Fails with a 409 (not a 500) if any of its TicketTypes still have
-    purchased Tickets attached — see ``app.api.routes._utils.commit_or_conflict``.
-    """
+    """Delete the show and its ticket types; 409 if any has sold tickets."""
     event = await _get_event_or_404(session, event_id)
     show = await _get_show_or_404(session, event, show_id)
     await record_audit_entry(

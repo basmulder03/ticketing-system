@@ -1,10 +1,5 @@
-"""EmailTemplate routes: list/get/upsert/delete an Event's per-language
-email templates, and a draft-values live-preview endpoint (Milestone 4).
-
-Content-type data per PROJECT_BRIEF.md's AI/Agent Access section ("email
-template content" is explicitly listed as agent-accessible) — every route
-here uses ``require_admin_or_agent``, same as Event/Show/TicketType/Theme,
-never ``require_admin``.
+"""EmailTemplate CRUD per event, type and language, plus a draft preview.
+Admin or agent.
 """
 
 import uuid
@@ -105,10 +100,7 @@ async def list_email_templates(
     principal: Principal = Depends(require_admin_or_agent),
     session: AsyncSession = Depends(get_session),
 ) -> list[EmailTemplateOut]:
-    """List every customized EmailTemplate row for this event. A
-    type/language combination absent from this list has no customization
-    yet and falls back to a built-in default at send time (see
-    ``app.services.email_render.DEFAULT_SUBJECT``/``DEFAULT_BODY``)."""
+    """Customized templates only; missing combinations use built-in defaults."""
     event = await _get_event_or_404(session, event_id)
     result = await session.execute(select(EmailTemplate).where(EmailTemplate.event_id == event.id))
     return [_to_out(t) for t in result.scalars().all()]
@@ -122,10 +114,7 @@ async def get_email_template(
     principal: Principal = Depends(require_admin_or_agent),
     session: AsyncSession = Depends(get_session),
 ) -> EmailTemplateOut:
-    """Fetch this event's customized template for one type/language pair.
-    404s (with a clarifying message) if this combination has never been
-    customized — that is an expected, valid state (the built-in default
-    applies), not necessarily an error the caller needs to fix."""
+    """One customized template; 404 means "not customized" (the default applies)."""
     event = await _get_event_or_404(session, event_id)
     template_type = _validate_template_type(template_type)
     language = _validate_language(language)
@@ -142,10 +131,7 @@ async def upsert_email_template(
     principal: Principal = Depends(require_admin_or_agent),
     session: AsyncSession = Depends(get_session),
 ) -> EmailTemplateOut:
-    """Create or replace this event's subject/body for one type/language
-    pair. Both ``subject``/``body`` are required (see
-    ``EmailTemplateUpsertRequest``) — there is no partial-update mode for
-    this resource."""
+    """Create or replace; both subject and body are required."""
     event = await _get_event_or_404(session, event_id)
     template_type = _validate_template_type(template_type)
     language = _validate_language(language)
@@ -188,8 +174,7 @@ async def delete_email_template(
     principal: Principal = Depends(require_admin_or_agent),
     session: AsyncSession = Depends(get_session),
 ) -> None:
-    """Delete this event's customization for one type/language pair,
-    reverting future sends of that type/language to the built-in default."""
+    """Remove the customization so sends revert to the built-in default."""
     event = await _get_event_or_404(session, event_id)
     template_type = _validate_template_type(template_type)
     language = _validate_language(language)
@@ -214,10 +199,7 @@ async def preview_email_template(
     principal: Principal = Depends(require_admin_or_agent),
     session: AsyncSession = Depends(get_session),
 ) -> EmailTemplatePreviewResponse:
-    """Render draft (not-yet-saved) subject/body values against sample
-    placeholder data and this event's REAL theme — nothing is persisted.
-    See ``app.services.email_render.render_email_template_preview``.
-    """
+    """Render draft values with sample data and the event's real theme; nothing is saved."""
     event = await _get_event_with_theme_or_404(session, event_id)
     rendered = render_email_template_preview(
         event=event,

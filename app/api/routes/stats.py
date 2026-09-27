@@ -1,17 +1,5 @@
-"""Admin-only Stats & Reporting routes (Milestone 8): a per-Event sales/
-revenue/scan-in dashboard and a CSV export for accounting, per
-PROJECT_BRIEF.md's Stats & Reporting section.
-
-Admin-only (``require_admin``, not ``require_admin_or_agent``) throughout,
-matching every other financial route in this app (``app.api.routes.orders``,
-in particular ``list_orders``/``download_invoice_pdf``): sales figures and
-per-order financial detail are financial/business data, not the
-"content-type data" (events, shows, ticket types, theme fields, email
-template content) the brief scopes agent keys to.
-
-Nested under ``/api/v1/events/{event_id}/...``, mirroring
-``app.api.routes.orders.list_router``'s convention for Event-scoped
-backoffice data views.
+"""Stats dashboard and accounting CSV for one event. Admin-only, like all
+financial routes.
 """
 
 import csv
@@ -37,10 +25,7 @@ router = APIRouter(prefix="/api/v1/events/{event_id}", tags=["stats"])
 
 
 async def _get_event_or_404(session: AsyncSession, event_id: str) -> Event:
-    """Parse and resolve ``event_id``, 404ing (never 400ing on a malformed
-    id) if it doesn't name a real Event — same convention as every other
-    Event-scoped route in this app (see ``app.api.routes._utils.
-    parse_uuid_or_404``)."""
+    """Resolve ``event_id`` or 404."""
     parsed_id = parse_uuid_or_404(event_id, detail="Event not found.")
     event = await session.get(Event, parsed_id)
     if event is None:
@@ -54,16 +39,7 @@ async def get_stats(
     principal: Principal = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ) -> EventStatsOut:
-    """Sales-per-show/ticket-type, online-vs-door revenue split, gross
-    revenue, and scan-in-rate dashboard for one Event.
-
-    See ``app.services.stats.get_event_stats``/module docstring for the
-    exact aggregation queries and the two judgment calls behind this
-    response's numbers: which ``OrderStatus`` values count as settled
-    "revenue" (only ``paid``), and why there is no net-of-fees figure at
-    all (gross revenue only — a deliberate, documented scope reduction,
-    not a missing feature).
-    """
+    """Dashboard payload; see ``app.services.stats`` for what counts as revenue."""
     event = await _get_event_or_404(session, event_id)
     return await get_event_stats(session, event_id=event.id)
 
@@ -74,18 +50,8 @@ async def export_orders_csv(
     principal: Principal = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ) -> Response:
-    """Download a CSV of every Order under this Event, one row per Order,
-    for accounting reconciliation against bank/Mollie statements.
-
-    Unfiltered by status (see ``app.services.stats.
-    get_event_orders_for_export`` docstring) — every Order is included, and
-    the ``status`` column lets the accountant filter out anything
-    non-settled themselves. Encoded UTF-8 with a BOM (``utf-8-sig``) rather
-    than plain UTF-8: buyer names/addresses may contain non-ASCII
-    characters (this app supports Dutch out of the box), and Excel on
-    Windows — the realistic tool an accountant opens this file with — only
-    reliably auto-detects UTF-8 without a manual import step when a BOM is
-    present.
+    """CSV of every order (unfiltered; accountants filter on ``status``). Written as
+    ``utf-8-sig`` so Excel on Windows detects the encoding of non-ASCII names.
     """
     event = await _get_event_or_404(session, event_id)
     orders = await get_event_orders_for_export(session, event_id=event.id)

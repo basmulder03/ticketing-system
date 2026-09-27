@@ -1,17 +1,4 @@
-"""Admin-only agent-account management: create/list/revoke API keys.
-
-This is a minimal Milestone-0 slice of what PROJECT_BRIEF.md calls "Agent
-account management (create/revoke API keys, scope content-management
-access)" — the full CRUD/UI surface lands in Milestone 1 alongside Event
-CRUD. It's built now specifically to give the audit-log mechanism a real,
-demonstrable write path (per this milestone's scope), and because
-agent-key auth (``app.api.deps``) needs at least one way to create the
-accounts it authenticates.
-
-Every route here depends on ``require_admin``, so it is one of the routes
-an agent API key can never reach — content management, not admin user
-management, is what agents get in later milestones.
-"""
+"""Agent API key management (create/list/revoke). Admin-only; agents can never manage agents."""
 
 import uuid
 from datetime import UTC, datetime
@@ -51,12 +38,7 @@ async def create_agent_account(
     principal: Principal = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ) -> AgentAccountCreatedOut:
-    """Create a new named agent account and return its API key.
-
-    The raw API key is only ever present in this one response — it is
-    never stored and cannot be retrieved again; a lost key must be revoked
-    and replaced with a new account.
-    """
+    """Create an agent and return its raw key — shown only in this response, never stored."""
     existing = await session.execute(select(AgentAccount).where(AgentAccount.name == body.name))
     if existing.scalar_one_or_none() is not None:
         raise HTTPException(
@@ -85,7 +67,7 @@ async def create_agent_account(
 async def list_agent_accounts(
     principal: Principal = Depends(require_admin), session: AsyncSession = Depends(get_session)
 ) -> list[AgentAccountOut]:
-    """List all agent accounts (never includes the raw API key)."""
+    """All agent accounts (never raw keys)."""
     result = await session.execute(select(AgentAccount).order_by(AgentAccount.created_at))
     return [_to_out(agent) for agent in result.scalars().all()]
 
@@ -96,11 +78,7 @@ async def revoke_agent_account(
     principal: Principal = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ) -> AgentAccountOut:
-    """Revoke a single agent's API key without affecting any other account.
-
-    Idempotent: revoking an already-revoked account is a no-op (no
-    duplicate audit entry) rather than an error.
-    """
+    """Revoke one agent's key. Idempotent: re-revoking writes no second audit entry."""
     try:
         parsed_id = uuid.UUID(agent_id)
     except ValueError:

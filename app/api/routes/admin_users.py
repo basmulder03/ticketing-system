@@ -1,34 +1,8 @@
-"""Admin-only management of ``AdminUser`` accounts (the human backoffice
-accounts, ``role`` = ``admin`` or ``scanner``).
+"""Management of human backoffice accounts (admin/scanner roles). Admin-only.
 
-Until now the only way to create/deactivate/reset one of these accounts was
-to hand-edit the database via ``scripts/seed.py`` — this module is the
-first real API surface for it, closely mirroring
-``app.api.routes.agent_accounts``'s shape (create/list/revoke) since that's
-this codebase's closest precedent for "admin manages a category of
-accounts". Every route here depends on :func:`app.api.deps.require_admin`,
-so — like agent-account management — it is structurally unreachable with
-an agent API key or a ``scanner``-role session.
-
-Two safety properties are enforced here that are easy to get wrong:
-
-* **Self-deactivation guard** (:func:`deactivate_admin_user`): an admin can
-  never deactivate their own account through this route. Without this, a
-  solo admin (or an admin acting alone) could lock themselves out of the
-  backoffice entirely via a single misclick, with no way back in short of
-  ``scripts/seed.py``/direct DB access.
-
-* **Last-admin safety is a *consequence* of the self-deactivation guard,
-  not a separate check.** Every route in this module requires an
-  ``admin``-role, ``is_active`` principal (that's what ``require_admin``
-  means). Deactivation only ever targets a *different* account than the
-  caller (enforced by the guard above), so the calling admin themselves
-  always remains active immediately after the operation completes — the
-  active-admin count can never drop to zero via this route. A dedicated
-  "don't deactivate the last admin" check would therefore be redundant
-  with the self-deactivation guard; it's deliberately not implemented
-  separately, but this reasoning is spelled out here because it's a real
-  judgment call, not an oversight.
+An admin can't deactivate their own account. That also guarantees at least
+one active admin always remains: the caller is an active admin and stays
+one, so no separate "last admin" check is needed.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -62,12 +36,7 @@ def _to_out(admin: AdminUser) -> AdminUserOut:
 
 
 async def _get_admin_user_or_404(session: AsyncSession, admin_user_id: str) -> AdminUser:
-    """Look up an ``AdminUser`` by path-segment id, or raise a 404.
-
-    Shared by every route below that takes ``admin_user_id`` in the path,
-    so the "malformed UUID looks like 404" behavior (see
-    ``parse_uuid_or_404``) and the not-found message stay consistent.
-    """
+    """Resolve ``admin_user_id`` or 404."""
     parsed_id = parse_uuid_or_404(admin_user_id, detail="Admin user not found.")
     admin = await session.get(AdminUser, parsed_id)
     if admin is None:
@@ -81,32 +50,12 @@ async def create_admin_user(
     principal: Principal = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ) -> AdminUserOut:
-    """Create a new backoffice ``AdminUser`` account.
+    """Create an account. Email is lowercased to match the login lookup.
 
-    Email is lowercased before storage/comparison, matching the login
-    route's lookup (``AdminUser.email == body.email.lower()`` in
-    ``app.api.routes.auth``) and ``scripts/seed.py``'s existing
-    convention — otherwise an account created here with mixed-case email
-    could silently never be able to log in.
-
-    Uniqueness is checked explicitly with a pre-insert ``SELECT`` (matching
-    ``app.api.routes.events.create_event``'s established convention) rather
-    than relying solely on the DB's unique constraint on ``email`` —
-    load-bearing, not a stylistic choice: the audit entry below needs
-    ``admin.id``, which only exists after a ``flush()``, and a flush sends
-    the INSERT to Postgres immediately rather than deferring it to
-    ``commit()`` — so a bare insert-then-flush would raise
-    ``IntegrityError`` right there at ``flush()`` time, ESCAPING
-    :func:`commit_or_conflict`'s try/except entirely (that only wraps the
-    later ``commit()`` call, never reached in that failure path) and
-    surfacing as an unhandled 500 instead of a clean 409. Reproduced and
-    confirmed directly before this fix. ``commit_or_conflict`` is still
-    kept on the final commit below as defense in depth against a genuine
-    race between this check and the insert (two concurrent creates for the
-    same email) — the explicit pre-check is what makes the common,
-    non-racing case return a clean 409, not a crash. The plaintext
-    password is hashed immediately and never stored, logged, returned, or
-    included in the audit detail.
+    The explicit uniqueness pre-check is load-bearing: the audit entry needs
+    the id, so we flush — and an IntegrityError at flush would escape
+    ``commit_or_conflict`` as a 500. The final ``commit_or_conflict`` still covers
+    a genuine race. The password is hashed immediately and never logged.
     """
     email = body.email.lower()
     existing = await session.execute(select(AdminUser).where(AdminUser.email == email))
@@ -138,7 +87,7 @@ async def create_admin_user(
 async def list_admin_users(
     principal: Principal = Depends(require_admin), session: AsyncSession = Depends(get_session)
 ) -> list[AdminUserOut]:
-    """List every ``AdminUser`` account (never includes the password hash)."""
+    """All accounts (never password hashes)."""
     result = await session.execute(select(AdminUser).order_by(AdminUser.created_at))
     return [_to_out(admin) for admin in result.scalars().all()]
 
@@ -149,34 +98,11 @@ async def deactivate_admin_user(
     principal: Principal = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ) -> AdminUserOut:
-    """Deactivate an ``AdminUser`` account, immediately revoking its access.
+    """Deactivate an account. Takes effect immediately: ``is_active`` is checked
+    at login and on every session request. Idempotent.
 
-    ``is_active`` is checked both at login (``app.api.routes.auth.login``)
-    and on every subsequent request that resolves a session cookie
-    (``app.api.deps._load_admin_principal``) — both already existed before
-    this route was added, so deactivating an account here takes effect
-    immediately: it blocks new logins AND invalidates any session the
-    account is already holding, with no separate revocation step needed.
-
-    Refuses to deactivate the caller's own account (see module docstring
-    for the self-deactivation/last-admin reasoning). Idempotent: deactivating
-    an already-inactive account is a no-op (no duplicate audit entry) rather
-    than an error, matching ``agent_accounts.revoke_agent_account``'s
-    idempotency.
-
-    The self-account check compares ``admin.id`` (the resolved ``uuid.UUID``
-    from the DB row, via :func:`_get_admin_user_or_404`) against
-    ``principal.id`` — both real ``UUID`` objects, compared AFTER lookup.
-    Security-reviewer finding: this used to compare the raw, un-normalized
-    ``admin_user_id`` path string against ``str(principal.id)`` BEFORE any
-    lookup — ``str(uuid.UUID(...))`` always normalizes to lowercase, but the
-    client-supplied path segment doesn't, so sending the caller's own id
-    with any hex letter uppercased made the string comparison say "a
-    different account" while the DB lookup (case-insensitive
-    ``uuid.UUID(raw)`` parsing) resolved to the SAME account — letting an
-    admin bypass this guard entirely via a trivial case change. Reproduced
-    directly before this fix. Comparing parsed ``UUID`` objects, not raw
-    strings, closes this for good (no normalization step to get wrong).
+    Refuses the caller's own account. Compare parsed ``UUID`` objects, never the
+    raw path string: a string comparison let an uppercased id bypass this guard.
     """
     admin = await _get_admin_user_or_404(session, admin_user_id)
     if admin.id == principal.id:
@@ -205,12 +131,7 @@ async def reactivate_admin_user(
     principal: Principal = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ) -> AdminUserOut:
-    """Reactivate a previously-deactivated ``AdminUser`` account.
-
-    No self/last-admin restriction applies here — reactivation only ever
-    grants access back, it can't be used to lock anyone out. Idempotent
-    like :func:`deactivate_admin_user`.
-    """
+    """Reactivate an account. No self-restriction (it only grants access). Idempotent."""
     admin = await _get_admin_user_or_404(session, admin_user_id)
     if not admin.is_active:
         admin.is_active = True
@@ -233,41 +154,13 @@ async def reset_admin_user_password(
     principal: Principal = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ) -> AdminUserOut:
-    """Set a new password for an ``AdminUser`` account.
+    """Set a new password.
 
-    Two legitimate cases, deliberately handled differently:
-
-    * **Resetting someone ELSE's password** (``admin_user_id != principal.id``):
-      no current-password check — that's the entire point of an
-      admin-assisted reset (e.g. the target forgot their password and can't
-      supply it). Any active admin can do this to any other account.
-
-    * **Resetting your OWN password** (``admin_user_id == principal.id``):
-      ``body.current_password`` is required and must verify against the
-      account's existing hash. Without this, a hijacked/stolen session
-      cookie could silently rotate the password to something only the
-      attacker knows — a quiet full account takeover — with no additional
-      proof the caller is the legitimate account holder. Requiring the
-      current password here closes that gap the same way most account
-      systems do for a self-service password change.
-
-    Never logs the old or new password; the audit entry records only which
-    account was affected.
-
-    ``is_self_reset`` compares the resolved ``admin.id`` (a real
-    ``uuid.UUID``, from :func:`_get_admin_user_or_404`) against
-    ``principal.id`` — both ``UUID`` objects, never raw strings.
-    Security-reviewer finding: comparing the raw ``admin_user_id`` path
-    string against ``str(principal.id)`` (fixed here) let an admin reset
-    their OWN password with no ``current_password`` at all by uppercasing
-    any hex letter in their own id — the string comparison said "not a
-    self-reset" (skipping the current-password requirement entirely) while
-    the DB lookup still resolved to the caller's own account. This defeated
-    the exact protection this check exists for: a hijacked/stolen session
-    cookie could silently rotate the account's own password with zero
-    proof of current-password knowledge. Reproduced directly before this
-    fix. See :func:`deactivate_admin_user` for the sibling instance of the
-    same bug, fixed the same way.
+    Resetting someone else's needs no current password (that's the point of an
+    assisted reset). Resetting your *own* requires ``current_password``, so a
+    stolen session can't take over the account. As in
+    :func:`deactivate_admin_user`, "own" is decided by comparing parsed UUIDs — a
+    raw string comparison once let an uppercased id skip the check.
     """
     admin = await _get_admin_user_or_404(session, admin_user_id)
     is_self_reset = admin.id == principal.id

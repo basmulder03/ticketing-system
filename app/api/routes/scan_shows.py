@@ -1,14 +1,5 @@
-"""Scanner-facing Show lookup (Milestone 7 frontend): backs the show-picker
-page (``GET /scan``) and threads a Show's parent ``event_id``/name into the
-camera-scanning page (``GET /scan/{show_id}``) — see
-``app.schemas.scan_shows`` for why this is its own module rather than
-reusing ``app.api.routes.shows``' admin/agent-only, event-nested CRUD
-routes.
-
-Gated by the existing ``require_scanner_or_admin`` dependency (imported,
-never modified here — see ``app.api.deps`` for its docstring) so a
-scanner-role human can reach exactly these two read-only routes plus the
-actual scan route, and nothing else content- or payment-adjacent.
+"""Show lookup for the scanner's show picker and scan page. Scanner or admin
+only, and read-only — scanners get nothing else content- or payment-related.
 """
 
 import uuid
@@ -27,22 +18,10 @@ from app.schemas.scan_shows import ScannableShowOut
 
 router = APIRouter(prefix="/api/v1/scan/shows", tags=["scan"])
 
-# How far into the future the show-picker list looks. Scoped to "near-term"
-# per this milestone's brief ("reasonable to scope this to upcoming/
-# near-term Shows only... your call on the exact filter, but document it")
-# rather than listing every Show ever created, which would grow unbounded
-# for a long-lived install. 60 days comfortably covers "the run currently
-# selling/playing" for this app's target use case (single shows/short runs)
-# without staff having to page/search. The single-show detail route below
-# (used by the actual scanning page) deliberately does NOT apply this
-# window — a show already reachable by a direct link/QR context should
-# never 404 just because it fell out of the picker's near-term list.
+# Picker window: 60 days ahead keeps the list short for long-lived installs.
+# The single-show route deliberately ignores it.
 _LOOKAHEAD = timedelta(days=60)
-# A show that started earlier today is still worth showing (doors staff
-# often start scanning before midnight rolls over on a show whose ``date``
-# is technically "today"); a small one-day grace window avoids a show
-# vanishing from the picker moments after midnight while it's still
-# actively letting people in.
+# One day back, so a show being scanned doesn't vanish at midnight.
 _LOOKBACK = timedelta(days=1)
 
 
@@ -64,14 +43,8 @@ async def list_scannable_shows(
     principal: Principal = Depends(require_scanner_or_admin),
     session: AsyncSession = Depends(get_session),
 ) -> list[ScannableShowOut]:
-    """List near-term Shows (see :data:`_LOOKAHEAD`/:data:`_LOOKBACK`) a
-    scanner/admin principal may pick to start scanning for, earliest first.
-
-    Deliberately not filtered by ``PublishStatus`` — a draft Show (e.g. a
-    private/test run, or a show an admin hasn't published sales for yet but
-    still wants to door-test scanning against) is just as scannable as a
-    published one; "draft" only governs public checkout visibility
-    elsewhere, not entry validation.
+    """Shows in the near-term window, earliest first. Not filtered by publish
+    status: draft shows can still be scanned (e.g. test runs).
     """
     today = datetime.now(UTC).date()
     window_start: date = today - _LOOKBACK
@@ -91,10 +64,7 @@ async def get_scannable_show(
     principal: Principal = Depends(require_scanner_or_admin),
     session: AsyncSession = Depends(get_session),
 ) -> ScannableShowOut:
-    """Fetch one Show by id for the camera-scanning page — no date-window
-    filter (see :func:`list_scannable_shows`'s docstring), 404 for an
-    unknown/malformed id, mirroring ``app.api.routes.scan.scan``'s own
-    404 handling for the same ``show_id`` path segment."""
+    """One show for the scan page — no date window, so a direct link never 404s for age."""
     parsed_show_id: uuid.UUID = parse_uuid_or_404(show_id, detail="Show not found.")
     result = await session.execute(
         select(Show).where(Show.id == parsed_show_id).options(selectinload(Show.event))

@@ -1,11 +1,5 @@
-"""Theme routes: get/upsert an Event's Theme, logo/background image upload,
-"duplicate theme from previous event", and the draft-values live-preview
-endpoint.
-
-Content-type data per PROJECT_BRIEF.md's AI/Agent Access section (theme
-fields are explicitly listed as agent-accessible) — every route here uses
-``require_admin_or_agent``, same as Event/Show/TicketType, never
-``require_admin``.
+"""Theme routes: get/upsert, logo/background upload, copying from another
+event, and live preview. Admin or agent.
 """
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
@@ -35,13 +29,9 @@ from app.services.theme_preview import build_theme_preview
 router = APIRouter(prefix="/api/v1/events/{event_id}/theme", tags=["theme"])
 
 _COPYABLE_FIELDS = ("primary_color", "secondary_color", "accent_color", "font_choice", "custom_css", "status")
-"""Fields duplicated by "duplicate theme from previous event". Deliberately
-excludes ``logo_path``/``background_image_path``: copying a reference to
-another event's uploaded image file would couple the two events' storage
-lifetimes together (deleting/replacing the source event's logo would
-silently break the target's), which is surprising and avoidable — operators
-re-upload images per event instead. Mirrors ``event_configs.py``'s
-``_COPYABLE_FIELDS`` excluding ``sales_live_at`` for an analogous reason."""
+"""Fields copied between events. Not the images: sharing a file would tie the
+two events' storage together, so images are re-uploaded per event.
+"""
 
 
 def _contrast_report_out(report: ThemeContrastReport) -> ContrastReportOut:
@@ -109,7 +99,7 @@ async def get_theme(
     principal: Principal = Depends(require_admin_or_agent),
     session: AsyncSession = Depends(get_session),
 ) -> ThemeOut:
-    """Fetch the given Event's theme, including a freshly computed AA contrast report."""
+    """The event's theme with a fresh contrast report."""
     event = await _get_event_or_404(session, event_id)
     theme = await _get_theme_or_404(session, event)
     return _to_out(theme)
@@ -122,14 +112,8 @@ async def upsert_theme(
     principal: Principal = Depends(require_admin_or_agent),
     session: AsyncSession = Depends(get_session),
 ) -> ThemeOut:
-    """Create or update the given Event's theme.
-
-    Only fields explicitly present in the request body are applied. If
-    ``custom_css`` is present, it is sanitized (see
-    ``app.core.css_sanitizer.sanitize_custom_css``) BEFORE being stored —
-    the raw submitted text is never persisted, only the sanitized result
-    (an empty/whitespace-only or fully-stripped input is stored as
-    ``NULL``, matching ``is_custom_css_active`` semantics).
+    """Create or update the theme; omitted fields stay unchanged. ``custom_css``
+    is sanitized before storage (never stored raw); an empty result is ``NULL``.
     """
     event = await _get_event_or_404(session, event_id)
     result = await session.execute(select(Theme).where(Theme.event_id == event.id))
@@ -166,9 +150,7 @@ async def upload_theme_logo(
     principal: Principal = Depends(require_admin_or_agent),
     session: AsyncSession = Depends(get_session),
 ) -> ThemeOut:
-    """Upload (replacing, if present) the theme's logo image. Creates the
-    Theme row first if it doesn't exist yet. The previous logo file (if
-    any) is deleted from disk after the new one is stored."""
+    """Replace the logo (creating the theme if needed); the old file is then deleted."""
     event = await _get_event_or_404(session, event_id)
     result = await session.execute(select(Theme).where(Theme.event_id == event.id))
     theme = result.scalar_one_or_none()
@@ -201,7 +183,7 @@ async def delete_theme_logo(
     principal: Principal = Depends(require_admin_or_agent),
     session: AsyncSession = Depends(get_session),
 ) -> ThemeOut:
-    """Clear the theme's logo image and delete the underlying file."""
+    """Clear the logo and delete its file."""
     event = await _get_event_or_404(session, event_id)
     theme = await _get_theme_or_404(session, event)
     old_path = theme.logo_path
@@ -223,8 +205,7 @@ async def upload_theme_background(
     principal: Principal = Depends(require_admin_or_agent),
     session: AsyncSession = Depends(get_session),
 ) -> ThemeOut:
-    """Upload (replacing, if present) the theme's background/hero image.
-    Same behavior as :func:`upload_theme_logo`, for the background slot."""
+    """Like :func:`upload_theme_logo`, for the background image."""
     event = await _get_event_or_404(session, event_id)
     result = await session.execute(select(Theme).where(Theme.event_id == event.id))
     theme = result.scalar_one_or_none()
@@ -257,7 +238,7 @@ async def delete_theme_background(
     principal: Principal = Depends(require_admin_or_agent),
     session: AsyncSession = Depends(get_session),
 ) -> ThemeOut:
-    """Clear the theme's background image and delete the underlying file."""
+    """Clear the background and delete its file."""
     event = await _get_event_or_404(session, event_id)
     theme = await _get_theme_or_404(session, event)
     old_path = theme.background_image_path
@@ -279,13 +260,7 @@ async def copy_theme(
     principal: Principal = Depends(require_admin_or_agent),
     session: AsyncSession = Depends(get_session),
 ) -> ThemeOut:
-    """"Duplicate theme from previous event": copy another event's theme
-    colors/font/custom CSS/status onto this event's theme.
-
-    Creates this event's Theme if it doesn't exist yet; overwrites the
-    copyable fields if it does. Logo/background images are NOT copied — see
-    ``_COPYABLE_FIELDS``.
-    """
+    """Copy another event's colors, font, custom CSS and status (not images)."""
     target_event = await _get_event_or_404(session, event_id)
     source_event = await _get_event_or_404(session, source_event_id)
     if target_event.id == source_event.id:
@@ -330,14 +305,8 @@ async def preview_theme(
     principal: Principal = Depends(require_admin_or_agent),
     session: AsyncSession = Depends(get_session),
 ) -> ThemePreviewResponse:
-    """Render a live preview of arbitrary, not-yet-saved theme values.
-
-    Nothing is persisted by this endpoint. ``custom_css`` in the request
-    body goes through the exact same :func:`sanitize_custom_css` call as
-    the real save path in :func:`upsert_theme` — the preview path never
-    skips or relaxes sanitization. The ``event_id`` path parameter only
-    confirms the event exists (and thus the caller's access to it); no
-    Theme row is read or required.
+    """Preview unsaved values; nothing is stored. Custom CSS goes through the same
+    sanitizer as saving. ``event_id`` only checks access; no Theme row is needed.
     """
     await _get_event_or_404(session, event_id)
     result = build_theme_preview(

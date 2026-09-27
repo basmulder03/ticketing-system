@@ -1,9 +1,4 @@
-"""Read-only audit-log viewer route.
-
-Admin-only per PROJECT_BRIEF.md: agent keys must never be able to touch
-the audit log itself, which ``require_admin`` enforces structurally (see
-``app.api.deps``).
-"""
+"""Read-only audit-log route. Admin-only: agents must never read or touch the audit log."""
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
@@ -23,11 +18,7 @@ async def list_audit_log(
     session: AsyncSession = Depends(get_session),
     limit: int = 100,
 ) -> list[AuditLogEntryOut]:
-    """Return the most recent audit entries, newest first. Admin-only.
-
-    ``limit`` is clamped to ``[1, 500]`` to prevent an accidentally huge
-    unbounded query.
-    """
+    """Most recent entries, newest first. ``limit`` is clamped to 1-500."""
     clamped_limit = max(1, min(limit, 500))
     result = await session.execute(
         select(AuditLogEntry).order_by(AuditLogEntry.created_at.desc()).limit(clamped_limit)

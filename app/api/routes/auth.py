@@ -1,19 +1,8 @@
-"""Admin session-login routes.
+"""Admin session login/logout and first-run admin setup.
 
-Only the admin (session) auth path lives here. Agent API-key auth has no
-"login" endpoint by design — the key itself, sent on the
-``X-Agent-Api-Key`` header of each request, is the credential (see
-``app.api.deps``).
-
-Post-launch fix: also the initial-admin-account setup routes
-(``setup_required``/``setup``) — per the user's NOTES: "The initial admin
-account is currently being created by setting the environment variables.
-I don't really like that flow." ``scripts/seed.py``'s env-var-driven
-``AdminUser`` creation remains exactly as it was (still explicitly a local
-dev convenience — see its own module docstring), but a fresh, real
-deployment now has a real in-app way to get its first admin account
-instead of needing shell access to set ``SEED_ADMIN_EMAIL``/
-``SEED_ADMIN_PASSWORD`` and run a script.
+Agents have no login: their API key header is the credential. The setup
+routes replace needing env vars and a script to create the first admin;
+``scripts/seed.py`` remains a local-dev convenience only.
 """
 
 from datetime import UTC, datetime
@@ -66,14 +55,10 @@ def _set_session_cookie(response: Response, admin_id: str) -> None:
 async def login(
     body: LoginRequest, response: Response, session: AsyncSession = Depends(get_session)
 ) -> PrincipalOut:
-    """Authenticate an admin user by email/password and set a signed session cookie.
+    """Check email/password and set a signed session cookie.
 
-    Returns a generic 401 for both "no such user" and "wrong password" so
-    the response can't be used to enumerate registered admin emails — the
-    password hash check runs unconditionally (against a dummy hash when the
-    account doesn't exist/isn't active) so the response also can't be
-    distinguished by timing.
-    Rate-limited per client IP (see ``app.core.rate_limit``).
+    "No such user" and "wrong password" get the same 401 and take the same time
+    (dummy hash), so emails can't be enumerated. Rate-limited per IP.
     """
     result = await session.execute(select(AdminUser).where(AdminUser.email == body.email.lower()))
     admin = result.scalar_one_or_none()
@@ -95,14 +80,14 @@ async def login(
 
 @router.post("/logout")
 async def logout(response: Response) -> dict[str, str]:
-    """Clear the admin session cookie. Idempotent — safe to call when not logged in."""
+    """Clear the session cookie. Idempotent."""
     response.delete_cookie(ADMIN_SESSION_COOKIE_NAME)
     return {"status": "logged_out"}
 
 
 @router.get("/me")
 async def me(principal: Principal = Depends(get_current_principal)) -> PrincipalOut:
-    """Return the currently authenticated principal (admin or agent)."""
+    """The current principal (admin or agent)."""
     return _to_principal_out(principal)
 
 
@@ -113,10 +98,7 @@ async def _admin_count(session: AsyncSession) -> int:
 
 @router.get("/setup-required")
 async def setup_required(session: AsyncSession = Depends(get_session)) -> SetupRequiredOut:
-    """Whether this deployment still needs its very first ``AdminUser``
-    account — deliberately unauthenticated (there's no admin to
-    authenticate as yet) so the login/setup pages can check it before
-    anyone has signed in at all. See :func:`setup`."""
+    """Whether no admin exists yet. Unauthenticated on purpose — nobody can log in yet."""
     return SetupRequiredOut(setup_required=(await _admin_count(session)) == 0)
 
 
@@ -124,26 +106,12 @@ async def setup_required(session: AsyncSession = Depends(get_session)) -> SetupR
 async def setup(
     body: InitialAdminSetupRequest, response: Response, session: AsyncSession = Depends(get_session)
 ) -> PrincipalOut:
-    """Create this deployment's very first ``AdminUser`` account and log
-    them in immediately — post-launch fix, see this module's docstring.
+    """Create the very first admin and log them in. 409 forever once any admin
+    exists; later accounts come from the admin-only user management.
 
-    NOT a general "create an admin" endpoint (that's the admin-only
-    ``POST /api/v1/admin/admin-users``, see ``app.api.routes.
-    admin_users``): only reachable while zero ``AdminUser`` rows exist at
-    all. Once the very first one is created, this permanently 409s —
-    every account after that goes through the normal admin-only
-    admin-user-management flow instead, same "someone who is already an
-    admin invites/creates the next one" model most self-hosted apps use.
-
-    Race note: two truly concurrent calls could both observe zero admins
-    and both succeed, creating two initial accounts instead of one —
-    accepted here rather than adding a Postgres advisory lock, since the
-    realistic "attacker" is the deployer's own browser in the few seconds
-    right after their own ``docker compose up``, and the worst outcome
-    (two legitimate admin accounts instead of one) is not a security
-    problem, unlike ``app.api.routes.admin_users.create_admin_user``'s
-    email-uniqueness race, which the pre-check + ``commit_or_conflict``
-    combination there already tolerates the same way.
+    Two truly simultaneous calls could both succeed and create two admins.
+    Accepted: the only realistic caller is the deployer right after first
+    boot, and two legitimate admins isn't a security problem.
     """
     if (await _admin_count(session)) > 0:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Setup has already been completed.")
