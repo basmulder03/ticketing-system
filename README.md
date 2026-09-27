@@ -14,16 +14,11 @@ requirements, build order, and contributor-agent responsibilities — lives
 in [`PROJECT_BRIEF.md`](./PROJECT_BRIEF.md). Read that first for context on
 what's in scope and why.
 
-> **Status:** Through Milestone 1.5 (Event Theming). Foundations
-> (Milestone 0: project skeleton, local dev stack, CI, encrypted-secrets
-> primitive, admin session auth, agent API-key auth with scope
-> enforcement, audit log), Backoffice core (Milestone 1: Event/EventConfig/
-> Show/TicketType CRUD, connection-test actions), and Event Theming
-> (Milestone 1.5: Theme CRUD, sanitized custom-CSS override, AA contrast
-> checking, logo/background image uploads, live-preview endpoint) are in
-> place, all API-only so far — no backoffice UI or public-site templates
-> exist yet (`frontend-theming`'s next scope). See `PROJECT_BRIEF.md`'s
-> "Build order" section for what's next.
+> **Status:** Feature-complete through the brief's build order (Milestones
+> 0–9): backoffice, per-event theming, public site and checkout, Mollie /
+> door / demo payments, ticket delivery, invoicing, scanning app, stats,
+> GDPR tooling and a beamer countdown view. What's left is deployment
+> infrastructure. See `CHANGELOG.md` for details.
 
 ## Stack
 
@@ -62,8 +57,8 @@ On startup, the `app` container automatically waits for Postgres and runs
 step needed.
 
 `scripts/seed.py` runs automatically as part of `dev-up.sh`/`dev-reseed.sh`
-and creates one demo `AdminUser` (see "Auth" below). Event/Show/TicketType
-demo seed data is added in Milestone 1+.
+and creates a demo `AdminUser` (see "Auth" below) plus a demo
+Event/Show/TicketType.
 
 ### Auth
 
@@ -88,9 +83,8 @@ demo seed data is added in Milestone 1+.
   `POST /api/v1/admin/agent-accounts` (admin-only; the raw key is shown
   exactly once) and revoked via
   `POST /api/v1/admin/agent-accounts/{id}/revoke`. Agent keys can never
-  reach admin-only routes (agent-account management, the audit log, and —
-  in later milestones — payment/SMTP credentials, admin user management,
-  financial data) — enforced by the `require_admin` dependency in
+  reach admin-only routes (agent-account and admin-user management, the
+  audit log, payment/SMTP credentials, financial data) — enforced by the `require_admin` dependency in
   `app/api/deps.py`, not just documented.
 - **Audit log:** every login and every agent-account create/revoke is
   recorded with an explicit actor type (`human` or `ai_agent`) and actor
@@ -170,7 +164,7 @@ local dev (`dev-up.sh` does this automatically).
 
 Per `PROJECT_BRIEF.md`, SMTP and Mollie credentials are **not** global
 application settings — they live on each Event's `EventConfig`, entered
-through the backoffice once it exists (Milestone 1+). This means different
+through the backoffice. This means different
 events can use entirely different email accounts or Mollie merchant
 accounts without any code or redeploy.
 
@@ -225,23 +219,16 @@ already runs in CI on every push and is separate from this). See
 
 ```
 app/                  FastAPI application package
-  core/config.py       Settings (env-driven)
-  core/crypto.py       Fernet encryption primitive + EncryptedString column type
-  core/security.py     Password hashing, agent API-key gen, session token signing
-  core/rate_limit.py   In-memory per-IP rate limiter
-  core/css_sanitizer.py Sanitizer for Theme custom CSS (default-deny, tinycss2-based)
+  core/                Settings, encryption, security, rate limiting, CSS sanitizer,
+                        QR tokens, Jinja environments
   db/                  SQLAlchemy engine/session, declarative Base, shared mixins
-  models/               AdminUser, AgentAccount, AuditLogEntry, Event, EventConfig,
-                         Show, TicketType, Theme
-  schemas/               Pydantic request/response models
-  services/audit.py     Reusable audit-log writer
-  services/contrast.py  WCAG 2.1 AA contrast-ratio checker (Theme fixed colors)
-  services/theme_images.py   Local-filesystem storage for logo/background uploads
-  services/theme_preview.py  Builds the Theme live-preview response
-  api/deps.py           Auth dependencies + agent-scoping enforcement (require_admin)
-  api/routes/            auth, agent_accounts, audit_log, events, event_configs,
-                          shows, ticket_types, themes routers
-  templates/, static/  Jinja2 templates / static assets (empty — Milestone 2+)
+  models/              ORM models (events, orders, tickets, invoices, themes, accounts, ...)
+  schemas/             Pydantic request/response models
+  services/            Business logic (checkout, stock, payments, invoicing, delivery,
+                        scanning, stats, GDPR, order expiry, ...)
+  api/                 JSON API: auth dependencies (api/deps.py) and routers
+  web/                 HTML routes (backoffice, public site, scanner) calling the API in-process
+  templates/, static/  Jinja2 templates (backoffice, public, scan, beamer) / CSS + JS
   i18n/                EN/NL key-based translation dictionaries
 alembic/               DB migrations
 scripts/

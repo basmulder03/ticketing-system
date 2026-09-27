@@ -110,20 +110,11 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
 
 
 def _make_client(host: str | None = None) -> AsyncClient:
-    """Build an ``AsyncClient`` wired directly to the ASGI app (no real socket).
+    """An ``AsyncClient`` wired straight to the ASGI app, on pytest-asyncio's loop
+    (the routes await real asyncpg sessions, so TestClient's sync bridge won't do).
 
-    Uses ``httpx.AsyncClient`` + ``ASGITransport`` rather than
-    ``starlette.testclient.TestClient`` (used by the Milestone-0 health
-    smoke test): every route exercised here awaits a real asyncpg session
-    on the same event loop pytest-asyncio is already running, and this
-    httpx/starlette pairing prints a deprecation warning when TestClient's
-    sync-over-async bridge is used instead.
-
-    Each client gets its own random pseudo-IP by default (``request.client
-    .host`` doesn't have to be a real routable address, just a stable key)
-    so the per-IP rate limiter (``app.core.rate_limit``) never accidentally
-    shares a bucket across unrelated tests. Pass an explicit ``host`` when a
-    test specifically needs to compare behavior across two IPs or reuse one.
+    Each client gets a random pseudo-IP so tests never share a rate-limit
+    bucket; pass ``host`` to reuse or compare IPs deliberately.
     """
     resolved_host = host or f"test-{uuid.uuid4().hex[:12]}"
     transport = ASGITransport(app=app, client=(resolved_host, 12345))

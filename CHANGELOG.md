@@ -10,6 +10,45 @@ once it reaches a tagged release.
 
 ### Added
 
+- First-run setup: a fresh deployment creates its first admin at `/setup`
+  in the browser; later admins are managed from the backoffice (#25).
+- Public homepage at `/`: redirects to an optional default event, otherwise
+  lists published events (#24).
+- Manual ticket issuing by admins, bypassing online payment (#23).
+- Duplicate a show as the starting point for a new one (#22).
+- Generalized payment methods and a `demo` payment provider (#21).
+- Theme editor suggests the closest AA-compliant color for failing pairs (#20).
+- Styled in-app confirm/prompt dialogs replacing `window.confirm()`/`prompt()` (#19).
+- Design system rolled out across the public site and backoffice (#16).
+- Backoffice management UI for events, shows, settings, agent accounts, the
+  audit log and admin users (#15).
+- Automatic expiry of stale pending orders, GDPR erasure UI, privacy policy
+  content (#14).
+- Milestone 9: GDPR tooling, print/batch ticket printing, beamer countdown
+  view, full accessibility/responsive audit, Locust load-test tooling (#13).
+- Milestone 8: stats & reporting dashboard (#12).
+- Milestone 7: scanning app with QR check-in (#11).
+- Milestone 6: pay at the door and manual payment handling (#10).
+- Milestone 5: invoicing with PDF invoices (#9).
+- Milestone 4: ticket generation and delivery — QR codes, PDFs, email (#8).
+- Milestone 3: Mollie payments, webhook, idempotent settlement (#7).
+- Milestone 2: orders/tickets, checkout with row-locked stock, preview
+  tokens, public landing page, EN/NL i18n, accessibility tests (#5, #6).
+
+### Changed
+
+- Project cleanup: shared `api_error_detail` helper for the web routes,
+  concise and corrected docstrings/comments throughout, README/CHANGELOG
+  brought up to date, test-infra fixes (ASGI health test, Mailpit search).
+
+### Fixed
+
+- Switching the default event could violate its unique index (#25).
+- Two gaps from manual testing: ticketless shows, door-payment confirmation (#17).
+- Theme/email live previews never updated live (#18).
+
+### Added (Milestones 0–1.5)
+
 - Milestone 1.5 (Event Theming): `Theme` model (1:1 with `Event`, fixed
   `primary_color`/`secondary_color`/`accent_color`/`font_choice` fields,
   optional sanitized `custom_css`, draft/published `status`) and CRUD
