@@ -121,9 +121,11 @@ class ScanOutcome(str, enum.Enum):
 class ThemeFont(str, enum.Enum):
     """Fixed font choices (never free text, so no arbitrary external font URLs).
 
-    The non-system fonts aren't self-hosted yet, so they only render where the
-    visitor has them installed; otherwise the fallback stack in
-    ``app.services.theme_preview.FONT_STACKS`` applies.
+    The non-system fonts are self-hosted static WOFF2 files (``app/static/
+    fonts/``, declared in ``app/static/fonts.css``) — never a third-party CDN,
+    which would leak visitor IPs to it. See ``app.services.theme_preview
+    .FONT_STACKS`` for the fallback stack each one degrades to before its font
+    file loads.
     """
 
     SYSTEM_SANS = "system-sans"

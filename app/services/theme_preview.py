@@ -24,8 +24,9 @@ FONT_STACKS: dict[ThemeFont, str] = {
     ThemeFont.MERRIWEATHER: "'Merriweather', Georgia, serif",
     ThemeFont.PLAYFAIR_DISPLAY: "'Playfair Display', Georgia, serif",
 }
-"""``font-family`` stack per ``ThemeFont``. Named web fonts aren't self-hosted
-or loaded from a CDN, so they fall back to system fonts unless installed.
+"""``font-family`` stack per ``ThemeFont``. The named fonts are self-hosted
+(``app/static/fonts.css``); each fallback is only what renders before that
+font file loads, or if it somehow fails to.
 """
 
 

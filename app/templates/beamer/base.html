@@ -15,6 +15,7 @@
   <meta name="robots" content="noindex, nofollow">
   <title>{% block title %}{{ translate('app.name', locale) }}{% endblock %}</title>
   <link rel="stylesheet" href="/static/beamer.css">
+  <link rel="stylesheet" href="/static/fonts.css">
   {% block theme_style %}{% endblock %}
   {# Loaded in this order deliberately: countdown.js defines
      window.BeaconCountdown before beamer.js's DOMContentLoaded handler
