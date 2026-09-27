@@ -157,7 +157,7 @@ async def test_audit_log_route_lists_entries_newest_first_for_an_admin(
     response = await client.get("/api/v1/admin/audit-log")
 
     assert response.status_code == 200
-    entries = response.json()
+    entries = response.json()["entries"]
     actions = [entry["action"] for entry in entries]
     # Both the login and the agent-account create wrote an entry; the most
     # recent action (the create) comes first.
@@ -165,3 +165,114 @@ async def test_audit_log_route_lists_entries_newest_first_for_an_admin(
     assert "admin_user.login" in actions
     created_ats = [entry["created_at"] for entry in entries]
     assert created_ats == sorted(created_ats, reverse=True)
+
+
+# --- Filtering --------------------------------------------------------------
+
+
+async def test_audit_log_route_filters_by_action_substring(
+    client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]]
+) -> None:
+    seeded = await make_admin_user()
+    await _login(client, seeded)
+    await client.post("/api/v1/admin/agent-accounts", json={"name": "content-bot"})
+
+    response = await client.get("/api/v1/admin/audit-log", params={"action": "agent_account"})
+
+    assert response.status_code == 200
+    entries = response.json()["entries"]
+    assert entries
+    assert all("agent_account" in e["action"] for e in entries)
+    assert all(e["action"] != "admin_user.login" for e in entries)
+
+
+async def test_audit_log_route_filters_by_actor_type(
+    client: AsyncClient,
+    make_admin_user: Callable[..., Awaitable[SeededAdmin]],
+    client_factory: Callable[[str | None], AsyncClient],
+) -> None:
+    await _login(client, await make_admin_user())
+    create_agent = await client.post("/api/v1/admin/agent-accounts", json={"name": "audit-filter-agent"})
+    raw_key = create_agent.json()["api_key"]
+
+    async with client_factory(None) as agent_client:
+        agent_event = await agent_client.post(
+            "/api/v1/events",
+            json={"name": "Agent Event", "slug": "agent-event-audit-filter"},
+            headers={"X-Agent-Api-Key": raw_key},
+        )
+        assert agent_event.status_code == 201
+
+    response = await client.get("/api/v1/admin/audit-log", params={"actor_type": "ai_agent"})
+
+    assert response.status_code == 200
+    entries = response.json()["entries"]
+    assert entries
+    assert all(e["actor_type"] == "ai_agent" for e in entries)
+
+
+async def test_audit_log_route_filters_by_target_type(
+    client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]]
+) -> None:
+    await _login(client, await make_admin_user())
+    await client.post("/api/v1/admin/agent-accounts", json={"name": "content-bot"})
+
+    response = await client.get("/api/v1/admin/audit-log", params={"target_type": "AgentAccount"})
+
+    assert response.status_code == 200
+    entries = response.json()["entries"]
+    assert entries
+    assert all(e["target_type"] == "AgentAccount" for e in entries)
+
+
+# --- Keyset pagination --------------------------------------------------------
+
+
+async def test_audit_log_route_has_more_and_before_cursor_page_without_gaps_or_duplicates(
+    client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]]
+) -> None:
+    seeded = await make_admin_user()
+    await _login(client, seeded)
+    # 3 more agent-account creates on top of the login entry = 4 total.
+    for i in range(3):
+        await client.post("/api/v1/admin/agent-accounts", json={"name": f"bot-{i}"})
+
+    first_page = await client.get("/api/v1/admin/audit-log", params={"limit": 2})
+    assert first_page.status_code == 200
+    first_body = first_page.json()
+    assert len(first_body["entries"]) == 2
+    assert first_body["has_more"] is True
+
+    last_id = first_body["entries"][-1]["id"]
+    second_page = await client.get("/api/v1/admin/audit-log", params={"limit": 2, "before": last_id})
+    assert second_page.status_code == 200
+    second_body = second_page.json()
+    assert len(second_body["entries"]) == 2
+    assert second_body["has_more"] is False
+
+    first_ids = {e["id"] for e in first_body["entries"]}
+    second_ids = {e["id"] for e in second_body["entries"]}
+    assert first_ids.isdisjoint(second_ids), "no entry must appear on both pages"
+    assert len(first_ids | second_ids) == 4, "every entry must appear exactly once across both pages"
+
+
+async def test_audit_log_route_unknown_cursor_returns_404(
+    client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]]
+) -> None:
+    await _login(client, await make_admin_user())
+
+    response = await client.get(
+        "/api/v1/admin/audit-log", params={"before": "00000000-0000-0000-0000-000000000000"}
+    )
+
+    assert response.status_code == 404
+
+
+async def test_audit_log_route_malformed_cursor_returns_404(
+    client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]]
+) -> None:
+    await _login(client, await make_admin_user())
+
+    response = await client.get("/api/v1/admin/audit-log", params={"before": "not-a-uuid"})
+
+    assert response.status_code == 404

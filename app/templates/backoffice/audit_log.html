@@ -13,18 +13,40 @@
 <div class="bo-banner bo-banner--error" role="alert">{{ entries_error }}</div>
 {% endif %}
 
-<form method="get" action="/audit-log" class="bo-inline-form">
-  <label for="audit-limit">Show</label>
-  <select id="audit-limit" name="limit">
-    {% for option in allowed_limits %}
-    <option value="{{ option }}" {% if option == limit %}selected{% endif %}>{{ option }} most recent</option>
-    {% endfor %}
-  </select>
+<form method="get" action="/audit-log" class="bo-inline-form bo-inline-form--wrap">
+  <div class="bo-field">
+    <label for="audit-actor-type">Actor type</label>
+    <select id="audit-actor-type" name="actor_type">
+      <option value="">Any</option>
+      {% for value, label in actor_type_choices %}
+      <option value="{{ value }}" {% if value == actor_type %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="bo-field">
+    <label for="audit-action">Action contains</label>
+    <input type="text" id="audit-action" name="action" value="{{ action }}" placeholder="e.g. order.mark_paid">
+  </div>
+  <div class="bo-field">
+    <label for="audit-target-type">Target type</label>
+    <input type="text" id="audit-target-type" name="target_type" value="{{ target_type }}" placeholder="e.g. Order">
+  </div>
+  <div class="bo-field">
+    <label for="audit-limit">Per page</label>
+    <select id="audit-limit" name="limit">
+      {% for option in allowed_limits %}
+      <option value="{{ option }}" {% if option == limit %}selected{% endif %}>{{ option }}</option>
+      {% endfor %}
+    </select>
+  </div>
   <button type="submit" class="bo-button bo-button--small">Apply</button>
+  {% if is_filtered or is_paged %}
+  <a href="/audit-log" class="bo-button bo-button--small bo-button--ghost">Clear</a>
+  {% endif %}
 </form>
 <p class="bo-hint bo-hint--small">
-  Newest first. There is no filtering by actor/action/date and no pagination beyond this count yet
-  &mdash; for a long-running event's full history, some older entries may not be shown here.
+  Newest first. "Action contains" matches anywhere in the dotted action name (case-insensitive).
+  {% if is_paged %}Showing entries older than a previous page's last row.{% endif %}
 </p>
 
 <div class="bo-table-wrap">
@@ -69,11 +91,17 @@
       {% else %}
       <tr>
         <td colspan="5">
-          {% if entries_error %}The audit log could not be loaded.{% else %}No audit log entries yet.{% endif %}
+          {% if entries_error %}The audit log could not be loaded.
+          {% elif is_filtered or is_paged %}No entries match these filters.
+          {% else %}No audit log entries yet.{% endif %}
         </td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
+
+{% if older_url %}
+<p><a href="{{ older_url }}" class="bo-button bo-button--small">Load older entries</a></p>
+{% endif %}
 {% endblock %}

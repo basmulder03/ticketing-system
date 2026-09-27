@@ -10,6 +10,9 @@ once it reaches a tagged release.
 
 ### Added
 
+- Audit log filtering (actor type, action substring, target type) and
+  keyset ("load older") pagination past the previous hard 500-entry cap,
+  in both the JSON API and the backoffice viewer.
 - Per-event flat service fee (`EventConfig.service_fee_amount`), charged at
   checkout for ticket types whose price doesn't already include it
   (`TicketType.service_fee_included=False`) — applied consistently across
