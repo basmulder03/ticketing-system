@@ -50,6 +50,7 @@ def _build_preview_doc(preview: dict[str, Any]) -> str:
     """
     return (
         "<!doctype html><html><head><meta charset='utf-8'>"
+        "<link rel='stylesheet' href='/static/fonts.css'>"
         f"<style>{preview['preview_css']}</style></head>"
         f"<body>{preview['sample_html']}</body></html>"
     )
