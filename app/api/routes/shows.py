@@ -11,7 +11,12 @@ from app.models.enums import PublishStatus
 from app.models.event import Event
 from app.models.show import Show
 from app.models.ticket_type import TicketType
-from app.schemas.show import ShowCreateRequest, ShowOut, ShowUpdateRequest
+from app.schemas.show import (
+    DOORS_AFTER_START_MESSAGE,
+    ShowCreateRequest,
+    ShowOut,
+    ShowUpdateRequest,
+)
 from app.services.audit import record_audit_entry
 
 router = APIRouter(prefix="/api/v1/events/{event_id}/shows", tags=["shows"])
@@ -179,6 +184,10 @@ async def update_show(
     show = await _get_show_or_404(session, event, show_id)
 
     changes = apply_partial_update(show, body)
+    if show.doors_time >= show.start_time:
+        # Either field alone was valid; only the *pair* (one possibly just-updated,
+        # one carried over from the existing row) can conflict.
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=DOORS_AFTER_START_MESSAGE)
     # Stringify values: the audit JSON column can't encode date/time.
     await record_audit_entry(
         session,

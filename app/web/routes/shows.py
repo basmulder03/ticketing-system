@@ -103,8 +103,8 @@ async def create_show_web(
     capacity: str = Form(...),
     status: str = Form("draft"),
 ) -> RedirectResponse:
-    """Create a show; API validation errors are flashed. Note that nothing checks
-    doors time is before start time.
+    """Create a show; API validation errors (bad capacity, doors time not before
+    start time) are flashed.
     """
     verify_csrf(request, csrf_token)
     redirect_path = f"/events/{event_id}/shows"
