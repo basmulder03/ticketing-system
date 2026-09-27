@@ -10,6 +10,7 @@ to — see ``app.services.checkout.CheckoutError`` and
 import uuid
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 import pytest
 from httpx import AsyncClient
@@ -653,3 +654,51 @@ async def test_checkout_route_422s_when_buyer_address_exceeds_max_length(
     payload["buyer_address"] = "x" * 1001
     response = await client.post("/api/v1/public/checkout", json=payload)
     assert response.status_code == 422
+
+
+# --- Service fee (app.services.pricing) -------------------------------------
+
+
+async def test_checkout_charges_service_fee_only_for_ticket_types_not_already_including_it(
+    client: AsyncClient,
+    make_event: Callable[..., Awaitable[Event]],
+    make_show: Callable[..., Awaitable[Show]],
+    make_ticket_type: Callable[..., Awaitable[TicketType]],
+    make_event_config: Callable[..., Awaitable[EventConfig]],
+) -> None:
+    event = await make_event(status=PublishStatus.PUBLISHED)
+    show = await make_show(event_id=event.id, status=PublishStatus.PUBLISHED)
+    fee_extra = await make_ticket_type(
+        show_id=show.id, name="Standard", price=Decimal("20.00"), service_fee_included=False
+    )
+    fee_included = await make_ticket_type(
+        show_id=show.id, name="All-in", price=Decimal("10.00"), service_fee_included=True
+    )
+    await make_event_config(
+        event_id=event.id,
+        sales_live_at=_PAST,
+        enabled_payment_methods=[PaymentMethod.DOOR],
+        service_fee_amount=Decimal("1.50"),
+    )
+
+    response = await client.post(
+        "/api/v1/public/checkout",
+        json={
+            "buyer_name": "Buyer",
+            "buyer_email": "buyer@example.test",
+            "buyer_address": "1 Test Street",
+            "language": "en",
+            "payment_method": PaymentMethod.DOOR.value,
+            "items": [
+                {"ticket_type_id": str(fee_extra.id), "quantity": 2},
+                {"ticket_type_id": str(fee_included.id), "quantity": 1},
+            ],
+        },
+    )
+
+    assert response.status_code == 201, response.text
+    body = response.json()
+    # subtotal: 2*20.00 + 1*10.00 = 50.00; fee: 2 * 1.50 = 3.00 (only fee_extra)
+    assert body["subtotal"] == "50.00"
+    assert body["service_fee_total"] == "3.00"
+    assert body["total"] == "53.00"

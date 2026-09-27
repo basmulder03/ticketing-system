@@ -8,6 +8,7 @@ the event's ``EventConfig``, so concurrent payments never share a number.
 """
 
 import uuid
+from decimal import Decimal
 from typing import TypedDict
 
 from sqlalchemy import select
@@ -15,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import Principal
+from app.i18n import translate
 from app.models.event_config import EventConfig
 from app.models.invoice import Invoice
 from app.models.order import Order
@@ -59,12 +61,28 @@ async def _allocate_invoice_number(session: AsyncSession, *, event_id: uuid.UUID
     return number, config
 
 
-def _build_line_items(tickets: list[Ticket], ticket_types_by_id: dict[str, TicketType]) -> list[LineItem]:
-    """Group tickets by type into line items, freezing current names and prices."""
+def _build_line_items(
+    tickets: list[Ticket],
+    ticket_types_by_id: dict[str, TicketType],
+    *,
+    service_fee_amount: Decimal,
+    service_fee_line_name: str,
+) -> list[LineItem]:
+    """Group tickets by type into line items, freezing current names and prices.
+
+    A trailing "service fee" line covers every ticket whose type has
+    ``service_fee_included=False`` (its price doesn't already include the
+    fee), so these line items always sum to the order's total (see
+    ``app.services.pricing``) rather than silently undercounting it on a
+    financial document.
+    """
     quantities: dict[str, int] = {}
+    fee_eligible_count = 0
     for ticket in tickets:
         key = str(ticket.ticket_type_id)
         quantities[key] = quantities.get(key, 0) + 1
+        if not ticket_types_by_id[key].service_fee_included:
+            fee_eligible_count += 1
 
     items: list[LineItem] = []
     for ticket_type_id, quantity in quantities.items():
@@ -77,6 +95,16 @@ def _build_line_items(tickets: list[Ticket], ticket_types_by_id: dict[str, Ticke
                 quantity=quantity,
                 unit_price=str(unit_price),
                 line_total=str(line_total),
+            )
+        )
+
+    if fee_eligible_count > 0 and service_fee_amount > 0:
+        items.append(
+            LineItem(
+                name=service_fee_line_name,
+                quantity=fee_eligible_count,
+                unit_price=str(service_fee_amount),
+                line_total=str(service_fee_amount * fee_eligible_count),
             )
         )
     return items
@@ -111,7 +139,13 @@ async def issue_invoice_for_order(
     ticket_types_by_id = {str(t.ticket_type_id): t.ticket_type for t in tickets}
 
     number, config = await _allocate_invoice_number(session, event_id=order.event_id)
-    line_items = _build_line_items(tickets, ticket_types_by_id)
+    service_fee_amount = config.service_fee_amount if config is not None else Decimal("0.00")
+    line_items = _build_line_items(
+        tickets,
+        ticket_types_by_id,
+        service_fee_amount=service_fee_amount,
+        service_fee_line_name=translate("pdf.invoice.service_fee_line_name", order.language),
+    )
 
     invoice = Invoice(
         order_id=order.id,

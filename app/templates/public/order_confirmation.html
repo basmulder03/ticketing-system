@@ -55,6 +55,14 @@
       {% endif %}
     </dd>
 
+    {% if order.service_fee_total | float > 0 %}
+    <dt>{{ translate('public.order_confirmation.subtotal_label', locale) }}</dt>
+    <dd>{{ order.subtotal | format_currency(locale) }}</dd>
+
+    <dt>{{ translate('public.order_confirmation.service_fee_label', locale) }}</dt>
+    <dd>{{ order.service_fee_total | format_currency(locale) }}</dd>
+    {% endif %}
+
     <dt>{{ translate('public.order_confirmation.total_label', locale) }}</dt>
     <dd>{{ order.total | format_currency(locale) }}</dd>
   </dl>

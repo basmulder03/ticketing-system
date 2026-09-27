@@ -304,3 +304,65 @@ async def test_rendered_invoice_html_combines_frozen_snapshot_with_live_order_fi
     assert "999.00" not in html
     assert "Updated Buyer" in html, "buyer name must reflect the live Order row"
     assert "Original Buyer" not in html
+
+
+# --- Service fee line item (app.services.pricing) ---------------------------
+
+
+async def test_line_items_include_a_service_fee_line_that_reconciles_with_total(
+    db_session: AsyncSession,
+    make_event: Callable[..., Awaitable[Event]],
+    make_show: Callable[..., Awaitable[Show]],
+    make_ticket_type: Callable[..., Awaitable[TicketType]],
+    make_event_config: Callable[..., Awaitable[EventConfig]],
+) -> None:
+    """A ticket type with ``service_fee_included=False`` gets its own frozen
+    "service fee" line, and the line items sum to the order's total — the
+    reconciliation ``app.services.invoicing._build_line_items`` exists for.
+    """
+    event = await make_event(status=PublishStatus.PUBLISHED)
+    show = await make_show(event_id=event.id, status=PublishStatus.PUBLISHED)
+    ticket_type = await make_ticket_type(show_id=show.id, price=Decimal("15.00"), service_fee_included=False)
+    await make_event_config(event_id=event.id, service_fee_amount=Decimal("1.50"))
+    # 2 tickets * (15.00 + 1.50 fee) = 33.00
+    order = await _make_paid_order_with_tickets(
+        db_session, event_id=event.id, ticket_type_id=ticket_type.id, quantity=2, total=Decimal("33.00")
+    )
+
+    invoice = await issue_invoice_for_order(db_session, order=order, principal=SYSTEM_PRINCIPAL)
+    await db_session.commit()
+
+    assert len(invoice.line_items) == 2
+    ticket_line, fee_line = invoice.line_items
+    assert ticket_line["unit_price"] == "15.00"
+    assert ticket_line["quantity"] == 2
+    assert ticket_line["line_total"] == "30.00"
+    assert fee_line["name"] == "Service fee"
+    assert fee_line["quantity"] == 2
+    assert fee_line["unit_price"] == "1.50"
+    assert fee_line["line_total"] == "3.00"
+
+    line_items_total = sum((Decimal(str(item["line_total"])) for item in invoice.line_items), Decimal("0.00"))
+    assert line_items_total == order.total == Decimal("33.00")
+
+
+async def test_no_service_fee_line_when_ticket_type_already_includes_it(
+    db_session: AsyncSession,
+    make_event: Callable[..., Awaitable[Event]],
+    make_show: Callable[..., Awaitable[Show]],
+    make_ticket_type: Callable[..., Awaitable[TicketType]],
+    make_event_config: Callable[..., Awaitable[EventConfig]],
+) -> None:
+    event = await make_event(status=PublishStatus.PUBLISHED)
+    show = await make_show(event_id=event.id, status=PublishStatus.PUBLISHED)
+    ticket_type = await make_ticket_type(show_id=show.id, price=Decimal("15.00"), service_fee_included=True)
+    await make_event_config(event_id=event.id, service_fee_amount=Decimal("1.50"))
+    order = await _make_paid_order_with_tickets(
+        db_session, event_id=event.id, ticket_type_id=ticket_type.id, quantity=2, total=Decimal("30.00")
+    )
+
+    invoice = await issue_invoice_for_order(db_session, order=order, principal=SYSTEM_PRINCIPAL)
+    await db_session.commit()
+
+    assert len(invoice.line_items) == 1
+    assert invoice.line_items[0]["line_total"] == "30.00"

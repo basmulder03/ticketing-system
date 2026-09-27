@@ -3,6 +3,8 @@ config from another event. Admin-only — agents must never touch credentials
 or financial settings.
 """
 
+from decimal import Decimal
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -40,6 +42,7 @@ _COPYABLE_FIELDS = (
     "invoice_company_address",
     "invoice_company_vat_number",
     "invoice_number_prefix",
+    "service_fee_amount",
     "enabled_payment_methods",
 )
 """Fields copied between events. Not ``sales_live_at``: it's specific to one event's timeline."""
@@ -63,6 +66,7 @@ def _to_out(config: EventConfig) -> EventConfigOut:
         invoice_company_address=config.invoice_company_address,
         invoice_company_vat_number=config.invoice_company_vat_number,
         invoice_number_prefix=config.invoice_number_prefix,
+        service_fee_amount=config.service_fee_amount,
         sales_live_at=config.sales_live_at,
         enabled_payment_methods=list(config.enabled_payment_methods),
         created_at=config.created_at,
@@ -131,6 +135,10 @@ async def upsert_event_config(
         # NOT NULL: an explicit null resets to the safe default (TEST).
         config.mollie_mode = MollieMode.TEST
         changes["mollie_mode"] = MollieMode.TEST.value
+    if changes.get("service_fee_amount") is None and "service_fee_amount" in changes:
+        # NOT NULL: an explicit null resets it to no fee, rather than 500ing.
+        config.service_fee_amount = Decimal("0.00")
+        changes["service_fee_amount"] = "0.00"
     # Never audit secret plaintext. Other values are stringified because the
     # JSON column can't encode sales_live_at's datetime.
     redacted_changes = {

@@ -3,6 +3,7 @@ expose only ``*_is_set`` booleans, never decrypted values.
 """
 
 from datetime import datetime
+from decimal import Decimal
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -35,6 +36,7 @@ class EventConfigUpdateRequest(BaseModel):
     invoice_company_address: str | None = None
     invoice_company_vat_number: str | None = Field(default=None, max_length=50)
     invoice_number_prefix: str | None = Field(default=None, max_length=50)
+    service_fee_amount: Decimal | None = Field(default=None, ge=0, decimal_places=2)
     sales_live_at: datetime | None = None
     enabled_payment_methods: list[PaymentMethod] | None = None
 
@@ -58,6 +60,7 @@ class EventConfigOut(BaseModel):
     invoice_company_address: str | None
     invoice_company_vat_number: str | None
     invoice_number_prefix: str | None
+    service_fee_amount: Decimal
     sales_live_at: datetime | None
     enabled_payment_methods: list[PaymentMethod]
     created_at: datetime

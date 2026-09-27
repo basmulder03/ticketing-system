@@ -36,6 +36,7 @@ from app.services.invoice_pdf import render_invoice_pdf
 from app.services.invoicing import issue_invoice_for_order
 from app.services.manual_order import ManualOrderError, ManualOrderItemInput, create_manual_order
 from app.services.order_payment import mark_order_paid
+from app.services.pricing import derive_order_subtotal_and_fee
 from app.services.stock import InsufficientStockError, TicketTypeNotFoundError
 from app.services.ticket_delivery import send_order_confirmation_email, sign_order_tickets
 from app.services.ticket_pdf import render_tickets_pdf, render_tickets_pdf_batch
@@ -50,6 +51,7 @@ async def _order_to_out(session: AsyncSession, order: Order) -> OrderOut:
         select(Ticket).where(Ticket.order_id == order.id).options(selectinload(Ticket.ticket_type))
     )
     tickets = result.scalars().unique().all()
+    subtotal, service_fee_total = derive_order_subtotal_and_fee(order.total, tickets)
     return OrderOut(
         id=str(order.id),
         event_id=str(order.event_id),
@@ -60,6 +62,8 @@ async def _order_to_out(session: AsyncSession, order: Order) -> OrderOut:
         buyer_address=order.buyer_address,
         language=order.language,
         total=order.total,
+        subtotal=subtotal,
+        service_fee_total=service_fee_total,
         tickets=[
             TicketOut(
                 id=str(t.id),

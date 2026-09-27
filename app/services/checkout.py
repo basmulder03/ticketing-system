@@ -25,6 +25,7 @@ from app.models.ticket_type import TicketType
 from app.services.invoicing import issue_invoice_for_order
 from app.services.mollie import MollieApiError, create_mollie_payment, resolve_mollie_api_key
 from app.services.order_payment import SYSTEM_PRINCIPAL, mark_order_paid
+from app.services.pricing import compute_order_pricing
 from app.services.stock import InsufficientStockError, TicketTypeNotFoundError, reserve_stock
 from app.services.ticket_delivery import sign_order_tickets
 
@@ -231,7 +232,8 @@ async def perform_checkout(
     except InsufficientStockError as exc:
         raise InsufficientStockCheckoutError(exc.ticket_type_id, exc.remaining) from exc
 
-    total: Decimal = sum((locked[tid].price * qty for tid, qty in quantities.items()), Decimal("0.00"))
+    service_fee_amount = config.service_fee_amount if config is not None else Decimal("0.00")
+    pricing = compute_order_pricing(locked, quantities, service_fee_amount=service_fee_amount)
 
     # Door orders hold stock as PENDING_DOOR until marked paid; every other
     # method starts PENDING.
@@ -243,7 +245,7 @@ async def perform_checkout(
         buyer_address=buyer_address,
         status=initial_status,
         payment_method=payment_method,
-        total=total,
+        total=pricing.total,
         language=language,
     )
     session.add(order)

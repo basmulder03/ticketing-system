@@ -16,6 +16,7 @@ and the two distinct audit entries this creates.
 
 import uuid
 from collections.abc import Awaitable, Callable
+from decimal import Decimal
 
 from httpx import AsyncClient
 from sqlalchemy import func, select
@@ -132,6 +133,43 @@ async def test_create_manual_order_happy_path_with_email_sends_confirmation(
 
     await db_session.refresh(order)
     assert order.confirmation_email_sent_at is not None
+
+
+async def test_create_manual_order_charges_the_service_fee_like_any_other_channel(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    make_admin_user: Callable[..., Awaitable[SeededAdmin]],
+    make_event: Callable[..., Awaitable[Event]],
+    make_show: Callable[..., Awaitable[Show]],
+    make_ticket_type: Callable[..., Awaitable[TicketType]],
+    make_event_config: Callable[..., Awaitable[EventConfig]],
+) -> None:
+    """A manual (staff-issued) order applies the same per-ticket service fee
+    as checkout — the flag is a property of the ticket type, not of the
+    sales channel (see ``app.services.pricing``)."""
+    await _login_admin(client, make_admin_user)
+    event = await make_event(status=PublishStatus.PUBLISHED)
+    show = await make_show(event_id=event.id, status=PublishStatus.PUBLISHED)
+    ticket_type = await make_ticket_type(
+        show_id=show.id, price=Decimal("15.00"), service_fee_included=False, quantity_available=10
+    )
+    await make_event_config(event_id=event.id, service_fee_amount=Decimal("2.00"))
+
+    response = await client.post(
+        f"/api/v1/shows/{show.id}/manual-orders",
+        json={
+            "buyer_name": "Walk-up Buyer",
+            "items": [{"ticket_type_id": str(ticket_type.id), "quantity": 2}],
+            "method_label": "cash",
+        },
+    )
+
+    assert response.status_code == 201, response.text
+    body = response.json()
+    # 2 * (15.00 + 2.00 fee) = 34.00
+    assert body["total"] == "34.00"
+    assert body["subtotal"] == "30.00"
+    assert body["service_fee_total"] == "4.00"
 
 
 async def test_create_manual_order_without_email_uses_placeholder_and_skips_confirmation(

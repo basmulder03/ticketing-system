@@ -13,14 +13,17 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import Principal
 from app.models.enums import OrderStatus, PaymentMethod
+from app.models.event_config import EventConfig
 from app.models.order import Order
 from app.models.ticket import Ticket
 from app.services.audit import record_audit_entry
 from app.services.order_payment import mark_order_paid
+from app.services.pricing import compute_order_pricing
 from app.services.stock import InsufficientStockError, TicketTypeNotFoundError, reserve_stock
 
 
@@ -115,7 +118,10 @@ async def create_manual_order(
     if any(ticket_type.show_id != show_id for ticket_type in locked.values()):
         raise TicketTypeWrongShowManualOrderError()
 
-    total: Decimal = sum((locked[tid].price * qty for tid, qty in quantities.items()), Decimal("0.00"))
+    config_result = await session.execute(select(EventConfig).where(EventConfig.event_id == event_id))
+    config = config_result.scalar_one_or_none()
+    service_fee_amount = config.service_fee_amount if config is not None else Decimal("0.00")
+    pricing = compute_order_pricing(locked, quantities, service_fee_amount=service_fee_amount)
 
     order = Order(
         event_id=event_id,
@@ -124,7 +130,7 @@ async def create_manual_order(
         buyer_address=buyer_address or "",
         status=OrderStatus.PENDING,
         payment_method=PaymentMethod.MANUAL,
-        total=total,
+        total=pricing.total,
         language=language,
     )
     session.add(order)

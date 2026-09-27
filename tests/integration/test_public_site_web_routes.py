@@ -300,6 +300,66 @@ async def test_checkout_form_happy_path_creates_order_and_redirects(
     assert "buyer@example.test" in confirmation.text
 
 
+async def test_checkout_form_with_service_fee_shows_subtotal_and_fee_breakdown(
+    client: AsyncClient,
+    make_event: Callable[..., Awaitable[Event]],
+    make_show: Callable[..., Awaitable[Show]],
+    make_ticket_type: Callable[..., Awaitable[TicketType]],
+    make_event_config: Callable[..., Awaitable[EventConfig]],
+) -> None:
+    """The confirmation page only shows the Subtotal/Service fee breakdown
+    when a fee actually applies (see ``test_checkout_form_happy_path_...``
+    above for the no-fee case, where those labels never appear)."""
+    event = await make_event(status=PublishStatus.PUBLISHED)
+    show = await make_show(event_id=event.id, status=PublishStatus.PUBLISHED)
+    ticket_type = await make_ticket_type(
+        show_id=show.id, price=Decimal("15.00"), service_fee_included=False, quantity_available=10
+    )
+    await make_event_config(
+        event_id=event.id,
+        sales_live_at=_PAST,
+        enabled_payment_methods=[PaymentMethod.DOOR],
+        service_fee_amount=Decimal("2.00"),
+    )
+
+    response = await client.post(
+        f"/e/{event.slug}/checkout",
+        data=_checkout_form(show_id=str(show.id), ticket_type_id=str(ticket_type.id), quantity=2),
+    )
+    assert response.status_code == 303
+
+    confirmation = await client.get(response.headers["location"])
+    assert confirmation.status_code == 200
+    assert "Subtotal" in confirmation.text
+    assert "Service fee" in confirmation.text
+    # subtotal 30.00, fee 4.00, total 34.00 -- all three must actually appear.
+    assert "30.00" in confirmation.text
+    assert "4.00" in confirmation.text
+    assert "34.00" in confirmation.text
+
+
+async def test_checkout_form_happy_path_without_a_fee_never_shows_the_breakdown(
+    client: AsyncClient,
+    make_event: Callable[..., Awaitable[Event]],
+    make_show: Callable[..., Awaitable[Show]],
+    make_ticket_type: Callable[..., Awaitable[TicketType]],
+    make_event_config: Callable[..., Awaitable[EventConfig]],
+) -> None:
+    event = await make_event(status=PublishStatus.PUBLISHED)
+    show = await make_show(event_id=event.id, status=PublishStatus.PUBLISHED)
+    ticket_type = await make_ticket_type(show_id=show.id, price=Decimal("15.00"), quantity_available=10)
+    await make_event_config(event_id=event.id, sales_live_at=_PAST, enabled_payment_methods=[PaymentMethod.DOOR])
+
+    response = await client.post(
+        f"/e/{event.slug}/checkout",
+        data=_checkout_form(show_id=str(show.id), ticket_type_id=str(ticket_type.id)),
+    )
+    confirmation = await client.get(response.headers["location"])
+
+    assert "Subtotal" not in confirmation.text
+    assert "Service fee" not in confirmation.text
+
+
 async def test_checkout_form_with_malformed_email_does_not_500(
     client: AsyncClient,
     make_event: Callable[..., Awaitable[Event]],

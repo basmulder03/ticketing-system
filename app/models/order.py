@@ -27,8 +27,8 @@ class Order(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     Belongs to an Event, not a Show: all its Tickets must be for one Show, but
     that's enforced at checkout, not in the schema. ``language`` is the buyer's
     locale for emails and PDFs (validated in the schema, not a DB enum).
-    ``total`` is the price x quantity sum at checkout — no service fee is ever
-    added (see ``TicketType.service_fee_included``).
+    ``total`` is price x quantity plus any per-ticket service fee, computed
+    once at checkout and frozen from then on (see ``app.services.pricing``).
     """
 
     __tablename__ = "orders"
