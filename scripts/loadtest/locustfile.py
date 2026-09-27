@@ -1,42 +1,21 @@
-"""Locust scenario for Milestone 9's "load-test the sales-live moment"
-against a REAL running Beacon instance (docker-compose, staging, ...) —
-see ``scripts/loadtest/README.md`` for full setup/usage/interpretation.
+"""Locust scenario for the sales-live rush, against a real running instance
+(see ``scripts/loadtest/README.md``).
 
-Deliberately standalone: this file imports nothing from ``app.*`` (only the
-stdlib + ``locust``), so running a load test never requires the ``beacon``
-package itself to be installed — just ``pip install locust`` (or
-``pip install -e ".[loadtest]"``, see pyproject.toml) in whatever
-environment you run this from. Seeding the scarce TicketType it targets
-*does* need the real app package — that's ``seed_loadtest_data.py``'s job,
-run separately against the running instance (e.g. inside its container).
+Standalone: imports only the stdlib and ``locust``. Every virtual user is a
+distinct buyer making exactly one checkout for 1 ticket of the same scarce
+``TICKET_TYPE_ID`` — many people racing for one limited pool, the case the
+row-locked stock reservation exists for.
 
-The scenario: every simulated user is a DISTINCT buyer (unique name/email
-per request, matching ``app.schemas.order.CheckoutRequest``) making exactly
-ONE checkout attempt for 1 ticket of a SHARED, scarce ``TICKET_TYPE_ID`` —
-the real worst case this app's row-locked stock reservation
-(``app.services.stock.reserve_stock``) exists for: many people racing for
-the same limited pool the instant sales open, not generic load spread
-across many different ticket types.
+Required env: ``TICKET_TYPE_ID`` (from ``seed_loadtest_data.py seed``).
+Optional: ``CHECKOUT_TOTAL_TICKETS`` (the seeded quantity, for the summary).
 
-Required environment variable:
-    TICKET_TYPE_ID   UUID of the TicketType to race for (see
-                      ``seed_loadtest_data.py seed``).
+Raise ``CHECKOUT_RATE_LIMIT_PER_MINUTE`` first (see README), then:
 
-Optional:
-    CHECKOUT_TOTAL_TICKETS   quantity_available you seeded, purely for the
-                              end-of-run summary's expected-failure-count
-                              math (default: unknown — summary just shows
-                              raw counts if unset).
-
-Run (see README for the full walkthrough, including why
-CHECKOUT_RATE_LIMIT_PER_MINUTE must be raised first):
-
-    TICKET_TYPE_ID=<uuid> locust -f scripts/loadtest/locustfile.py \\
-        --host=http://localhost:8000 \\
+    TICKET_TYPE_ID=<uuid> locust -f scripts/loadtest/locustfile.py \
+        --host=http://localhost:8000 \
         --headless --users 300 --spawn-rate 300 --run-time 30s
 
-Or omit --headless for Locust's web UI (http://localhost:8089) to watch
-live RPS/latency/failure charts during the run.
+Omit ``--headless`` for Locust's web UI (http://localhost:8089).
 """
 
 import os
@@ -50,19 +29,14 @@ from locust.env import Environment
 _TICKET_TYPE_ID = os.environ.get("TICKET_TYPE_ID")
 _CHECKOUT_PATH = "/api/v1/public/checkout"
 
-# Raw outcome counts, keyed by a short label — printed as a summary at the
-# end of the run (see the `test_stop` listener below). Module-level and
-# unlocked deliberately: Locust's HttpUser tasks run cooperatively on
-# gevent greenlets in a single OS thread, so plain dict/Counter mutation
-# here is safe without any additional locking.
+# Outcome counts for the end-of-run summary. No locking needed: Locust users
+# run as greenlets in one OS thread.
 _OUTCOMES: Counter[str] = Counter()
 
 
 @events.test_start.add_listener  # type: ignore[untyped-decorator]  # locust's decorator itself is untyped
 def _require_ticket_type_id(environment: Environment, **kwargs: object) -> None:
-    """Fail fast, with a clear message, rather than letting every virtual
-    user's first request 404/crash confusingly if the operator forgot to
-    set ``TICKET_TYPE_ID``."""
+    """Fail fast with a clear message if ``TICKET_TYPE_ID`` isn't set."""
     if not _TICKET_TYPE_ID:
         print(
             "[loadtest] TICKET_TYPE_ID environment variable is not set. "
@@ -76,9 +50,7 @@ def _require_ticket_type_id(environment: Environment, **kwargs: object) -> None:
 
 @events.test_stop.add_listener  # type: ignore[untyped-decorator]  # locust's decorator itself is untyped
 def _print_summary(environment: Environment, **kwargs: object) -> None:
-    """Print a plain-language outcome summary — what to look for is
-    explained in scripts/loadtest/README.md's "Interpreting results"
-    section; this just surfaces the raw numbers that section talks about."""
+    """Print raw outcome counts (see the README's "Interpreting results")."""
     total = sum(_OUTCOMES.values())
     print("\n[loadtest] ==== Checkout outcome summary ====")
     print(f"[loadtest] total checkout attempts: {total}")
@@ -106,18 +78,8 @@ def _print_summary(environment: Environment, **kwargs: object) -> None:
 
 
 class SalesLiveBuyer(HttpUser):
-    """One simulated buyer: exactly one checkout attempt for 1 ticket of
-    the shared scarce ``TICKET_TYPE_ID``, then idle for the rest of the
-    run.
-
-    ``wait_time`` is deliberately long (60s) relative to any realistic
-    ``--run-time`` for this scenario (seconds, not minutes) — a real buyer
-    at a sales-live moment gets ONE attempt, not a tight retry loop, so
-    each virtual user's single task firing once and then going quiet for
-    the rest of a short run is the intended behavior, not a bug. If you
-    genuinely want sustained (not single-burst) load, lower this — but
-    that changes what's being simulated (steady traffic vs. the opening-
-    seconds spike this scenario targets).
+    """One buyer, one checkout attempt, then idle. The long ``wait_time`` is
+    intentional: a real buyer gets one shot, not a retry loop.
     """
 
     host = "http://localhost:8000"
@@ -144,8 +106,7 @@ class SalesLiveBuyer(HttpUser):
                 _OUTCOMES["201_created"] += 1
                 response.success()
             elif response.status_code == 409:
-                # A clean loss of the race is a CORRECT outcome for this
-                # scenario, not a Locust-reported failure — see README.
+                # Losing the race cleanly is a correct outcome, not a failure.
                 _OUTCOMES["409_insufficient_stock"] += 1
                 response.success()
             elif response.status_code == 429:

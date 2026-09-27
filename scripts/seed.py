@@ -1,24 +1,11 @@
-"""Seed the local dev database with demo data.
+"""Seed the local dev database with demo data: an admin (from
+``SEED_ADMIN_EMAIL``/``SEED_ADMIN_PASSWORD``) and one demo event with its
+config (pointed at Mailpit), show and ticket type.
 
-Milestone 0 scope: seeds a single demo ``AdminUser`` (admin role) from the
-``SEED_ADMIN_EMAIL``/``SEED_ADMIN_PASSWORD`` settings, so the auth flow can
-be exercised immediately after ``docker-compose up`` without a manual
-signup step (no signup route exists — admin accounts are provisioned out
-of band).
-
-Milestone 1 scope: seeds one demo Event (with its EventConfig pointed at
-the local Mailpit SMTP sink and the placeholder Mollie test key, both from
-``SEED_*`` settings — see ``app.core.config.Settings``), one Show under it,
-and one TicketType under that Show, so there's something to click through /
-exercise via the API immediately, per PROJECT_BRIEF.md's Developer
-Experience requirement ("seeds at least one demo Event/Show/TicketType").
-
-Idempotent throughout: safe to re-run against an already-seeded DB (upserts
-by natural key — email for AdminUser, slug for Event), so
-``./scripts/dev-reseed.sh`` works.
+Local dev only — real deployments create their first admin at ``/setup``.
+Idempotent (matches by email and slug), so ``./scripts/dev-reseed.sh`` works.
 
 Run via: `docker-compose exec app python scripts/seed.py`
-(also wired into `./scripts/dev-up.sh` / `./scripts/dev-reseed.sh`).
 """
 
 import asyncio
@@ -42,7 +29,7 @@ DEMO_EVENT_SLUG = "christmas-passion-demo"
 
 
 async def _seed_admin_user(session: AsyncSession) -> None:
-    """Create the demo local-dev AdminUser, unless it already exists."""
+    """Create the demo admin unless it exists."""
     settings = get_settings()
     result = await session.execute(select(AdminUser).where(AdminUser.email == settings.seed_admin_email.lower()))
     if result.scalar_one_or_none() is not None:
@@ -64,8 +51,7 @@ async def _seed_admin_user(session: AsyncSession) -> None:
 
 
 async def _seed_demo_event(session: AsyncSession) -> None:
-    """Create one demo Event + EventConfig + Show + TicketType, unless the
-    Event already exists (looked up by its fixed demo slug)."""
+    """Create the demo event, config, show and ticket type unless the event exists."""
     result = await session.execute(select(Event).where(Event.slug == DEMO_EVENT_SLUG))
     if result.scalar_one_or_none() is not None:
         print(f"[seed] Event {DEMO_EVENT_SLUG!r} already exists, skipping.")
@@ -126,7 +112,7 @@ async def _seed_demo_event(session: AsyncSession) -> None:
 
 
 async def seed() -> None:
-    """Populate all demo data: AdminUser, then Event/EventConfig/Show/TicketType."""
+    """Seed all demo data."""
     async with async_session_factory() as session:
         await _seed_admin_user(session)
         await _seed_demo_event(session)
