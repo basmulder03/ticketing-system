@@ -4,7 +4,6 @@ the JSON API (``app.api.routes.themes``).
 """
 
 from typing import Any
-from urllib.parse import quote
 
 import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
@@ -16,6 +15,7 @@ from app.core.templating import templates
 from app.web.api_client import api_error_detail, internal_api_client
 from app.web.csrf import attach_csrf_cookie, read_or_generate_csrf_token, verify_csrf
 from app.web.deps import require_web_admin
+from app.web.flash import redirect_with_flash
 
 router = APIRouter(tags=["backoffice-theme"])
 
@@ -41,10 +41,6 @@ STATUS_CHOICES = [
 _DEFAULT_PRIMARY = "#1a1a1a"
 _DEFAULT_SECONDARY = "#ffffff"
 _DEFAULT_ACCENT = "#c9a227"
-
-
-def _redirect_with_flash(path: str, message: str, kind: str = "success") -> RedirectResponse:
-    return RedirectResponse(url=f"{path}?flash={quote(message)}&flash_kind={kind}", status_code=303)
 
 
 def _build_preview_doc(preview: dict[str, Any]) -> str:
@@ -197,8 +193,8 @@ async def save_theme_fields(
 
     if put_response.status_code >= 400:
         detail = api_error_detail(put_response, "Could not save theme.")
-        return _redirect_with_flash(f"/events/{event_id}/theme", detail, kind="error")
-    return _redirect_with_flash(f"/events/{event_id}/theme", "Theme saved.", kind="success")
+        return redirect_with_flash(f"/events/{event_id}/theme", detail, kind="error")
+    return redirect_with_flash(f"/events/{event_id}/theme", "Theme saved.", kind="success")
 
 
 async def _forward_upload(request: Request, url: str, upload: UploadFile) -> httpx.Response:
@@ -221,10 +217,10 @@ async def upload_logo(
     verify_csrf(request, csrf_token)
     resp = await _forward_upload(request, f"/api/v1/events/{event_id}/theme/logo", file)
     if resp.status_code >= 400:
-        return _redirect_with_flash(
+        return redirect_with_flash(
             f"/events/{event_id}/theme", api_error_detail(resp, "Logo upload failed."), kind="error"
         )
-    return _redirect_with_flash(f"/events/{event_id}/theme", "Logo uploaded.", kind="success")
+    return redirect_with_flash(f"/events/{event_id}/theme", "Logo uploaded.", kind="success")
 
 
 @router.post("/events/{event_id}/theme/logo/delete")
@@ -235,10 +231,10 @@ async def delete_logo(
     async with internal_api_client(request) as client:
         resp = await client.delete(f"/api/v1/events/{event_id}/theme/logo")
     if resp.status_code >= 400:
-        return _redirect_with_flash(
+        return redirect_with_flash(
             f"/events/{event_id}/theme", api_error_detail(resp, "Could not remove logo."), kind="error"
         )
-    return _redirect_with_flash(f"/events/{event_id}/theme", "Logo removed.", kind="success")
+    return redirect_with_flash(f"/events/{event_id}/theme", "Logo removed.", kind="success")
 
 
 @router.post("/events/{event_id}/theme/background")
@@ -252,10 +248,10 @@ async def upload_background(
     verify_csrf(request, csrf_token)
     resp = await _forward_upload(request, f"/api/v1/events/{event_id}/theme/background", file)
     if resp.status_code >= 400:
-        return _redirect_with_flash(
+        return redirect_with_flash(
             f"/events/{event_id}/theme", api_error_detail(resp, "Background upload failed."), kind="error"
         )
-    return _redirect_with_flash(f"/events/{event_id}/theme", "Background image uploaded.", kind="success")
+    return redirect_with_flash(f"/events/{event_id}/theme", "Background image uploaded.", kind="success")
 
 
 @router.post("/events/{event_id}/theme/background/delete")
@@ -266,10 +262,10 @@ async def delete_background(
     async with internal_api_client(request) as client:
         resp = await client.delete(f"/api/v1/events/{event_id}/theme/background")
     if resp.status_code >= 400:
-        return _redirect_with_flash(
+        return redirect_with_flash(
             f"/events/{event_id}/theme", api_error_detail(resp, "Could not remove background."), kind="error"
         )
-    return _redirect_with_flash(f"/events/{event_id}/theme", "Background image removed.", kind="success")
+    return redirect_with_flash(f"/events/{event_id}/theme", "Background image removed.", kind="success")
 
 
 @router.post("/events/{event_id}/theme/copy-from")
@@ -284,7 +280,7 @@ async def copy_theme_from(
     async with internal_api_client(request) as client:
         resp = await client.post(f"/api/v1/events/{event_id}/theme/copy-from/{source_event_id}")
     if resp.status_code >= 400:
-        return _redirect_with_flash(
+        return redirect_with_flash(
             f"/events/{event_id}/theme", api_error_detail(resp, "Could not copy theme."), kind="error"
         )
-    return _redirect_with_flash(f"/events/{event_id}/theme", "Theme copied from the selected event.", kind="success")
+    return redirect_with_flash(f"/events/{event_id}/theme", "Theme copied from the selected event.", kind="success")
