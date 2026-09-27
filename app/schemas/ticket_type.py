@@ -16,10 +16,7 @@ class TicketTypeCreateRequest(BaseModel):
 
 
 class TicketTypeUpdateRequest(BaseModel):
-    """Body of ``PATCH /api/v1/ticket-types/{ticket_type_id}``.
-
-    All fields optional; only fields explicitly present are applied.
-    """
+    """PATCH body; only fields present are changed."""
 
     name: str | None = Field(default=None, min_length=1, max_length=255)
     price: Decimal | None = Field(default=None, ge=0, decimal_places=2)
@@ -28,11 +25,7 @@ class TicketTypeUpdateRequest(BaseModel):
 
 
 class TicketTypeOut(BaseModel):
-    """Response shape for a single TicketType.
-
-    ``remaining`` mirrors ``TicketType.remaining`` — see that property's
-    docstring for why it currently always equals ``quantity_available``.
-    """
+    """One ticket type; ``remaining`` is live stock."""
 
     id: str
     show_id: str

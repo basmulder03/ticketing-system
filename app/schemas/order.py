@@ -1,6 +1,4 @@
-"""Pydantic request/response models for the public checkout flow
-(Milestone 2: create a pending Order; payment processing itself is
-Milestone 3)."""
+"""Request/response models for checkout, manual orders and order actions."""
 
 from datetime import datetime
 from decimal import Decimal
@@ -10,45 +8,30 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from app.models.enums import OrderStatus, PaymentMethod
 
 _MAX_TICKETS_PER_ORDER = 50
-"""Caps the SUM of quantities across every line item, not just each item
-individually (``CheckoutItem.quantity`` already caps a single line at 50).
-Without this, a single request could ask for up to 20 x 50 = 1000 tickets
-in one call — each one an INSERT inside the same row-locked transaction
-``app.services.stock.reserve_stock`` opens, needlessly extending lock hold
-time on the TicketType row(s) it touches at exactly the sales-live moment
-PROJECT_BRIEF.md flags as the highest-contention scenario."""
+"""Cap on the *sum* of quantities per order. Each ticket is an INSERT inside
+the stock-locking transaction, so huge orders would hold the lock longer
+at exactly the busiest moment (sales going live).
+"""
 
 _EMAIL_PATTERN = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
-"""Mirrors ``app.schemas.event_config``'s lightweight email-shape check
-(not ``EmailStr``/``email-validator``) for the same reason documented
-there: a self-hosted deployment may reasonably see non-public-TLD or
-internal addresses, and this is a shape check, not a deliverability
-guarantee."""
+"""Shape check only — see ``app.schemas.event_config._EMAIL_PATTERN``."""
 
 _SUPPORTED_LANGUAGES = {"en", "nl"}
-"""Per PROJECT_BRIEF.md's Internationalization section: "English and Dutch
-supported from the first milestone"."""
 
 
 class CheckoutItem(BaseModel):
-    """One requested ticket type + quantity line in a checkout request."""
+    """One ticket type + quantity line."""
 
     ticket_type_id: str
     quantity: int = Field(gt=0, le=50)
 
 
 class CheckoutRequest(BaseModel):
-    """Body of ``POST /api/v1/public/checkout``.
+    """Public checkout body.
 
-    ``preview_token`` is optional: when present and it matches the target
-    Event's real ``Event.preview_token`` AND the Event or Show is still
-    draft, the checkout bypasses the draft-publish gate (see
-    ``app.services.checkout``) so a draft event's buy flow can be
-    exercised end-to-end before it's published — per PROJECT_BRIEF.md's
-    Draft & Preview section. Once fully published, ``sales_paused``/
-    ``sales_live_at`` are unconditionally enforced regardless of any token
-    presented — a preview link is not a standing bypass of the manual
-    sales kill-switch or embargo once the event is actually live.
+    A valid ``preview_token`` lets a *draft* event's checkout run end to end.
+    It never bypasses ``sales_paused``/``sales_live_at`` once the event is
+    published.
     """
 
     buyer_name: str = Field(min_length=1, max_length=255)
@@ -62,17 +45,13 @@ class CheckoutRequest(BaseModel):
     @field_validator("language")
     @classmethod
     def _normalize_language(cls, value: str) -> str:
-        """Lowercase and fall back to English for any value that isn't
-        currently a supported locale, rather than hard-rejecting the whole
-        checkout over a garbled/unsupported language code."""
+        """Fall back to English rather than rejecting an unsupported language."""
         normalized = value.lower()
         return normalized if normalized in _SUPPORTED_LANGUAGES else "en"
 
     @model_validator(mode="after")
     def _check_total_quantity(self) -> "CheckoutRequest":
-        """Reject a request whose per-item quantities already fit each
-        item's own cap but sum to more than :data:`_MAX_TICKETS_PER_ORDER`
-        across the whole order."""
+        """Enforce :data:`_MAX_TICKETS_PER_ORDER` across all lines."""
         total = sum(item.quantity for item in self.items)
         if total > _MAX_TICKETS_PER_ORDER:
             raise ValueError(f"An order may not request more than {_MAX_TICKETS_PER_ORDER} tickets in total.")
@@ -80,12 +59,7 @@ class CheckoutRequest(BaseModel):
 
 
 class TicketOut(BaseModel):
-    """One issued Ticket in an order confirmation response.
-
-    ``qr_token`` is always ``None`` at this milestone — populated by
-    Milestone 4's QR-signing work (see ``app.models.ticket.Ticket``
-    docstring for why the row already exists now, ahead of that).
-    """
+    """One ticket. ``qr_token`` is ``None`` until the order is paid."""
 
     id: str
     ticket_type_id: str
@@ -95,24 +69,12 @@ class TicketOut(BaseModel):
 
 
 class OrderOut(BaseModel):
-    """Response of a successful checkout — enough for `frontend-theming` to
-    render an order-confirmation page, and (Milestone 3) to know where to
-    send the buyer next.
+    """One order.
 
-    ``payment_redirect_url`` is only set when this checkout just created a
-    real payment needing an interstitial page before order-confirmation —
-    Mollie's own hosted checkout, or (post-launch) the in-app demo-payment
-    simulator's page (see ``app.services.checkout``'s payment-initiation
-    dispatch) — the web layer (``app.web.routes.public_site``) must
-    redirect the buyer there instead of straight to the order-confirmation
-    page when it's present. It is ``None`` for ``door`` orders and for the
-    preview-mode simulated-payment path (see that module's docstring), both
-    of which go straight to order-confirmation. ``status`` may already be
-    ``paid`` at this point for the simulated-preview path (no real payment
-    involved) — it is NOT reliably ``paid`` yet for a real Mollie order or
-    a still-pending demo order, since payment confirmation there only
-    arrives later (the webhook, or the buyer's own action on the
-    demo-payment page).
+    ``payment_redirect_url`` is set when the buyer must visit a payment page
+    first (Mollie, or the demo-payment page); otherwise go straight to order
+    confirmation. ``status`` is only reliably ``paid`` here for the preview
+    sandbox path — real payments settle later.
     """
 
     id: str
@@ -130,34 +92,20 @@ class OrderOut(BaseModel):
 
 
 class ManualOrderItem(BaseModel):
-    """One requested ticket type + quantity line, same shape as
-    :class:`CheckoutItem`."""
+    """Same shape as :class:`CheckoutItem`."""
 
     ticket_type_id: str
     quantity: int = Field(gt=0, le=50)
 
 
 class ManualOrderCreateRequest(BaseModel):
-    """Body of ``POST /api/v1/shows/{show_id}/manual-orders`` — an
-    admin-created Order for a buyer who never submitted any checkout
-    request at all (see ``app.services.manual_order`` module docstring).
+    """Admin-issued order for a buyer who never checked out
+    (``app.services.manual_order``).
 
-    ``buyer_email``/``buyer_address`` are optional, unlike
-    :class:`CheckoutRequest`'s required versions of the same fields — per
-    the user's NOTES, this exists specifically FOR "people without a
-    computer or phone", who may have no email address to give at all.
-    Left blank, ``app.services.manual_order.create_manual_order``
-    synthesizes an `.invalid`-domain placeholder to satisfy ``Order.
-    buyer_email``'s NOT NULL column, and the route skips confirmation-email
-    dispatch entirely rather than trying to send to it.
-
-    ``method_label``/``reason`` are the same free-text fields
-    :class:`MarkOrderPaidRequest` already uses, for the same reason (see
-    that schema's docstring) — this Order is settled to ``paid``
-    immediately on creation (see ``app.services.manual_order.
-    create_manual_order``), so the admin records how payment was actually
-    collected (cash, comp, etc.) at the same time as creating it, rather
-    than in a separate follow-up call.
+    Email and address are optional — the buyer may have neither. Without an
+    email, a ``.invalid`` placeholder is stored and no confirmation is sent.
+    ``method_label``/``reason`` record how payment was collected, since the
+    order is settled immediately.
     """
 
     buyer_name: str = Field(min_length=1, max_length=255)
@@ -171,7 +119,7 @@ class ManualOrderCreateRequest(BaseModel):
     @field_validator("language")
     @classmethod
     def _normalize_language(cls, value: str) -> str:
-        """Same lenient fallback as :meth:`CheckoutRequest._normalize_language`."""
+        """Same fallback as :meth:`CheckoutRequest._normalize_language`."""
         normalized = value.lower()
         return normalized if normalized in _SUPPORTED_LANGUAGES else "en"
 
@@ -184,19 +132,8 @@ class ManualOrderCreateRequest(BaseModel):
 
 
 class MarkOrderPaidRequest(BaseModel):
-    """Body of ``POST /api/v1/orders/{order_id}/mark-paid`` (Milestone 6).
-
-    Both fields are free text rather than a fixed enum: PROJECT_BRIEF.md's
-    Manual Payment Handling section only says staff must "select a
-    reason/method" without prescribing a closed set of options, and the
-    realistic set (cash, bank transfer, a separately-operated SumUp card
-    terminal, a goodwill correction, etc.) is exactly the kind of
-    per-deployment/per-event copy this app already treats as editable
-    content elsewhere rather than hardcoded — see
-    ``app.services.order_payment.mark_order_paid``'s own ``method_label``/
-    ``reason`` parameters, which this schema maps onto directly. Any actual
-    fixed choice list for ``method_label`` (e.g. a dropdown) is a
-    frontend-theming/content-i18n concern, not enforced here.
+    """Mark-as-paid body. Free text rather than an enum: real methods vary by
+    venue (cash, bank transfer, card terminal, correction...).
     """
 
     method_label: str = Field(min_length=1, max_length=100)
@@ -204,16 +141,8 @@ class MarkOrderPaidRequest(BaseModel):
 
 
 class MarkOrderPaidResponse(BaseModel):
-    """Response of the manual mark-as-paid action.
-
-    ``already_paid`` mirrors ``app.services.order_payment.
-    MarkOrderPaidResult.already_paid`` directly: ``True`` means this call
-    was a safe no-op (the Order was already ``paid`` — no new audit entry,
-    no re-triggered ticket/invoice/email dispatch), so the caller can
-    distinguish "just settled it" from "it was already settled" without
-    treating either as an error — both are HTTP 200 successes, since
-    clicking mark-as-paid twice must never surface as a failure per
-    PROJECT_BRIEF.md's idempotency requirements.
+    """``already_paid=True`` means the call was a no-op (no new audit entry, email
+    or invoice). Both outcomes are 200 so a double click never errors.
     """
 
     already_paid: bool
@@ -221,15 +150,9 @@ class MarkOrderPaidResponse(BaseModel):
 
 
 class ErasePiiRequest(BaseModel):
-    """Body of ``POST /api/v1/orders/{order_id}/erase-pii`` (Milestone 9).
-
-    ``confirm`` only matters for an Order that already has an issued
-    Invoice: it is the explicit, opt-in acknowledgement PROJECT_BRIEF.md's
-    GDPR-conscious requirement calls for when a deletion request runs up
-    against invoice-retention law (see ``app.services.gdpr`` for the full
-    reasoning). Defaulting to ``False`` means an accidental/careless call
-    against an invoiced order is refused (409), not silently erased; an
-    Order with no Invoice erases immediately regardless of this field.
+    """``confirm`` is required only for an invoiced order (invoice retention);
+    without it that order is refused with 409. Un-invoiced orders erase
+    immediately.
     """
 
     confirm: bool = False
@@ -240,9 +163,4 @@ class ErasePiiResponse(BaseModel):
 
     order: OrderOut
     had_invoice: bool
-    """``True`` if this Order had an issued Invoice at the time of erasure
-    (meaning the caller had to pass ``confirm: true`` to reach this
-    success response) — surfaced back to the caller/UI as a reminder that
-    the underlying Invoice record itself was intentionally left untouched,
-    per this app's accounting-retention stance (see ``app.services.gdpr``).
-    """
+    """``True`` if the order had an invoice, which is deliberately kept intact."""
