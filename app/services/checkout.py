@@ -1,11 +1,6 @@
-"""Checkout: validates a public buyer's order request against the
-Event/Show/TicketType's draft & sales-timing state, then performs the
-row-locked stock reservation and creates the ``Order`` + ``Ticket`` rows,
-and initiates payment for whichever ``PaymentMethod`` was chosen (Mollie:
-Milestone 3; demo: post-launch fix — see :func:`_initiate_mollie_payment`/
-:func:`_initiate_demo_payment` and :class:`PaymentInitiationResult`) — all
-inside one DB transaction. See ``app.services.stock`` for the row-locking
-mechanics that make stock reservation race-safe under concurrent buyers.
+"""Public checkout: validate the request against draft and sales-timing state,
+reserve stock under row locks, create the Order and Tickets, and start
+payment for the chosen method — all in one transaction.
 """
 
 import hmac
@@ -35,11 +30,7 @@ from app.services.ticket_delivery import sign_order_tickets
 
 
 class CheckoutError(Exception):
-    """Base for every checkout-rejection reason; carries the HTTP status
-    the route should translate it to. The route catches only this one base
-    class (DRY) rather than every subclass individually — see
-    ``app.api.routes.public.checkout``.
-    """
+    """Base rejection; carries the HTTP status. The route catches only this base class."""
 
     http_status: int = 422
 
@@ -58,18 +49,16 @@ class TicketTypesNotFoundCheckoutError(CheckoutError):
 
 
 class MixedShowCheckoutError(CheckoutError):
-    """The requested items span more than one Show — an Order can only
-    span multiple TicketTypes within a single Show (see ``Order`` model
-    docstring)."""
+    """Items span more than one show (an order is for a single show)."""
 
     def __init__(self) -> None:
         super().__init__("All items in one order must belong to the same show.")
 
 
 class EventNotAvailableCheckoutError(CheckoutError):
-    """The target Event or Show is still draft and no valid preview token
-    was supplied — identical response to "doesn't exist" so a guess can't
-    distinguish the two (see ``app.api.routes.public``)."""
+    """Draft event/show without a valid preview token — same response as "not
+    found", so guesses can't tell them apart.
+    """
 
     http_status = 404
 
@@ -87,7 +76,7 @@ class SalesNotLiveCheckoutError(CheckoutError):
 
 
 class SalesPausedCheckoutError(CheckoutError):
-    """``Event.sales_paused`` is set (manual pause/resume override)."""
+    """``Event.sales_paused`` is set."""
 
     http_status = 403
 
@@ -96,16 +85,14 @@ class SalesPausedCheckoutError(CheckoutError):
 
 
 class PaymentMethodNotEnabledCheckoutError(CheckoutError):
-    """The requested ``payment_method`` isn't in
-    ``EventConfig.enabled_payment_methods`` for this event."""
+    """The method isn't enabled for this event."""
 
     def __init__(self, method: PaymentMethod) -> None:
         super().__init__(f"Payment method '{method.value}' is not enabled for this event.")
 
 
 class InsufficientStockCheckoutError(CheckoutError):
-    """Not enough stock remained for one of the requested ticket types,
-    determined under the row lock at reservation time."""
+    """Not enough stock, determined under the row lock."""
 
     http_status = 409
 
@@ -116,14 +103,9 @@ class InsufficientStockCheckoutError(CheckoutError):
 
 
 class PaymentInitiationCheckoutError(CheckoutError):
-    """Initiating payment for a ``mollie``-method order failed: either a
-    real Mollie call was attempted (a key IS configured for this event's
-    current ``EventConfig.mollie_mode``) and Mollie's API rejected it or
-    couldn't be reached, or no key is configured at all and this isn't the
-    preview-token sandbox case where that's allowed (see
-    ``_initiate_mollie_payment``). The caller (the checkout route) rolls
-    back the whole transaction on this — including the stock reservation —
-    since a payment that can't even be created shouldn't hold stock.
+    """Couldn't start a Mollie payment: the call failed, or no key is configured
+    outside the preview sandbox. The route rolls everything back, including the
+    stock reservation.
     """
 
     http_status = 502
@@ -134,7 +116,7 @@ class PaymentInitiationCheckoutError(CheckoutError):
 
 @dataclass(frozen=True)
 class CheckoutItemInput:
-    """One requested line item: a TicketType id and quantity."""
+    """One ticket type + quantity line."""
 
     ticket_type_id: uuid.UUID
     quantity: int
@@ -142,21 +124,11 @@ class CheckoutItemInput:
 
 @dataclass(frozen=True)
 class PaymentInitiationResult:
-    """What a per-``PaymentMethod`` initiation function (currently
-    :func:`_initiate_mollie_payment` and :func:`_initiate_demo_payment`)
-    returns — a common shape deliberately kept minimal enough for any
-    future real provider to implement the same way, so adding one is a new
-    function plus one new ``elif`` branch in :func:`perform_checkout`, not
-    a rewrite of it.
+    """What each payment method's initiation function returns. A new provider
+    is a new function returning this plus one ``elif`` in :func:`perform_checkout`.
 
-    ``redirect_url`` is where the web layer must send the buyer instead of
-    straight to order-confirmation (Mollie's own hosted page; the in-app
-    demo-payment simulator's page) — ``None`` for a method needing no
-    interstitial at all. ``simulated_payment`` is ``True`` only when the
-    Order is ALREADY genuinely ``paid`` by the time this returns (no
-    interstitial, no further settlement step) — see
-    :class:`CheckoutResult`'s own field of the same name for what that
-    triggers.
+    ``redirect_url``: the payment page to send the buyer to (Mollie, the demo
+    page), or ``None``. ``simulated_payment``: the order is already paid.
     """
 
     redirect_url: str | None
@@ -165,26 +137,15 @@ class PaymentInitiationResult:
 
 @dataclass(frozen=True)
 class CheckoutResult:
-    """What :func:`perform_checkout` returns: the created ``Order`` plus,
-    for a payment method that just created a real payment needing an
-    interstitial page, the URL to redirect the buyer to."""
+    """The created order, plus the payment-page URL when there is one."""
 
     order: Order
     payment_redirect_url: str | None
     simulated_payment: bool = False
-    """``True`` only when this checkout took the preview-mode simulated-
-    payment path (see :func:`_initiate_mollie_payment` case 2) — the Order
-    is already ``paid`` by the time this is returned, with no real Mollie
-    payment involved. The caller (``app.api.routes.public.checkout``) uses
-    this, once its own transaction has committed, as the signal to trigger
-    the Milestone 4 order-confirmation email dispatch for this genuinely-
-    just-paid Order — see ``app.services.ticket_delivery.
-    send_order_confirmation_email``. Always ``False`` for a real Mollie
-    payment (still ``pending`` until the webhook confirms it later), a
-    ``demo`` order (``pending``, settled later by the buyer's own action on
-    the demo-payment page), and a ``door`` order (starts ``pending_door``,
-    settled later by a backoffice manual mark-as-paid action — Milestone
-    6)."""
+    """``True`` only for the preview sandbox path: the order is already paid, so
+    the route sends the confirmation email after committing. ``False`` for real
+    Mollie, demo and door orders, which settle later.
+    """
 
 
 async def perform_checkout(
@@ -198,43 +159,18 @@ async def perform_checkout(
     payment_method: PaymentMethod,
     preview_token: str | None,
 ) -> CheckoutResult:
-    """Validate and execute one checkout, inside the caller's transaction.
+    """Validate and execute one checkout inside the caller's transaction.
 
-    Validation order: ticket types exist -> all belong to one Show ->
-    Event/Show are published (or a valid preview token was given, which
-    bypasses this and the two checks below) -> sales not paused -> sales
-    are live -> the chosen payment method is enabled -> (finally) enough
-    stock remains, checked and reserved atomically via
-    ``app.services.stock.reserve_stock``.
+    Checks, in order: ticket types exist → one show → published (or valid
+    preview token) → not paused → sales live → method enabled → stock (reserved
+    atomically via ``reserve_stock``).
 
-    Preview-mode note: a valid ``preview_token`` (matching the target
-    Event's ``Event.preview_token``) bypasses the draft-publish gate per
-    PROJECT_BRIEF.md's Draft & Preview section ("the full buyer journey can
-    be reviewed before production credentials exist") — but ONLY while the
-    Event or Show is actually still draft. Once BOTH are published, the
-    token has no gating effect at all: ``sales_paused``/``sales_live_at``
-    are unconditionally enforced regardless of any token presented. Without
-    this restriction, a preview link handed to stakeholders pre-launch
-    (explicitly meant to be shareable, per the brief) would remain a
-    standing credential that permanently bypasses the manual "pause all
-    sales now" incident kill-switch and the sales-embargo gate forever
-    after the event goes live — defeating both, not just draft-gating.
-    The token never bypasses the payment-method-enabled or
-    stock-availability checks, since those are basic input validity, not
-    publish-timing gates.
+    A preview token bypasses only the *draft* gate, and only while the event or
+    show is still draft. Once published it grants nothing, so a shared preview
+    link can never bypass the sales pause or embargo.
 
-    After the Order/Tickets are created, a ``mollie``-method order also has
-    its payment initiated (real Mollie call, or the preview-sandbox
-    simulated-paid path — see :func:`_initiate_mollie_payment`); a ``door``
-    order skips this entirely and is created directly as
-    ``OrderStatus.PENDING_DOOR`` (Milestone 6: settled later by a
-    backoffice manual mark-as-paid action, see
-    ``app.services.order_payment.mark_order_paid``).
-
-    Does not commit — the caller (the checkout route) commits after this
-    returns successfully, or rolls back if a :class:`CheckoutError` is
-    raised (including :class:`PaymentInitiationCheckoutError`, which rolls
-    back the stock reservation too).
+    ``door`` orders start ``PENDING_DOOR`` with no payment step. Doesn't commit;
+    on :class:`CheckoutError` the caller rolls back.
     """
     quantities: dict[uuid.UUID, int] = {}
     for item in items:
@@ -262,12 +198,9 @@ async def perform_checkout(
     if is_draft:
         if not has_valid_preview_token:
             raise EventNotAvailableCheckoutError()
-        # Draft + valid token: reviewable pre-launch, per the brief — sales
-        # timing gates below don't apply to something that isn't live yet.
+        # Draft + valid token: reviewable pre-launch; sales timing doesn't apply.
     else:
-        # Fully published: sales_paused/sales_live_at are unconditionally
-        # enforced. A preview token (even a correct one) grants no bypass
-        # here — see this function's docstring for why.
+        # Published: pause and sales timing always apply, token or not.
         if event.sales_paused:
             raise SalesPausedCheckoutError()
         sales_live_at = config.sales_live_at if config is not None else None
@@ -287,12 +220,8 @@ async def perform_checkout(
 
     total: Decimal = sum((locked[tid].price * qty for tid, qty in quantities.items()), Decimal("0.00"))
 
-    # `door` orders start life as PENDING_DOOR (still holding stock, per
-    # ``OrderStatus``'s docstring, but never touched by the Mollie webhook
-    # and requiring a Milestone 6 manual mark-as-paid to settle) — every
-    # other method (currently only `mollie`) keeps the original PENDING
-    # start state that ``_initiate_mollie_payment`` and the webhook both
-    # already assume.
+    # Door orders hold stock as PENDING_DOOR until marked paid; every other
+    # method starts PENDING.
     initial_status = OrderStatus.PENDING_DOOR if payment_method == PaymentMethod.DOOR else OrderStatus.PENDING
     order = Order(
         event_id=event.id,
@@ -312,25 +241,12 @@ async def perform_checkout(
             session.add(Ticket(order_id=order.id, ticket_type_id=ticket_type_id))
     await session.flush()
 
-    # Per-method payment initiation, dispatched by a plain if/elif over
-    # PaymentMethod (not a registry/plugin lookup) -- deliberately: with 3
-    # concrete methods total (one of which, `door`, needs no initiation at
-    # all), a dict-of-callables would be indirection with no real payoff
-    # yet. What DOES make this "easy to extend" per the user's NOTES is
-    # PaymentInitiationResult itself: every initiation function returns
-    # that exact same shape, so a future 4th method is a new function with
-    # that same signature plus one new branch here, never a rewrite of
-    # this function's own control flow.
+    # Plain if/elif rather than a registry: with so few methods a registry is
+    # indirection for nothing. PaymentInitiationResult is what keeps it extensible.
     initiation = PaymentInitiationResult(redirect_url=None)
     if payment_method == PaymentMethod.MOLLIE:
-        # Sandbox eligibility mirrors the draft-gate bypass above exactly
-        # (``is_draft and has_valid_preview_token``), not "any checkout that
-        # happens to carry a valid preview token" — a preview token remains
-        # valid forever (see ``Event.preview_token`` docstring) and, per
-        # this function's own docstring, grants no bypass at all once the
-        # Event/Show is published. Scoping the simulated-payment path the
-        # same way means it can never be used to skip real payment
-        # processing on a live, published event.
+        # Sandbox only for genuine draft previews — a preview token stays valid
+        # forever, so it must never skip real payment on a published event.
         initiation = await _initiate_mollie_payment(
             session,
             order=order,
@@ -354,50 +270,18 @@ async def _initiate_mollie_payment(
     preview_sandbox_allowed: bool,
     is_preview_checkout: bool,
 ) -> PaymentInitiationResult:
-    """Kick off payment for a ``mollie``-method Order that was just created
-    (still ``PENDING``, already flushed). See
-    :class:`PaymentInitiationResult` for the return shape.
+    """Start payment for a just-created ``mollie`` order.
 
-    Three cases:
+    1. A key is configured for the event's mode: create a Mollie payment and
+       return its checkout URL (test mode is Mollie's own sandbox).
+    2. No key, but this is a draft preview checkout: simulate — mark the order
+       paid as ``SYSTEM_PRINCIPAL``, sign tickets and issue the invoice in this
+       transaction, and return ``simulated_payment=True`` so the route emails
+       after commit. No charge, no external call.
+    3. No key on a real checkout: operator error — raise
+       :class:`PaymentInitiationCheckoutError` rather than fake a payment.
 
-    1. A real Mollie API key is configured for this event's current
-       ``EventConfig.mollie_mode`` — call Mollie's Create Payment API
-       (``app.services.mollie.create_mollie_payment``) and return the
-       Mollie-hosted checkout URL for the buyer to be redirected to.
-       Mollie's own test mode (when ``mollie_mode == TEST``) is already a
-       safe sandbox; nothing extra is needed for that case per
-       PROJECT_BRIEF.md's Draft & Preview section. ``simulated_payment`` is
-       ``False``.
-    2. No key is configured at all, but ``preview_sandbox_allowed`` is
-       True (a genuine draft/preview-token checkout) — skip Mollie
-       entirely and simulate: immediately mark the order ``paid`` via
-       :func:`app.services.order_payment.mark_order_paid`, attributed to
-       the automated ``SYSTEM_PRINCIPAL`` with a reason that makes the
-       simulated nature explicit in the audit log, and sign its Tickets'
-       QR tokens (``app.services.ticket_delivery.sign_order_tickets`` —
-       Milestone 4) and issue its Invoice (``app.services.invoicing.
-       issue_invoice_for_order`` — Milestone 5) inside this same
-       transaction. This is this project's
-       chosen mechanism for PROJECT_BRIEF.md's "clearly-labeled 'test
-       checkout'" requirement — no real charge, no external call at all.
-       Returns ``(None, True)`` (nothing to redirect to; the caller/route
-       sends the buyer straight to order-confirmation, same as a ``door``
-       order) — the caller uses the ``True`` flag to trigger the
-       order-confirmation EMAIL dispatch itself, AFTER its own transaction
-       commits (email sending is a separate, best-effort step that must
-       never be inside the same transaction as the payment-status/stock
-       changes — see ``app.services.ticket_delivery`` module docstring).
-       In dev this naturally routes through the local Mailpit SMTP sink,
-       same as any other event's configured SMTP settings.
-    3. No key is configured and ``preview_sandbox_allowed`` is False (a
-       real, non-preview checkout with Mollie misconfigured) — this is a
-       genuine operator error, not something to silently paper over with a
-       simulated payment for a real buyer. Raises
-       :class:`PaymentInitiationCheckoutError`.
-
-    Raises :class:`PaymentInitiationCheckoutError` if a real Mollie call
-    (case 1) fails (network/API error) — the caller rolls back the whole
-    checkout, including its stock reservation.
+    A failed Mollie call also raises, rolling back the whole checkout.
     """
     api_key = resolve_mollie_api_key(config)
     if api_key is None:
@@ -414,9 +298,7 @@ async def _initiate_mollie_payment(
             ),
         )
         await sign_order_tickets(session, order=order)
-        # Milestone 5: issue the Invoice inside this same transaction too,
-        # exactly like the Mollie webhook's equivalent fresh-payment branch
-        # — see app.services.invoicing module docstring.
+        # Issue the invoice in this transaction too, like the webhook's paid branch.
         await issue_invoice_for_order(session, order=order, principal=SYSTEM_PRINCIPAL)
         return PaymentInitiationResult(redirect_url=None, simulated_payment=True)
 
@@ -424,12 +306,8 @@ async def _initiate_mollie_payment(
     base_url = settings.public_base_url.rstrip("/")
     redirect_url = f"{base_url}/order-confirmation/{order.id}"
     if is_preview_checkout:
-        # Matches ``app.web.routes.public_site``'s own ``is_preview =
-        # token is not None`` rule for the confirmation page (not scoped to
-        # ``preview_sandbox_allowed``/draft-only) — this query param is
-        # purely cosmetic (which template variant renders), not a security
-        # boundary, so it should reflect "a preview token was used" exactly
-        # like the rest of the web layer already does.
+        # Cosmetic only (which confirmation template renders): mirrors the web
+        # layer's "a preview token was used" rule, not a security boundary.
         redirect_url += "?preview=1"
     webhook_url = f"{base_url}/api/v1/public/mollie-webhook"
 
@@ -446,32 +324,18 @@ async def _initiate_mollie_payment(
         raise PaymentInitiationCheckoutError() from exc
 
     order.mollie_payment_id = created.payment_id
-    # Snapshot which mode's key was actually used, so the webhook
-    # reconciles with THIS key even if an admin flips EventConfig.mollie_mode
-    # while this Order is still pending — see Order.mollie_mode's docstring.
+    # Pin the mode so the webhook reconciles with this key even if an admin
+    # switches test/live while the order is pending.
     order.mollie_mode = config.mollie_mode if config is not None else None
     await session.flush()
     return PaymentInitiationResult(redirect_url=created.checkout_url, simulated_payment=False)
 
 
 def _initiate_demo_payment(*, order: Order) -> PaymentInitiationResult:
-    """Kick off payment for a ``demo``-method Order that was just created
-    (still ``PENDING``, already flushed) — post-launch fix, per the user's
-    NOTES: "create a custom [payment method], that behaves something like
-    mollie for a test environment/demo purposes without having to do stuff
-    with external applications."
-
-    Deliberately synchronous and trivial (no DB write, no external call of
-    any kind): unlike Mollie, there is no third party to hand off to and
-    nothing to configure, so all this does is point the buyer at this
-    app's OWN interstitial page (``app.web.routes.demo_payment`` — GET
-    ``/demo-payment/{order_id}``), where they pick "simulate success" or
-    "simulate failure" themselves. The Order stays genuinely ``PENDING``
-    until one of those two actions settles it, the same pending-then-
-    settled shape a real provider has (unlike the OTHER, pre-existing
-    preview-mode simulated-payment path above, which settles the Order
-    immediately, with no interstitial at all) — this is what makes it a
-    faithful demo of the real checkout flow, not just an auto-pass.
+    """Start payment for a just-created ``demo`` order: just point the buyer at the
+    app's own ``/demo-payment/<id>`` page. The order stays ``PENDING`` until they
+    choose "success" or "failure" there — the same pending-then-settled shape as
+    a real provider (unlike the preview sandbox, which settles instantly).
     """
     settings = get_settings()
     base_url = settings.public_base_url.rstrip("/")

@@ -1,44 +1,11 @@
-"""Renders the actual order-confirmation/ticket email content (Milestone 4):
-resolves the Event's ``order_confirmation_ticket`` ``EmailTemplate`` (or a
-built-in EN/NL default), substitutes placeholders through
-``app.services.email_placeholders.render_placeholders``, and wraps the
-result in a table-based, inline-CSS HTML shell plus an independently
-meaningful plain-text alternative.
+"""Renders the order-confirmation and door-reservation emails.
 
-Scope note for whoever picks this up next (`frontend-theming`): this module
-builds a functional, WCAG-reasonable default email shell — table layout,
-inlined styles, a labelled ticket table, alt text on the logo and every QR
-image, a logical (source-order) reading structure — using only the Theme's
-FIXED color fields (never ``Theme.custom_css``, mirroring
-``app.services.ticket_pdf``'s same rule for PDFs) so it's real and
-testable end-to-end today. The visual polish/design pass is explicitly
-`frontend-theming`'s job, not redone here.
-
-The EN/NL copy behind ``DEFAULT_SUBJECT``/``DEFAULT_BODY``/``_SHELL_STRINGS``
-below is a functional fallback only (so a genuine payment confirmation
-never hard-fails over a missing template — PROJECT_BRIEF.md's Ticket
-Generation & Delivery section), used only when the Event has no customized
-``order_confirmation_ticket`` ``EmailTemplate`` for the buyer's language.
-
-**Content-i18n decision (Milestone 4 review):** this copy now lives in
-``app/i18n/en.json``/``nl.json`` under the ``email.order_confirmation.*``
-key namespace, resolved through the normal :func:`app.i18n.translate`
-lookup — NOT as separate Python dict literals — because it was previously
-duplicated a second time (as a literal copy, "kept in sync by comment") in
-``app.web.routes.email_templates`` for the backoffice editor's pre-fill,
-which is exactly the kind of drift risk the real i18n system exists to
-prevent. Folding it in was a clean fit, not a compromise: every value here
-is still just a flat string (the ``{{placeholder}}``/``{ticket_type}``
-tokens inside them are literal text as far as ``translate()`` is
-concerned — nothing about JSON string storage conflicts with either
-substitution mechanism used downstream). ``translate()`` only resolves the
-raw string; ``DEFAULT_SUBJECT``/``DEFAULT_BODY``/``_SHELL_STRINGS`` below
-remain as module-level names (now built from ``translate()`` at import
-time) so the rest of this module and its docstrings/call sites are
-unchanged — only where the copy is SOURCED changed, not the substitution
-logic itself (that's still exclusively ``email_placeholders.render_placeholders``,
-never Jinja/``translate()`` itself, for the security reasons documented in
-that module).
+Resolves the event's EmailTemplate (or the built-in EN/NL default from
+``app/i18n``), substitutes placeholders *only* through
+``email_placeholders.render_placeholders`` (never Jinja — see that module),
+and wraps the result in a table-based, inline-CSS HTML shell plus a
+plain-text alternative. Uses only the theme's fixed colors, never custom
+CSS.
 """
 
 import html
@@ -64,16 +31,12 @@ from app.services.ticket_pdf import qr_data_uri
 DEFAULT_SUBJECT: dict[str, str] = {
     locale: translate("email.order_confirmation.subject", locale) for locale in SUPPORTED_LOCALES
 }
-"""Built-in fallback ``EmailTemplate.subject`` per locale, used only when the
-Event has no customized ``order_confirmation_ticket`` template for the
-buyer's language. Sourced from ``app/i18n/{locale}.json`` — see this
-module's docstring for why it lives there rather than as a literal here."""
+"""Fallback subject per locale when the event has no template (from ``app/i18n``)."""
 
 DEFAULT_BODY: dict[str, str] = {
     locale: translate("email.order_confirmation.body", locale) for locale in SUPPORTED_LOCALES
 }
-"""Built-in fallback ``EmailTemplate.body`` per locale. Same sourcing note as
-:data:`DEFAULT_SUBJECT`."""
+"""Fallback body per locale."""
 
 _SHELL_KEYS: tuple[str, ...] = (
     "heading",
@@ -94,10 +57,7 @@ _SHELL_STRINGS: dict[str, dict[str, str]] = {
     locale: {key: translate(f"email.order_confirmation.{key}", locale) for key in _SHELL_KEYS}
     for locale in SUPPORTED_LOCALES
 }
-"""Built-in fallback shell chrome strings (labels around the admin-authored
-body content — never buyer/agent-controlled), one dict per locale, each key
-resolved from ``app/i18n/{locale}.json``'s ``email.order_confirmation.<key>``
-entry. Same sourcing note as :data:`DEFAULT_SUBJECT`."""
+"""Labels around the body per locale (from ``email.order_confirmation.*``)."""
 
 _DEFAULT_FONT_STACK = "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
 _DEFAULT_PRIMARY = "#1a1a1a"
@@ -111,18 +71,12 @@ def _shell(locale: str) -> dict[str, str]:
 DOOR_CONFIRMATION_DEFAULT_SUBJECT: dict[str, str] = {
     locale: translate("email.door_confirmation.subject", locale) for locale in SUPPORTED_LOCALES
 }
-"""Built-in fallback ``EmailTemplate.subject`` per locale for the
-``door_payment_confirmation`` email type (see
-``app.services.door_reservation_email``), used only when the Event has no
-customized template for the buyer's language. Same sourcing note as
-:data:`DEFAULT_SUBJECT`."""
+"""Fallback subject per locale for the door-reservation email."""
 
 DOOR_CONFIRMATION_DEFAULT_BODY: dict[str, str] = {
     locale: translate("email.door_confirmation.body", locale) for locale in SUPPORTED_LOCALES
 }
-"""Built-in fallback ``EmailTemplate.body`` per locale for the
-``door_payment_confirmation`` email type. Same sourcing note as
-:data:`DEFAULT_BODY`."""
+"""Fallback body per locale for the door-reservation email."""
 
 _DOOR_CONFIRMATION_SHELL_KEYS: tuple[str, ...] = (
     "heading",
@@ -140,9 +94,7 @@ _DOOR_CONFIRMATION_SHELL_STRINGS: dict[str, dict[str, str]] = {
     locale: {key: translate(f"email.door_confirmation.{key}", locale) for key in _DOOR_CONFIRMATION_SHELL_KEYS}
     for locale in SUPPORTED_LOCALES
 }
-"""Built-in fallback shell chrome strings for the door-payment-confirmation
-email (labels around the admin-authored body content — never buyer/agent-
-controlled). Same sourcing note as :data:`_SHELL_STRINGS`."""
+"""Labels around the door-reservation body per locale."""
 
 
 def _door_confirmation_shell(locale: str) -> dict[str, str]:
@@ -150,13 +102,7 @@ def _door_confirmation_shell(locale: str) -> dict[str, str]:
 
 
 def compute_days_until_show(show_date: date, *, now: datetime | None = None) -> int:
-    """Days remaining until ``show_date``, computed at call time (so a
-    resend closer to the date reflects a smaller number — PROJECT_BRIEF.md:
-    "refreshed if the email is resent closer to the date"). Clamped to a
-    minimum of 0 for a show date that has already passed, rather than
-    returning a negative number that would render as a nonsensical
-    "-3 days to go".
-    """
+    """Days until the show as of now (so resends count down), never negative."""
     reference = (now or datetime.now(UTC)).date()
     return max((show_date - reference).days, 0)
 
@@ -172,12 +118,8 @@ def _days_until_show_line(days: int, locale: str) -> str:
 def build_placeholder_values(
     *, order: Order, event: Event, show: Show, days_until_show: int
 ) -> dict[str, str]:
-    """Compute the fixed set of placeholder values available to the
-    ``order_confirmation_ticket`` template, per PROJECT_BRIEF.md's "buyer
-    name, show date, order total, etc.": one buyer-submitted value
-    (``buyer_name``) and the rest server-computed from already-trusted
-    Event/Show/Order data — never anything else (see
-    ``app.services.email_placeholders`` for why that boundary matters).
+    """The fixed placeholder values: ``buyer_name`` (buyer input) plus
+    server-computed event/show/order data — nothing else.
     """
     return {
         "buyer_name": order.buyer_name,
@@ -193,9 +135,7 @@ def build_placeholder_values(
 
 @dataclass(frozen=True)
 class RenderedEmail:
-    """The fully rendered subject/HTML/plain-text content for one send —
-    everything ``app.services.ticket_delivery`` needs to hand to
-    ``aiosmtplib``."""
+    """Subject, HTML and plain text for one send."""
 
     subject: str
     html_body: str
@@ -204,22 +144,11 @@ class RenderedEmail:
 
 def _logo_html(theme: Theme | None, event_name: str, locale: str, *, shell: dict[str, str] | None = None) -> str:
     if theme is None or not theme.logo_path:
-        # A styled <p>, NOT a heading tag: this is a branding/masthead
-        # fallback standing in for the logo <img> below (the same visual
-        # slot, just no image uploaded) — it is not document content, so
-        # giving it a heading tag would put a heading ABOVE and BEFORE the
-        # email's real <h1> ("Your tickets", further down in this same
-        # function's caller), producing a broken heading hierarchy
-        # (starting at h2, then reversing back to h1) that a screen-reader
-        # user navigating by heading level would find nonsensical. See
-        # this milestone's accessibility-auditor review.
+        # A <p>, not a heading: it only stands in for a missing logo, and a heading
+        # here would come before the email's real <h1> and break heading order.
         return f'<p style="margin:0;font-size:18px;font-weight:bold;">{html.escape(event_name)}</p>'
     url = public_url_for(theme.logo_path) or ""
-    # `shell` defaults to the order-confirmation shell strings for backward
-    # compatibility with this function's original single caller;
-    # ``render_door_payment_confirmation_email`` passes its own shell
-    # instead, since the two email types keep independently-editable shell
-    # copy (see that function's docstring).
+    # Defaults to the order-confirmation labels; the door email passes its own.
     alt = (shell or _shell(locale))["logo_alt"].format(event_name=html.escape(event_name))
     return f'<img src="{html.escape(url)}" alt="{alt}" style="max-height:64px;max-width:220px;display:block;margin:0 auto;" />'
 
@@ -254,21 +183,10 @@ def render_order_confirmation_email(
     tickets: list[Ticket],
     ticket_types_by_id: dict[str, TicketType],
 ) -> RenderedEmail:
-    """Render the complete order-confirmation/ticket email for ``order``.
+    """Render the confirmation email using ``template`` or the language default.
 
-    Uses ``template`` if given (an Event's saved ``order_confirmation_ticket``
-    ``EmailTemplate`` for ``order.language``), else the built-in
-    :data:`DEFAULT_SUBJECT`/:data:`DEFAULT_BODY` for that language. Every
-    Ticket in ``tickets`` MUST already have ``qr_token`` set (tickets
-    without one are silently skipped from the rendered ticket table — this
-    should never happen in practice since ``app.services.ticket_delivery.
-    sign_order_tickets`` always signs every ticket before this is called,
-    but rendering must never crash a real send over it).
-
-    "Time until the show" (PROJECT_BRIEF.md: "computed at send time and
-    also refreshed if the email is resent closer to the date") is computed
-    fresh on every call via :func:`compute_days_until_show` — callers never
-    need to (and should not) cache/pass a stale value.
+    Tickets must already be signed; unsigned ones are skipped rather than
+    crashing a send. Days-until-show is computed fresh on every call.
     """
     locale = order.language if order.language in DEFAULT_SUBJECT else "en"
     shell = _shell(locale)
@@ -288,16 +206,9 @@ def render_order_confirmation_email(
     ticket_rows = _ticket_rows_html(tickets, ticket_types_by_id, locale)
     event_name_escaped = html.escape(event.name)
 
-    # Table-based layout with inline styles throughout (no <style> block) —
-    # the standard cross-client-compatible pattern PROJECT_BRIEF.md calls
-    # for. Only the FIXED theme fields (primary/secondary/font) are used,
-    # never Theme.custom_css. Text color is always `primary` on `secondary`
-    # background — one of the two color pairings Theme's own AA contrast
-    # check (app.services.contrast.check_theme_contrast) evaluates as a
-    # real text/background pair — so this shell never risks an unvetted
-    # color-on-color combination; the accent color is intentionally not
-    # used for any text here, only left available to `frontend-theming`'s
-    # future visual pass.
+    # Table layout with inline styles (email-client compatible). Text is always
+    # primary on secondary — a pair the theme's AA check vets — and accent is
+    # never used for text.
     html_body = f"""<!DOCTYPE html>
 <html lang="{html.escape(locale)}">
 <head>
@@ -356,12 +267,7 @@ def render_order_confirmation_email(
 def _group_tickets_by_type(
     tickets: list[Ticket], ticket_types_by_id: dict[str, TicketType]
 ) -> list[tuple[TicketType, int]]:
-    """Group one-row-per-unit ``tickets`` into ``(ticket_type, quantity)``
-    pairs, in first-seen order -- shared by both the HTML and plain-text
-    renderings of the door-payment-confirmation email's order summary
-    below (unlike :func:`_ticket_rows_html`, which renders one row per
-    individual ticket/QR code, this email has no per-unit QR codes to show
-    yet, just "how many of each type")."""
+    """``(ticket_type, quantity)`` pairs in first-seen order."""
     counts: dict[str, int] = {}
     order_seen: list[str] = []
     for ticket in tickets:
@@ -401,28 +307,12 @@ def render_door_payment_confirmation_email(
     tickets: list[Ticket],
     ticket_types_by_id: dict[str, TicketType],
 ) -> RenderedEmail:
-    """Render the door-payment reservation-confirmation email: sent once,
-    right after checkout, for a ``payment_method="door"`` Order (see
-    ``app.services.door_reservation_email``) — BEFORE any payment has
-    happened. Closes a real gap found via the user's own manual testing:
-    with no email at all until the order is later paid at the door, a
-    buyer had no record of what they'd ordered if they lost the
-    order-confirmation browser tab/session.
+    """Render the door-reservation email: an order summary and amount due, sent
+    before any payment.
 
-    Deliberately NOT the same function as
-    :func:`render_order_confirmation_email`: that one signs and attaches
-    real, scannable QR-coded tickets, which must never exist before an
-    Order is genuinely paid — a buyer could otherwise screenshot/forward a
-    valid ticket without ever paying at the door. This email is a plain
-    order summary (what was ordered, and the total due) with no ticket
-    attachment at all.
-
-    Uses ``template`` if given (an Event's saved
-    ``door_payment_confirmation`` ``EmailTemplate`` for ``order.language``
-    — agent/API-editable today, same as ``order_confirmation_ticket``;
-    no backoffice human-editor UI for it yet), else the built-in
-    :data:`DOOR_CONFIRMATION_DEFAULT_SUBJECT`/
-    :data:`DOOR_CONFIRMATION_DEFAULT_BODY` for that language.
+    Separate from :func:`render_order_confirmation_email` on purpose: it must
+    never include real scannable tickets, or a buyer could forward one without
+    paying. The template is editable via the API only (no backoffice editor yet).
     """
     locale = order.language if order.language in DOOR_CONFIRMATION_DEFAULT_SUBJECT else "en"
     shell = _door_confirmation_shell(locale)
@@ -444,9 +334,7 @@ def render_door_payment_confirmation_email(
     event_name_escaped = html.escape(event.name)
     total = format_currency(order.total, locale)
 
-    # Same table-based, inline-styled, fixed-theme-fields-only shell
-    # pattern as render_order_confirmation_email above — see that
-    # function's inline comment for the full rationale.
+    # Same shell approach as render_order_confirmation_email.
     html_body = f"""<!DOCTYPE html>
 <html lang="{html.escape(locale)}">
 <head>
@@ -507,18 +395,8 @@ _SAMPLE_SHOW_DATE = date(2026, 12, 18)
 def render_email_template_preview(
     *, event: Event, theme: Theme | None, language: str, subject: str, body: str
 ) -> RenderedEmail:
-    """Render draft (not-yet-saved) ``subject``/``body`` values against
-    representative SAMPLE placeholder data and the Event's REAL theme —
-    per PROJECT_BRIEF.md's "a preview using real theme colors/logo before
-    saving". Nothing is persisted or looked up beyond ``event``/``theme``
-    (both already loaded by the caller); every Order/Show/Ticket value used
-    here is synthetic sample data, never a real buyer's.
-
-    Mirrors ``app.services.theme_preview.build_theme_preview``'s "construct
-    a throwaway, non-persisted instance and reuse the real render path"
-    pattern — this calls the exact same
-    :func:`render_order_confirmation_email` the real send path uses, so a
-    preview can never drift from what an actual email would look like.
+    """Render draft subject/body with sample data and the event's real theme,
+    through the exact render path real sends use, so previews can't drift.
     """
     sample_order = Order(
         event_id=event.id,
@@ -556,20 +434,8 @@ def render_email_template_preview(
 
 
 def _html_to_plain_text(fragment: str) -> str:
-    """Best-effort, dependency-free HTML-snippet-to-plain-text conversion
-    for the admin-authored ``body`` content only (never the whole email
-    shell — the plain-text alternative is otherwise built compositionally
-    from known-safe programmatic strings, see
-    :func:`render_order_confirmation_email`).
-
-    ``fragment`` here has already been through
-    ``app.services.email_placeholders.render_placeholders`` with
-    ``escape_html=True``, so any buyer-controlled value inside it is
-    already HTML-entity-escaped literal text — this function unescapes
-    entities back to plain characters (since the destination is now plain
-    text, not HTML) and strips the admin-authored tags (``<p>``,
-    ``<strong>``, etc. — the only tags this content can realistically
-    contain, since it went through the same escaping as everything else).
+    """Plain-text version of the admin-authored body only: unescape entities and
+    strip tags. Buyer values in it were already escaped upstream.
     """
     text = re.sub(r"<[^>]+>", " ", fragment)
     text = html.unescape(text)
