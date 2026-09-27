@@ -72,6 +72,20 @@ async def test_create_show_rejects_zero_or_negative_capacity(
         assert response.status_code == 422
 
 
+async def test_create_show_rejects_doors_time_at_or_after_start_time(
+    client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]]
+) -> None:
+    await _login(client, await make_admin_user())
+    event_id = await _create_event(client)
+
+    for doors_time, start_time in (("20:00:00", "20:00:00"), ("20:30:00", "20:00:00")):
+        response = await client.post(
+            f"/api/v1/events/{event_id}/shows",
+            json={**_SHOW_BODY, "doors_time": doors_time, "start_time": start_time},
+        )
+        assert response.status_code == 422
+
+
 async def test_list_shows_ordered_by_date(
     client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]]
 ) -> None:
@@ -135,6 +149,24 @@ async def test_partial_update_show_leaves_omitted_fields_unchanged(
     body = response.json()
     assert body["capacity"] == 300
     assert body["venue_name"] == "Het Kruispunt"
+
+
+async def test_update_show_rejects_doors_time_conflicting_with_existing_start_time(
+    client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]]
+) -> None:
+    """Only one of the two fields is in this PATCH; the check must compare
+    against the other field's existing, unpatched value.
+    """
+    await _login(client, await make_admin_user())
+    event_id = await _create_event(client)
+    created = await client.post(f"/api/v1/events/{event_id}/shows", json=_SHOW_BODY)
+    show_id = created.json()["id"]
+
+    response = await client.patch(
+        f"/api/v1/events/{event_id}/shows/{show_id}", json={"doors_time": "20:30:00"}
+    )
+
+    assert response.status_code == 422
 
 
 async def test_duplicate_show_copies_fields_and_ticket_types_and_always_starts_draft(

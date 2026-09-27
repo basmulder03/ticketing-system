@@ -4,9 +4,11 @@ from datetime import date as date_type
 from datetime import datetime
 from datetime import time as time_type
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.models.enums import PublishStatus
+
+DOORS_AFTER_START_MESSAGE = "Doors time must be before the start time."
 
 
 class ShowCreateRequest(BaseModel):
@@ -19,6 +21,15 @@ class ShowCreateRequest(BaseModel):
     venue_address: str = Field(min_length=1)
     capacity: int = Field(gt=0)
     status: PublishStatus = PublishStatus.DRAFT
+
+    @model_validator(mode="after")
+    def _check_doors_before_start(self) -> "ShowCreateRequest":
+        """Doors and start are always same-day (see ``app.models.show.Show``), so
+        this is a plain time comparison.
+        """
+        if self.doors_time >= self.start_time:
+            raise ValueError(DOORS_AFTER_START_MESSAGE)
+        return self
 
 
 class ShowUpdateRequest(BaseModel):
