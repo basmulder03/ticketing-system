@@ -1,8 +1,4 @@
-"""Async SQLAlchemy engine/session factory.
-
-Shared by the FastAPI app (via a future ``get_db`` dependency added by
-``backend-builder``) and by Alembic's ``env.py`` for migrations.
-"""
+"""Async SQLAlchemy engine and session factory."""
 
 from collections.abc import AsyncGenerator
 

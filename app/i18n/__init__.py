@@ -1,11 +1,4 @@
-"""i18n scaffolding: key-based JSON string dictionaries per locale.
-
-Per ``PROJECT_BRIEF.md``, EN and NL must be supported from Milestone 0
-onward, not retrofitted later. This module wires the loading mechanism;
-``content-i18n`` owns populating actual translation strings and
-``frontend-theming``/``backend-builder`` own wiring ``translate()`` into
-Jinja2 templates and email/PDF rendering.
-"""
+"""Key-based translations loaded from ``<locale>.json`` (EN and NL)."""
 
 import json
 from functools import lru_cache
@@ -26,12 +19,8 @@ def _load_locale(locale: str) -> dict[str, str]:
 
 
 def translate(key: str, locale: str = DEFAULT_LOCALE) -> str:
-    """Resolve ``key`` to a translated string for ``locale``.
-
-    Falls back to ``DEFAULT_LOCALE`` and then to the raw key itself if no
-    translation is found, so missing strings degrade visibly rather than
-    raising.
-    """
+    """Translate ``key``, falling back to English, then to the raw key —
+    so a missing string shows up visibly instead of raising."""
     strings = _load_locale(locale if locale in SUPPORTED_LOCALES else DEFAULT_LOCALE)
     if key in strings:
         return strings[key]

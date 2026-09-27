@@ -1,10 +1,5 @@
-"""Jinja2 template environment for server-rendered backoffice HTML pages.
-
-Milestone 1.5 scope: backoffice-only. Public-site templates (Milestone 2)
-will get their own environment wired in by `frontend-theming` at that
-point, themed per-Event rather than using this fixed backoffice look —
-never share this environment with public-facing rendering.
-"""
+"""Jinja2 environment for backoffice pages. Public pages use
+``app.core.public_templating`` instead — keep the two separate."""
 
 from pathlib import Path
 

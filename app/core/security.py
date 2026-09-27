@@ -1,16 +1,8 @@
-"""Password hashing, agent API-key generation, and session token signing.
+"""Password hashing (argon2id), agent API keys, and signed session tokens.
 
-Password hashing uses ``argon2-cffi`` directly (already a pinned
-dependency) rather than passlib: passlib's own argon2 backend just wraps
-argon2-cffi, and passlib has been effectively unmaintained, so calling
-argon2-cffi directly avoids an unnecessary indirection layer. Decision
-noted here since the brief left "argon2 or bcrypt" open.
-
-Admin sessions are stateless signed cookies (via ``itsdangerous``), not a
-DB-backed session table: the token embeds an issue timestamp that
-:func:`verify_session_token` checks against the configured session
-timeout. This keeps session timeout enforcement correct without an extra
-table/service, appropriate for a small single-instance deployment (KISS).
+Admin sessions are stateless signed cookies: the token carries its issue
+time, which :func:`verify_session_token` checks against the timeout — no
+session table needed.
 """
 
 import hashlib
@@ -40,28 +32,19 @@ ADMIN_SESSION_COOKIE_NAME = "beacon_admin_session"
 _SESSION_SALT = "beacon-admin-session"
 AGENT_API_KEY_PREFIX = "bcag_"
 
-# A real argon2 hash of an unguessable value, used only to keep the login
-# route's response time constant when no account exists. Without this, a
-# nonexistent-email request returns fast (no hash to check) while a
-# wrong-password request pays argon2's deliberate cost, letting an attacker
-# distinguish "no such user" from "wrong password" via timing even though
-# both return the same generic 401 body.
+# Hash of an unguessable value, checked when no account exists so that
+# "no such user" costs the same argon2 time as "wrong password" — otherwise
+# response timing would reveal which emails are registered.
 _DUMMY_PASSWORD_HASH = _password_hasher.hash(secrets.token_urlsafe(32))
 
 
 def hash_password(plain_password: str) -> str:
-    """Hash a plaintext password with argon2id. Never log the input value."""
+    """Hash with argon2id. Never log the input."""
     return _password_hasher.hash(plain_password)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify a plaintext password against an argon2 hash.
-
-    Returns ``False`` (rather than raising) both for a wrong password and
-    for a malformed/foreign hash, so callers get a single failure branch
-    and can't distinguish "user doesn't exist" from "wrong password"
-    timing/behavior at this layer.
-    """
+    """``False`` for a wrong password or a malformed hash — never raises."""
     try:
         return _password_hasher.verify(hashed_password, plain_password)
     except (VerifyMismatchError, InvalidHash):
@@ -69,13 +52,9 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 
 def verify_password_or_dummy(plain_password: str, hashed_password: str | None) -> bool:
-    """Like :func:`verify_password`, but always pays argon2's cost even if
-    ``hashed_password`` is ``None`` (account doesn't exist / is inactive).
-
-    Callers should use this instead of an ``account is None or not
-    verify_password(...)`` short-circuit for any auth check whose failure
-    response must not leak, via timing, whether the account exists.
-    """
+    """Like :func:`verify_password`, but pays argon2's cost even when there's
+    no account (``None``). Use this for any auth check whose timing must not
+    reveal whether the account exists."""
     return verify_password(plain_password, hashed_password if hashed_password is not None else _DUMMY_PASSWORD_HASH)
 
 
@@ -85,16 +64,13 @@ def _session_serializer() -> URLSafeTimedSerializer:
 
 
 def create_session_token(admin_user_id: str) -> str:
-    """Sign an opaque, timestamped session token for ``admin_user_id``."""
+    """Sign a timestamped session token for ``admin_user_id``."""
     return _session_serializer().dumps({"admin_user_id": admin_user_id})
 
 
 def verify_session_token(token: str, max_age_seconds: int) -> str | None:
-    """Return the admin_user_id embedded in ``token`` if still valid, else ``None``.
-
-    "Valid" means: signature checks out AND the embedded timestamp is no
-    older than ``max_age_seconds`` — this is the session-timeout check.
-    """
+    """The admin id in ``token`` if the signature is valid and it's younger
+    than ``max_age_seconds`` (the session timeout); else ``None``."""
     try:
         data = _session_serializer().loads(token, max_age=max_age_seconds)
     except (BadSignature, SignatureExpired):
@@ -104,20 +80,16 @@ def verify_session_token(token: str, max_age_seconds: int) -> str | None:
 
 
 def generate_agent_api_key() -> tuple[str, str, str]:
-    """Generate a new agent API key.
+    """Return ``(raw_key, key_hash, key_prefix)``.
 
-    Returns ``(raw_key, key_hash, key_prefix)``. ``raw_key`` must be shown
-    to the caller exactly once (at creation time) and never stored; only
-    ``key_hash`` is persisted. API keys are high-entropy random tokens (not
-    user-chosen passwords), so a fast cryptographic hash (SHA-256) is
-    appropriate here — unlike admin passwords, there's no low-entropy
-    guessing risk that argon2's deliberate slowness needs to defend
-    against, and a fast hash keeps every agent-authenticated request cheap.
+    Show ``raw_key`` once and store only ``key_hash``. Keys are high-entropy
+    random tokens, so fast SHA-256 is enough — argon2's slowness only matters
+    for guessable passwords, and would slow every agent request.
     """
     raw_key = f"{AGENT_API_KEY_PREFIX}{secrets.token_urlsafe(32)}"
     return raw_key, hash_api_key(raw_key), raw_key[:12]
 
 
 def hash_api_key(raw_key: str) -> str:
-    """SHA-256 hex digest of a raw agent API key, used for storage and DB lookup."""
+    """SHA-256 hex digest of a raw API key, used for storage and lookup."""
     return hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
