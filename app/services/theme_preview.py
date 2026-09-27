@@ -1,17 +1,6 @@
-"""Builds the response for the Theme "live preview" endpoint.
-
-Per PROJECT_BRIEF.md's Event & Theming section ("Live theme preview in
-backoffice before publishing"), `frontend-theming` needs something to
-render a preview pane against draft (not-yet-saved) theme values —
-including draft custom CSS, which MUST go through the exact same sanitizer
-as the real save path (see ``app.core.css_sanitizer.sanitize_custom_css``;
-this module never calls a relaxed/"preview-only" variant).
-
-Deliberately minimal per the brief ("no need to fully render the eventual
-public landing page... a minimal sample content block is enough"): this
-returns a small, self-contained ``<style>`` block plus a small HTML sample
-block, not a full page render. Full landing-page theming is Milestone 2 /
-`frontend-theming` scope.
+"""Backoffice live theme preview: a ``<style>`` block plus a small sample
+HTML block for draft (unsaved) values, not a full page render. Draft custom
+CSS goes through the same sanitizer as saving.
 """
 
 from dataclasses import dataclass
@@ -35,31 +24,16 @@ FONT_STACKS: dict[ThemeFont, str] = {
     ThemeFont.MERRIWEATHER: "'Merriweather', Georgia, serif",
     ThemeFont.PLAYFAIR_DISPLAY: "'Playfair Display', Georgia, serif",
 }
-"""CSS ``font-family`` fallback stack per curated ``ThemeFont`` choice. The
-non-system entries name a specific web font family but rely on the browser
-falling back to a system font unless/until ``frontend-theming`` actually
-self-hosts (``@font-face``) that family in a later milestone — this module
-never itself loads a font from a third-party URL, keeping the same
-no-external-request posture the CSS sanitizer enforces for custom CSS."""
+"""``font-family`` stack per ``ThemeFont``. Named web fonts aren't self-hosted
+or loaded from a CDN, so they fall back to system fonts unless installed.
+"""
 
 
 @dataclass(frozen=True)
 class ContrastSuggestion:
-    """A "closest compliant color" suggestion for one failing contrast
-    pair (post-launch fix, per the user's NOTES: "Do color recommendations
-    for what color can be used ... with easy setting of that color").
-
-    ``field_name`` is which of the Theme's three form fields this
-    suggestion applies to (``"primary_color"``/``"secondary_color"``/
-    ``"accent_color"``) — the backoffice template uses it to wire a
-    one-click "use this color" button straight to the right ``<input
-    type="color">``. ``suggested_color`` always targets the stricter
-    4.5:1 normal-text threshold (clearing it also clears the 3:1 large-
-    text/UI threshold every pair is also checked against), computed by
-    :func:`app.services.color.nudge_lightness_for_contrast` -- the same
-    hue/saturation-preserving search :func:`app.services.color.
-    derive_dark_palette` already uses, so a suggestion always reads as
-    "your color, nudged" rather than an unrelated replacement.
+    """A "closest compliant color" for one failing pair: the same hue and
+    saturation, lightness nudged until it clears 4.5:1. ``field_name`` tells the
+    template which color input the "use this color" button fills.
     """
 
     field_name: str
@@ -69,32 +43,14 @@ class ContrastSuggestion:
 def _build_contrast_suggestions(
     report: ThemeContrastReport, *, primary_color: str, secondary_color: str, accent_color: str
 ) -> dict[str, ContrastSuggestion]:
-    """One suggestion per FAILING pair in ``report``, keyed by
-    ``ContrastPairResult.label`` -- a pair that already passes needs no
-    suggestion, and gets no entry here (the template checks for that key's
-    presence rather than a sentinel value).
+    """One suggestion per failing pair, keyed by the pair's label.
 
-    Which field gets adjusted is hardcoded per pair below, deliberately
-    NEVER ``secondary_color`` -- even though ``check_theme_contrast``
-    narrowed its checks to just 2 pairs specifically so they'd be
-    independently satisfiable (see that function's docstring), the two
-    pairs still share ``secondary_color``, just in different ROLES: it's
-    the BACKGROUND in "primary vs secondary" but the FOREGROUND in
-    "secondary vs accent" (the button-label color). Suggesting a fix to
-    whichever field happens to be a pair's ``foreground`` -- the first,
-    more general approach here -- would sometimes suggest adjusting
-    ``secondary_color`` to fix "secondary vs accent", which can silently
-    un-satisfy "primary vs secondary" the moment it's applied (found live,
-    the exact "fixing one part breaks another" complaint this whole
-    narrower 2-pair check was built to eliminate). Always adjusting the
-    field that appears in ONLY ONE of the two real pairs instead
-    (``primary_color`` for the first, ``accent_color`` for the second)
-    keeps ``secondary_color`` as a fixed anchor both other colors are
-    chosen relative to -- which is always achievable, since for any fixed
-    background, either black or white clears 4.5:1 against it (their
-    contrast ratios multiply to a constant 21, so at least one always
-    reaches >= sqrt(21) ~= 4.58) -- guaranteeing every suggestion offered
-    here can be applied simultaneously and leave the whole report passing.
+    Always adjust the color unique to each pair (``primary`` for the first,
+    ``accent`` for the second), never the shared ``secondary``: it's the
+    background in one pair and the text in the other, so changing it could
+    break the pair that already passes. Against a fixed background either
+    black or white always clears 4.5:1 (their ratios multiply to 21), so every
+    suggestion can be applied together and the whole report ends up passing.
     """
     suggestions: dict[str, ContrastSuggestion] = {}
     for pair in report.pairs:
@@ -113,7 +69,7 @@ def _build_contrast_suggestions(
 
 @dataclass(frozen=True)
 class ThemePreviewResult:
-    """Everything `frontend-theming` needs to render a live preview pane."""
+    """Everything needed to render the preview pane."""
 
     sanitized_custom_css: str
     is_custom_css_active: bool
@@ -131,12 +87,7 @@ def build_theme_preview(
     font_choice: ThemeFont,
     custom_css: str | None,
 ) -> ThemePreviewResult:
-    """Build a :class:`ThemePreviewResult` from draft (unsaved) theme field
-    values. Pure function of its arguments — no DB access — so it can be
-    called identically from the preview endpoint (draft values) and could,
-    if ever useful, be called against an already-persisted Theme's values
-    too.
-    """
+    """Build the preview from draft theme values. Pure — no DB access."""
     sanitized_css = sanitize_custom_css(custom_css or "")
     contrast_report = check_theme_contrast(
         primary_color=primary_color, secondary_color=secondary_color, accent_color=accent_color
