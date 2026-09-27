@@ -24,6 +24,7 @@ Connection-test coverage notes:
 """
 
 from collections.abc import Awaitable, Callable
+from typing import Any
 
 from httpx import AsyncClient
 from sqlalchemy import text
@@ -104,7 +105,7 @@ async def test_audit_log_never_contains_raw_secret_plaintext(
     result = await db_session.execute(
         text("SELECT detail FROM audit_log_entries WHERE action = 'event_config.create'")
     )
-    rows = result.scalars().all()
+    rows: list[Any] = list(result.scalars().all())
     assert len(rows) == 1
     detail = rows[0]
     assert detail["smtp_password"] == "<redacted>"
@@ -127,7 +128,7 @@ async def test_underlying_db_column_is_encrypted_not_plaintext(
     result = await db_session.execute(
         text("SELECT smtp_password FROM event_configs WHERE id = :id"), {"id": config_id}
     )
-    raw_stored_value = result.scalar_one()
+    raw_stored_value: str = result.scalar_one()
 
     assert raw_stored_value != plaintext
     assert plaintext not in raw_stored_value
@@ -358,13 +359,13 @@ async def test_connection_test_actions_are_not_written_to_the_audit_log(
     )
 
     result_before = await db_session.execute(text("SELECT count(*) FROM audit_log_entries"))
-    count_before = result_before.scalar_one()
+    count_before: int = result_before.scalar_one()
 
     await client.post(f"/api/v1/events/{event_id}/config/test-email", json={"recipient": "x@example.test"})
     await client.post(f"/api/v1/events/{event_id}/config/test-mollie", json={"environment": "test"})
 
     result_after = await db_session.execute(text("SELECT count(*) FROM audit_log_entries"))
-    count_after = result_after.scalar_one()
+    count_after: int = result_after.scalar_one()
 
     assert count_after == count_before
 
