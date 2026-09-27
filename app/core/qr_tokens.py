@@ -1,33 +1,11 @@
-"""HMAC-signed QR ticket tokens (Milestone 4).
+"""HMAC-signed QR ticket tokens.
 
-Provides the signing/verification primitive for the payload encoded in each
-``Ticket``'s printed/emailed QR code. Reuses the same secret-key +
-``itsdangerous`` infrastructure as admin session tokens (see
-``app.core.security``) but under a distinct salt/purpose
-(``beacon-ticket-qr`` vs. ``beacon-admin-session``) so a ticket token and a
-session token are never interchangeable, even though both are ultimately
-keyed off the same ``Settings.secret_key``. ``itsdangerous``'s default
-signer is HMAC-based (HMAC-SHA1 over a URL-safe-base64 payload) — this only
-needs to *prove authenticity* (issued by us, not tampered with), never to
-be decrypted back to anything, so plain HMAC signing is the correct
-primitive here per PROJECT_BRIEF.md's "unique HMAC-signed QR token"
-requirement — unlike ``EventConfig``'s secrets, which use reversible
-``EncryptedString`` (Fernet) because those genuinely need to be read back.
-
-Each token encodes nothing but the ``Ticket.id`` (already a random
-``uuid.uuid4``, per ``app.db.mixins.UUIDPrimaryKeyMixin``) — so the token is
-"not sequential/guessable" for two independent reasons: the id itself is
-random, and the signature prevents constructing a valid token for a guessed
-id without the server's secret key.
-
-This is the exact primitive Milestone 7's scanning UI will call
-:func:`verify_ticket_token` against — built correctly now even though no
-scanning UI exists yet.
-
-Never log a signed token's secret key material (``Settings.secret_key``).
-The signed tokens themselves are not secret (they are printed on a physical
-ticket / embedded in an emailed QR code and PDF) but must remain unforgeable
-without the key.
+Tokens only need to prove authenticity (issued by us, untampered), so they're
+signed, not encrypted. They share ``Settings.secret_key`` with session tokens
+but use a distinct salt, so the two can never be swapped for each other. The
+payload is just the random ``Ticket.id``; the signature stops anyone forging a
+token for a guessed id. Tokens themselves aren't secret — they're printed on
+tickets.
 """
 
 import uuid
@@ -47,28 +25,17 @@ def _ticket_serializer() -> URLSafeSerializer:
 
 
 def sign_ticket_token(ticket_id: uuid.UUID) -> str:
-    """Produce an HMAC-signed, URL-safe token encoding ``ticket_id``.
+    """Sign ``ticket_id`` into a URL-safe token.
 
-    The returned string is what gets encoded into the ticket's QR code (see
-    ``app.services.ticket_pdf``) and stored on ``Ticket.qr_token``. Calling
-    this twice for the same ``ticket_id`` yields two different-looking but
-    equally valid tokens (``itsdangerous`` does not add a nonce/salt beyond
-    the fixed purpose salt above) — callers should sign a given Ticket
-    exactly once and persist the result, rather than re-signing on every
-    read, so ``Ticket.qr_token`` (and whatever's printed/emailed) stays
-    stable — see ``app.services.ticket_delivery.sign_order_tickets``.
+    Sign each Ticket once and persist the result on ``Ticket.qr_token`` so
+    the printed/emailed code stays stable.
     """
     return str(_ticket_serializer().dumps(str(ticket_id)))
 
 
 def verify_ticket_token(token: str) -> uuid.UUID | None:
-    """Verify ``token`` and return the ``Ticket.id`` it encodes if the
-    signature is valid, else ``None``.
-
-    Returns ``None`` (never raises) for a tampered, malformed, or foreign
-    token — Milestone 7's scanner should treat ``None`` as "invalid /
-    unrecognized code", never as an authenticity check to bypass.
-    """
+    """Return the Ticket id in ``token``, or ``None`` if it's tampered,
+    malformed, or foreign. Never raises."""
     try:
         raw = _ticket_serializer().loads(token)
     except BadSignature:

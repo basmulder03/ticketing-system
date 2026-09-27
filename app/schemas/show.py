@@ -22,10 +22,7 @@ class ShowCreateRequest(BaseModel):
 
 
 class ShowUpdateRequest(BaseModel):
-    """Body of ``PATCH /api/v1/events/{event_id}/shows/{show_id}``.
-
-    All fields optional; only fields explicitly present are applied.
-    """
+    """PATCH body; only fields present are changed."""
 
     date: date_type | None = None
     doors_time: time_type | None = None

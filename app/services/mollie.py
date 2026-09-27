@@ -1,23 +1,9 @@
-"""Mollie payment integration: creating a Mollie-hosted payment for an
-Order, and fetching a payment's authoritative status directly from Mollie's
-API. Plain ``httpx`` calls, no Mollie SDK dependency — matches the existing
-connection-test pattern in ``app.services.event_config_actions``.
+"""Mollie client (plain ``httpx``, no SDK): create a payment, fetch its status.
 
-**On webhook "signature verification"** (read this before touching the
-webhook handler in ``app.api.routes.public``): Mollie's real webhook model
-sends only a payment id, form-encoded as ``id=tr_xxx`` — there is no signed
-payload, no HMAC header, nothing in the webhook request itself that can be
-cryptographically verified. This is normal for Mollie, not a shortcut this
-project is taking. The correct, secure pattern (and what Mollie's own docs
-mean by "verifying" a webhook) is: never trust anything about payment
-*status* from the webhook body — treat the ``id`` it names purely as a
-lookup key, then fetch that payment's current state directly from Mollie's
-API using the merchant's own API key via :func:`fetch_mollie_payment_status`.
-That authoritated response, not the webhook POST, is what gets trusted and
-reconciled against. Anyone can POST a fake ``id`` to the webhook endpoint;
-the worst they can do is force a wasted lookup (an unknown id resolves to no
-matching Order, see the webhook route) or a redundant Mollie GET call for a
-real order they don't control the outcome of.
+Mollie webhooks carry only a payment id — no signature. So the webhook body
+is never trusted for status: its id is a lookup key, and the status is
+fetched from Mollie with our own key (:func:`fetch_mollie_payment_status`).
+A forged webhook can at worst cause a wasted lookup.
 """
 
 import uuid
@@ -33,40 +19,21 @@ from app.services.event_config_actions import MOLLIE_API_BASE_URL
 _HTTP_TIMEOUT_SECONDS = 10.0
 
 _CURRENCY = "EUR"
-"""Fixed at EUR — EventConfig has no currency field and every event this
-platform targets (Dutch/EU community venues) bills in EUR. Flagged as an
-assumption: a future multi-currency requirement would need a real
-``EventConfig`` field, not a hardcoded constant here."""
+"""EUR only; multi-currency would need an EventConfig field."""
 
 
 class MollieApiError(Exception):
-    """Raised when a Mollie API call can't be completed: network failure,
-    an unexpected non-2xx response, or a response that doesn't have the
-    shape this code expects. Callers must catch this and degrade
-    gracefully (a failed checkout error, or a 502 from the webhook route
-    so Mollie retries) — never let it surface as a bare 500."""
+    """A Mollie call failed (network, non-2xx, unexpected shape). Callers must
+    degrade gracefully (checkout error, or 502 so Mollie retries) — never a 500.
+    """
 
 
 def resolve_mollie_api_key(config: EventConfig | None, *, mode: MollieMode | None = None) -> str | None:
-    """Return the API key matching ``mode`` (test or live) — ``config``'s
-    own ``mollie_mode`` if ``mode`` isn't given.
+    """The event's key for ``mode`` (default: ``config.mollie_mode``), or ``None``.
 
-    Reads ``mollie_mode`` from this specific Event's own config by default
-    — never a global default — per PROJECT_BRIEF.md's Per-Event
-    Configuration requirement. Never falls back to the other mode's key if
-    the selected one isn't set: which key is live for this event is an
-    explicit admin choice, not something to infer opportunistically.
-    Returns ``None`` if ``config`` is ``None`` or the selected mode's key
-    isn't configured.
-
-    The explicit ``mode`` override exists for webhook reconciliation
-    (``app.api.routes.public.mollie_webhook``), which must use the mode
-    that was actually active when THIS Order's payment was created
-    (``Order.mollie_mode``), not whatever ``EventConfig.mollie_mode``
-    happens to be right now — an admin flipping test/live while an Order
-    is still pending must never make reconciliation silently switch keys
-    out from under an in-flight payment. See ``Order.mollie_mode``'s
-    docstring for the full reasoning.
+    Never falls back to the other mode's key. The webhook passes the order's
+    pinned ``Order.mollie_mode`` so a test/live switch can't strand an
+    in-flight payment.
     """
     if config is None:
         return None
@@ -77,8 +44,7 @@ def resolve_mollie_api_key(config: EventConfig | None, *, mode: MollieMode | Non
 
 @dataclass(frozen=True)
 class MolliePaymentCreated:
-    """The two fields this app needs back from a successful Mollie
-    Create Payment call."""
+    """The fields we need from a created payment."""
 
     payment_id: str
     checkout_url: str
@@ -93,13 +59,8 @@ async def create_mollie_payment(
     webhook_url: str,
     description: str,
 ) -> MolliePaymentCreated:
-    """Call Mollie's ``POST /v2/payments`` for ``amount`` (the Order's
-    total). Raises :class:`MollieApiError` on any network failure or
-    non-2xx response — the caller must fail the checkout cleanly rather
-    than send the buyer to a broken redirect.
-
-    Never logs ``api_key`` or the raw response body (which could echo
-    metadata back) — only structured fields are read out of it.
+    """Create a payment for ``amount``. Raises :class:`MollieApiError` so checkout
+    fails cleanly. Never logs the key or the raw response.
     """
     payload = {
         "amount": {"currency": _CURRENCY, "value": f"{amount:.2f}"},
@@ -133,15 +94,9 @@ async def create_mollie_payment(
 
 
 async def fetch_mollie_payment_status(*, api_key: str, payment_id: str) -> str:
-    """Fetch ``payment_id``'s CURRENT status directly from Mollie's API —
-    the only trusted source of payment status (see module docstring; never
-    read status from a webhook request body).
-
-    Returns Mollie's raw ``status`` string (e.g. ``"paid"``, ``"failed"``,
-    ``"expired"``, ``"canceled"``, ``"open"``, ``"pending"``,
-    ``"authorized"``) — mapping that onto ``OrderStatus`` is the caller's
-    job (see ``app.services.order_payment``/the webhook route), not this
-    thin client's.
+    """Mollie's current raw status for ``payment_id`` (``"paid"``, ``"failed"``,
+    ``"open"``...) — the only trusted source. Mapping to ``OrderStatus`` is the
+    caller's job.
     """
     try:
         async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT_SECONDS) as client:

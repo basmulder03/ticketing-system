@@ -1,10 +1,5 @@
-"""Event CRUD routes.
-
-Content-type data per PROJECT_BRIEF.md's AI/Agent Access section — every
-route here uses ``require_admin_or_agent`` (both human admins and agent keys
-may read/write), never ``require_admin``. EventConfig (SMTP/Mollie
-credentials, financial data) is deliberately a separate router
-(``app.api.routes.event_configs``) gated by ``require_admin`` only.
+"""Event CRUD. Admin or agent; EventConfig (credentials, finance) lives in
+the admin-only ``event_configs`` router.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -50,7 +45,7 @@ async def create_event(
     principal: Principal = Depends(require_admin_or_agent),
     session: AsyncSession = Depends(get_session),
 ) -> EventOut:
-    """Create a new Event. Reachable by admin and agent principals."""
+    """Create an event."""
     existing = await session.execute(select(Event).where(Event.slug == body.slug))
     if existing.scalar_one_or_none() is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="An event with this slug already exists.")
@@ -104,7 +99,7 @@ async def update_event(
     principal: Principal = Depends(require_admin_or_agent),
     session: AsyncSession = Depends(get_session),
 ) -> EventOut:
-    """Partially update an Event. Only fields present in the body are changed."""
+    """PATCH; only fields present are changed."""
     event = await _get_event_or_404(session, event_id)
 
     if body.slug is not None and body.slug != event.slug:
@@ -129,27 +124,16 @@ async def set_default_event(
     principal: Principal = Depends(require_admin_or_agent),
     session: AsyncSession = Depends(get_session),
 ) -> EventOut:
-    """Mark this Event as THE default Event — per the user's NOTES: "event
-    can be set to the default event, which causes that event page to
-    automagically open" (see ``app.web.routes.homepage``). At most one
-    Event may hold this at a time: clears any previously-default Event in
-    the same transaction, and the ``is_default_event`` column also carries
-    a partial unique index (migration ``0013``) as defense in depth against
-    a genuine race between two concurrent requests.
+    """Make this the default event (``/`` redirects to it while published).
 
-    Setting this on a still-``draft`` Event is allowed (an admin may want
-    to line it up before publishing) — it simply has no visible effect
-    until the Event is actually published, since the homepage only
-    auto-redirects to a default Event that's both set AND published.
+    Clears any previous default in the same transaction; the partial unique
+    index backs this up. Allowed on drafts so it can be set up before
+    publishing.
     """
     event = await _get_event_or_404(session, event_id)
     if not event.is_default_event:
-        # Lock whichever Event currently holds the default (if any) before
-        # clearing it, so two concurrent set-default requests can't both
-        # read "no current default" and both proceed to set themselves —
-        # same row-locking discipline as app.services.stock.reserve_stock/
-        # app.services.order_payment._lock_order. The partial unique index
-        # (migration 0013) is the ultimate backstop either way.
+        # Lock the current default first so two concurrent requests can't both
+        # see "no default"; the partial unique index is the backstop.
         previous_default_result = await session.execute(
             select(Event).where(Event.is_default_event.is_(True)).with_for_update()
         )
@@ -181,10 +165,7 @@ async def unset_default_event(
     principal: Principal = Depends(require_admin_or_agent),
     session: AsyncSession = Depends(get_session),
 ) -> EventOut:
-    """Clear this Event's default-Event status, if it currently holds it.
-    Idempotent — calling this on an Event that isn't the default is a
-    safe no-op, same convention as ``app.services.order_payment.
-    mark_order_paid``'s own idempotency."""
+    """Clear this event's default status. Idempotent."""
     event = await _get_event_or_404(session, event_id)
     if event.is_default_event:
         event.is_default_event = False
@@ -207,11 +188,7 @@ async def delete_event(
     principal: Principal = Depends(require_admin_or_agent),
     session: AsyncSession = Depends(get_session),
 ) -> None:
-    """Delete an Event and everything under it (EventConfig, Shows, TicketTypes cascade).
-
-    Fails with a 409 (not a 500) if any of its TicketTypes still have
-    purchased Tickets attached — see ``app.api.routes._utils.commit_or_conflict``.
-    """
+    """Delete the event and everything under it; 409 if any ticket type has sold tickets."""
     event = await _get_event_or_404(session, event_id)
     await record_audit_entry(
         session, principal, action="event.delete", target_type="Event", target_id=str(event.id),

@@ -1,11 +1,6 @@
-"""Reusable audit-log writer.
-
-Every route that performs a write worth auditing should call
-:func:`record_audit_entry` rather than constructing ``AuditLogEntry`` rows
-directly — keeping the actor-type/actor-name attribution logic in one
-place is what guarantees agent-driven writes are always recorded as
-``ActorType.AI_AGENT`` plus the agent's name, never as a human or a
-generic "system" actor.
+"""The single audit-log writer. Always go through :func:`record_audit_entry`
+so agent writes are attributed as ``AI_AGENT`` + agent name, never as a human
+or a generic system actor.
 """
 
 from typing import Any
@@ -24,14 +19,8 @@ async def record_audit_entry(
     target_id: str | None = None,
     detail: dict[str, Any] | None = None,
 ) -> AuditLogEntry:
-    """Write one immutable audit entry attributing ``action`` to ``principal``.
-
-    ``principal.actor_type``/``principal.name`` come directly from the
-    already-authenticated caller (see ``app.api.deps``) — route code
-    cannot override or spoof the actor. Adds the entry to ``session`` and
-    flushes (so ``entry.id`` is populated) but does not commit; the caller
-    controls the transaction boundary alongside whatever else it's
-    persisting in the same request.
+    """Add one audit entry attributing ``action`` to ``principal`` (taken from
+    auth, so routes can't spoof it). Flushes but doesn't commit.
     """
     entry = AuditLogEntry(
         actor_type=principal.actor_type,

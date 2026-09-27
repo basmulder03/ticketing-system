@@ -1,31 +1,10 @@
-"""Concurrency-safe sequential invoice numbering and idempotent Invoice
-issuance (Milestone 5), per PROJECT_BRIEF.md's Invoicing section.
+"""Sequential invoice numbering and idempotent issuance.
 
-:func:`issue_invoice_for_order` is the single entry point every payment-
-confirmation path calls — the Mollie webhook and the preview-mode
-simulated-checkout path today (see ``app.api.routes.public``), and (once
-Milestone 6 wires manual mark-as-paid through the same
-``app.services.order_payment.mark_order_paid`` function) door/manual
-reconciliation automatically, with no extra code needed here. Every caller
-MUST gate the call on ``MarkOrderPaidResult.already_paid is False`` (the
-exact same rule Milestone 4's ticket-email/QR-signing dispatch already
-follows) — a duplicate invoice number is a real accounting problem, not
-just a UX one, so this module also defends itself at a second layer (see
-:func:`issue_invoice_for_order`'s docstring) rather than relying solely on
-callers remembering the gate correctly.
-
-Numbering discipline mirrors ``app.services.stock.reserve_stock``'s
-row-locking pattern: :func:`_allocate_invoice_number` row-locks the Event's
-``EventConfig`` (``SELECT ... FOR UPDATE``) before reading/incrementing
-``next_invoice_number``, so two concurrent payment confirmations for the
-same Event can never read the same "next" value — the second caller blocks
-at the locking query until the first transaction commits or rolls back.
-Called from INSIDE the same DB transaction as the ``mark_order_paid``
-status flip (flush-only, no commit) — exactly like Milestone 4's
-``sign_order_tickets`` — so number allocation is atomic with the payment
-confirmation itself: if the surrounding transaction rolls back for any
-reason, the allocated number rolls back with it and is never "burned"
-without a corresponding Invoice row.
+:func:`issue_invoice_for_order` is called by every payment-confirmation
+path, only after a fresh ``mark_order_paid`` (``already_paid is False``),
+inside the same transaction — so if that transaction rolls back, the
+number isn't burned. Numbers are allocated under a ``FOR UPDATE`` lock on
+the event's ``EventConfig``, so concurrent payments never share a number.
 """
 
 import uuid
@@ -47,10 +26,7 @@ __all__ = ["LineItem", "issue_invoice_for_order"]
 
 
 class LineItem(TypedDict):
-    """One invoice line item, one per distinct ``TicketType`` purchased.
-    ``unit_price``/``line_total`` are decimal strings (never float — see
-    ``app.models.invoice.Invoice.line_items`` docstring for why JSON
-    storage uses strings rather than a numeric JSON type)."""
+    """One line per ticket type; money as decimal strings."""
 
     name: str
     quantity: int
@@ -59,40 +35,16 @@ class LineItem(TypedDict):
 
 
 async def _allocate_invoice_number(session: AsyncSession, *, event_id: uuid.UUID) -> tuple[int, EventConfig | None]:
-    """Row-lock ``event_id``'s ``EventConfig`` and atomically allocate the
-    next sequential invoice number, incrementing
-    ``EventConfig.next_invoice_number`` for the next caller.
+    """Lock the event's ``EventConfig``, take ``next_invoice_number`` and bump it.
 
-    Returns ``(allocated_number, locked_config)`` — the caller reads the
-    company/VAT/prefix snapshot fields off ``locked_config`` while it's
-    still locked, avoiding a second round trip. If the Event genuinely has
-    no ``EventConfig`` row at all (should not happen for an event that has
-    taken a real paid order, but defensively handled rather than crashing a
-    real payment confirmation), falls back to number ``1`` with no config
-    to snapshot from — every subsequent invoice for that same
-    still-configless event would also get ``1`` and collide at the DB's
-    unique constraint, but that failure mode requires an operator to have
-    published an event with no EventConfig row at all, which the rest of
-    this app's Event-creation flow does not allow to happen.
+    Returns ``(number, locked_config)`` so the caller can snapshot company
+    details while it holds the lock. With no EventConfig at all (not reachable
+    through normal event creation) it falls back to number 1.
     """
-    # populate_existing() is load-bearing, not a stylistic default: the
-    # webhook route (app.api.routes.public.mollie_webhook) already loads
-    # this same Event's EventConfig earlier in the SAME session (via
-    # `session.get(Event, ..., options=[selectinload(Event.config)])`, to
-    # resolve the Mollie API key) BEFORE this function ever runs. Without
-    # populate_existing(), SQLAlchemy's identity map returns that
-    # already-loaded Python object as-is when this query's WHERE clause
-    # matches the same primary key — the SELECT ... FOR UPDATE is still
-    # genuinely sent to Postgres and genuinely serializes concurrent
-    # transactions at the DB level, but the in-memory `next_invoice_number`
-    # attribute is NOT refreshed from that query's result, so every
-    # transaction reads the SAME stale pre-lock value it cached earlier
-    # instead of the fresh, correctly-serialized one — multiple concurrent
-    # payment confirmations then compute the identical "next" number
-    # despite the row lock working correctly, and collide on
-    # Invoice's (event_id, number) unique constraint. Reproduced and
-    # confirmed via a minimal isolated script before this fix; re-verified
-    # after (see this module's test coverage).
+    # populate_existing() is load-bearing: the webhook already loaded this
+    # EventConfig in the same session, and without it the identity map returns
+    # the stale pre-lock next_invoice_number — concurrent payments would then
+    # get the same number despite the lock.
     result = await session.execute(
         select(EventConfig)
         .where(EventConfig.event_id == event_id)
@@ -108,17 +60,7 @@ async def _allocate_invoice_number(session: AsyncSession, *, event_id: uuid.UUID
 
 
 def _build_line_items(tickets: list[Ticket], ticket_types_by_id: dict[str, TicketType]) -> list[LineItem]:
-    """Group ``tickets`` by ``TicketType`` into one :class:`LineItem` per
-    distinct type purchased on the order (name, quantity, unit price, line
-    total) — the shape PROJECT_BRIEF.md's Invoicing section calls for
-    ("line items (one per TicketType purchased)").
-
-    Reads ``TicketType.price``/``name`` live at issuance time (the moment
-    this function is called, always inside the same transaction as payment
-    confirmation) and freezes them into the returned snapshot — never
-    re-read again after this point, per ``app.models.invoice.Invoice``'s
-    module docstring.
-    """
+    """Group tickets by type into line items, freezing current names and prices."""
     quantities: dict[str, int] = {}
     for ticket in tickets:
         key = str(ticket.ticket_type_id)
@@ -141,11 +83,7 @@ def _build_line_items(tickets: list[Ticket], ticket_types_by_id: dict[str, Ticke
 
 
 async def _load_tickets_with_types(session: AsyncSession, *, order_id: uuid.UUID) -> list[Ticket]:
-    """Fetch every ``Ticket`` belonging to ``order_id`` with its
-    ``TicketType`` eagerly loaded (``selectinload``) — required because
-    :func:`_build_line_items` reads ``ticket.ticket_type.price``/``.name``,
-    and lazy-loading a relationship is not safe on this project's async
-    SQLAlchemy session."""
+    """Order's tickets with their types eager-loaded (no lazy loads in async)."""
     result = await session.execute(
         select(Ticket).where(Ticket.order_id == order_id).options(selectinload(Ticket.ticket_type))
     )
@@ -158,27 +96,11 @@ async def issue_invoice_for_order(
     order: Order,
     principal: Principal,
 ) -> Invoice:
-    """Idempotently issue the one-and-only Invoice for ``order``.
+    """Issue the order's one invoice, or return the existing one.
 
-    Callers MUST already be inside the same transaction as a fresh (never
-    previously observed) ``mark_order_paid`` transition, per this module's
-    docstring. As a second, independent idempotency layer (defense in depth
-    beyond callers correctly gating on ``already_paid``), this function
-    itself first checks for an already-existing Invoice row for
-    ``order.id`` and returns it unchanged if found — so even a caller bug
-    that invokes this twice for the same Order can never allocate a second
-    number or double-write the audit log. Combined with
-    ``Invoice.order_id``'s DB-level ``UNIQUE`` constraint, a duplicate
-    invoice for one Order is not reachable even under a race between two
-    callers that both pass the ``already_paid`` gate (the loser of the
-    ``EventConfig`` row lock in :func:`_allocate_invoice_number` blocks
-    until the winner commits, then would find some existing Invoice row on
-    a re-check — in practice unreachable anyway because ``mark_order_paid``
-    itself already row-locks the Order first, serializing any two callers
-    for the same Order before either reaches this function at all).
-
-    Flushes but does not commit — the caller controls the transaction
-    boundary, exactly like ``app.services.ticket_delivery.sign_order_tickets``.
+    The existing-invoice check plus the unique ``order_id`` constraint make a
+    duplicate impossible even if a caller forgets the ``already_paid`` gate.
+    Flushes but doesn't commit.
     """
     existing = await session.execute(select(Invoice).where(Invoice.order_id == order.id))
     invoice = existing.scalar_one_or_none()

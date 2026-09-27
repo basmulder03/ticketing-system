@@ -1,8 +1,4 @@
-"""TicketType CRUD routes, nested under a Show.
-
-Content-type data per PROJECT_BRIEF.md's AI/Agent Access section — gated by
-``require_admin_or_agent``, same as Event/Show.
-"""
+"""TicketType CRUD, nested under a Show. Admin or agent."""
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
@@ -21,10 +17,7 @@ router = APIRouter(prefix="/api/v1/shows/{show_id}/ticket-types", tags=["ticket-
 
 
 async def _to_out(session: AsyncSession, ticket_type: TicketType) -> TicketTypeOut:
-    """Build the response shape, first attaching the live sold count so
-    ``remaining`` reflects real stock (Milestone 2) rather than always
-    equalling ``quantity_available`` — see ``app.services.stock.attach_remaining``.
-    """
+    """Response with live ``remaining`` stock attached."""
     await attach_remaining(session, [ticket_type])
     return TicketTypeOut(
         id=str(ticket_type.id),
@@ -122,7 +115,7 @@ async def get_ticket_type(
     principal: Principal = Depends(require_admin_or_agent),
     session: AsyncSession = Depends(get_session),
 ) -> TicketTypeOut:
-    """Fetch a single TicketType by id, scoped to its parent Show."""
+    """One ticket type, scoped to its show."""
     show = await _get_show_or_404(session, show_id)
     ticket_type = await _get_ticket_type_or_404(session, show, ticket_type_id)
     return await _to_out(session, ticket_type)
@@ -136,7 +129,7 @@ async def update_ticket_type(
     principal: Principal = Depends(require_admin_or_agent),
     session: AsyncSession = Depends(get_session),
 ) -> TicketTypeOut:
-    """Partially update a TicketType. Only fields present in the body are changed."""
+    """PATCH; only fields present are changed."""
     show = await _get_show_or_404(session, show_id)
     ticket_type = await _get_ticket_type_or_404(session, show, ticket_type_id)
 
@@ -161,11 +154,7 @@ async def delete_ticket_type(
     principal: Principal = Depends(require_admin_or_agent),
     session: AsyncSession = Depends(get_session),
 ) -> None:
-    """Delete a TicketType.
-
-    Fails with a 409 (not a 500) if it still has purchased Tickets attached
-    — see ``app.api.routes._utils.commit_or_conflict``.
-    """
+    """Delete; 409 if it has sold tickets."""
     show = await _get_show_or_404(session, show_id)
     ticket_type = await _get_ticket_type_or_404(session, show, ticket_type_id)
     await record_audit_entry(

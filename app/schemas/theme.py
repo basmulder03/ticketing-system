@@ -1,6 +1,4 @@
-"""Pydantic request/response models for Theme CRUD, image upload, and the
-live-preview endpoint.
-"""
+"""Request/response models for Theme CRUD, image upload and live preview."""
 
 from datetime import datetime
 
@@ -12,8 +10,7 @@ _HEX_COLOR_PATTERN = r"^#[0-9a-fA-F]{6}$"
 
 
 class ContrastPairOut(BaseModel):
-    """One foreground/background contrast check result. See
-    ``app.services.contrast.ContrastPairResult``."""
+    """One foreground/background contrast result."""
 
     label: str
     foreground: str
@@ -24,12 +21,8 @@ class ContrastPairOut(BaseModel):
 
 
 class ContrastReportOut(BaseModel):
-    """The full AA contrast report for a theme's fixed color fields. See
-    ``app.services.contrast.ThemeContrastReport``.
-
-    This report is computed only from ``primary_color``/``secondary_color``/
-    ``accent_color`` — it says nothing about ``custom_css``, which cannot be
-    reliably auto-audited; see ``ThemeOut.is_custom_css_active``.
+    """AA contrast report for the three fixed colors only — custom CSS can't be
+    audited automatically (see ``ThemeOut.is_custom_css_active``).
     """
 
     pairs: list[ContrastPairOut]
@@ -38,16 +31,8 @@ class ContrastReportOut(BaseModel):
 
 
 class ThemeUpdateRequest(BaseModel):
-    """Body of ``PUT /api/v1/events/{event_id}/theme``.
-
-    Upserts the event's theme (creates it if it doesn't exist yet). Only
-    fields explicitly present in the request body are applied
-    (``exclude_unset`` semantics), same convention as
-    ``EventConfigUpdateRequest``. ``custom_css`` is sanitized server-side
-    (see ``app.core.css_sanitizer.sanitize_custom_css``) before being
-    stored — the stored/returned value is the sanitized result, never the
-    raw submitted text. Logo/background images are set via the separate
-    multipart upload endpoints, not this body.
+    """Upsert body; omitted fields stay unchanged. ``custom_css`` is stored and
+    returned sanitized, never raw. Images use the separate upload endpoints.
     """
 
     primary_color: str | None = Field(default=None, pattern=_HEX_COLOR_PATTERN)
@@ -85,12 +70,8 @@ class ThemeOut(BaseModel):
 
 
 class ThemePreviewRequest(BaseModel):
-    """Body of ``POST /api/v1/events/{event_id}/theme/preview``.
-
-    All fields required (unlike ``ThemeUpdateRequest``'s partial-update
-    semantics): a preview renders a complete, self-contained draft theme,
-    not a delta against whatever is currently saved. ``custom_css`` is
-    optional (an empty/omitted value previews with no custom CSS at all).
+    """A complete draft theme to preview (not a delta against the saved one);
+    ``custom_css`` may be empty.
     """
 
     primary_color: str = Field(pattern=_HEX_COLOR_PATTERN)
@@ -101,27 +82,16 @@ class ThemePreviewRequest(BaseModel):
 
 
 class ContrastSuggestionOut(BaseModel):
-    """A "closest compliant color" suggestion for one failing contrast
-    pair (post-launch fix, per the user's NOTES: "Do color recommendations
-    for what color can be used ... with easy setting of that color"). See
-    ``app.services.theme_preview.ContrastSuggestion``."""
+    """The "closest compliant color" for one failing contrast pair."""
 
     field_name: str
     suggested_color: str
 
 
 class ThemePreviewResponse(BaseModel):
-    """Response of ``POST /api/v1/events/{event_id}/theme/preview``.
-
-    ``preview_css`` (base variables/layout for the fixed fields plus the
-    sanitized custom CSS appended) and ``sample_html`` (a minimal
-    ``.event-content``-scoped content block) together are enough for
-    `frontend-theming` to render a live preview pane by dropping
-    ``preview_css`` into a ``<style>`` tag and ``sample_html`` into the
-    page — no server-rendered template involved at this stage.
-
-    ``contrast_suggestions`` is keyed by ``ContrastPairOut.label`` — a pair
-    absent from this dict already passes and needs no suggestion.
+    """Drop ``preview_css`` into a ``<style>`` and ``sample_html`` into the page to
+    render the preview. ``contrast_suggestions`` is keyed by pair label and only
+    has entries for failing pairs.
     """
 
     sanitized_custom_css: str

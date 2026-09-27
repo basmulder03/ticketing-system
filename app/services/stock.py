@@ -1,11 +1,5 @@
-"""Live stock accounting for ``TicketType``: computing how many tickets
-remain, and the row-locked check used by checkout (Milestone 2) to prevent
-overselling under concurrent buyers.
-
-Stock math treats every ``Ticket`` row belonging to a non-cancelled,
-non-expired ``Order`` as "still holding its stock" — see
-``app.models.enums.OrderStatus`` docstring for the exact status list this
-excludes.
+"""Stock accounting: remaining counts, and the row-locked reservation that
+prevents overselling. Tickets on non-cancelled/expired orders hold stock.
 """
 
 import uuid
@@ -25,13 +19,7 @@ _RELEASED_STATUSES = (OrderStatus.CANCELLED, OrderStatus.EXPIRED)
 async def sold_counts_for_ticket_types(
     session: AsyncSession, ticket_type_ids: Sequence[uuid.UUID]
 ) -> dict[uuid.UUID, int]:
-    """Count live (non-cancelled/non-expired) ``Ticket`` rows per
-    ``TicketType`` id.
-
-    Returns a dict that omits any id with zero tickets — callers should
-    treat a missing key as 0 (via ``dict.get(id, 0)``) rather than expect
-    every requested id to be present.
-    """
+    """Live ticket counts per TicketType id; ids with zero are omitted."""
     if not ticket_type_ids:
         return {}
     stmt = (
@@ -46,14 +34,8 @@ async def sold_counts_for_ticket_types(
 
 
 async def attach_remaining(session: AsyncSession, ticket_types: Sequence[TicketType]) -> None:
-    """Compute and attach the live sold count onto each of ``ticket_types``
-    so its ``.remaining`` property reflects real stock (see
-    ``TicketType.attach_sold_count``/``TicketType.remaining``).
-
-    Callers building an API response that includes ``remaining`` for one or
-    more ``TicketType`` rows fetched outside the checkout transaction MUST
-    call this first — without it, ``.remaining`` silently falls back to
-    "nothing sold yet" (see that property's docstring).
+    """Attach live sold counts so ``.remaining`` is correct. Required before
+    returning ``remaining`` for rows fetched outside checkout.
     """
     if not ticket_types:
         return
@@ -63,9 +45,7 @@ async def attach_remaining(session: AsyncSession, ticket_types: Sequence[TicketT
 
 
 class TicketTypeNotFoundError(Exception):
-    """Raised by :func:`reserve_stock` when one or more requested
-    TicketType ids don't exist (e.g. deleted between validation and the
-    locking query, or a caller skipped validation)."""
+    """A requested TicketType id doesn't exist."""
 
     def __init__(self, missing_ids: Sequence[uuid.UUID]) -> None:
         self.missing_ids = list(missing_ids)
@@ -73,8 +53,7 @@ class TicketTypeNotFoundError(Exception):
 
 
 class InsufficientStockError(Exception):
-    """Raised by :func:`reserve_stock` when a requested quantity exceeds a
-    TicketType's real remaining stock, computed under its row lock."""
+    """A requested quantity exceeds the stock remaining under the lock."""
 
     def __init__(self, ticket_type_id: uuid.UUID, requested: int, remaining: int) -> None:
         self.ticket_type_id = ticket_type_id
@@ -86,57 +65,20 @@ class InsufficientStockError(Exception):
 async def reserve_stock(
     session: AsyncSession, quantities_by_ticket_type_id: dict[uuid.UUID, int]
 ) -> dict[uuid.UUID, TicketType]:
-    """Lock the given ``TicketType`` rows and verify enough stock remains
-    for each requested quantity — the race-safety-critical step for
-    checkout, per PROJECT_BRIEF.md's Security & Ops section ("critical at
-    the sales-live moment").
+    """Lock the TicketType rows and verify stock for each quantity. Creates no
+    tickets and doesn't commit — the caller does both in the same transaction.
 
-    Does NOT create any ``Ticket`` rows itself (that's the caller's job,
-    inside the same transaction — see
-    ``app.services.checkout.perform_checkout``) and does NOT commit or roll
-    back — the caller controls the transaction boundary.
+    Concurrency (read before editing):
 
-    Concurrency behavior (read this before touching this function):
-    ``SELECT ... FOR UPDATE`` locks every referenced ``TicketType`` row for
-    the duration of the caller's transaction. A concurrent checkout that
-    also calls this function for an overlapping ``TicketType`` id blocks at
-    this query until the first transaction commits or rolls back, at which
-    point it re-reads the now-current sold count via
-    :func:`sold_counts_for_ticket_types` — so it can never oversell, as
-    long as every code path that creates ``Ticket`` rows goes through this
-    function first (checkout is currently the only such path). Rows are
-    locked in ascending id order (a single query with ``ORDER BY id``)
-    specifically so two concurrent multi-ticket-type checkouts that overlap
-    on more than one ``TicketType`` always attempt to acquire locks in the
-    same order, avoiding a lock-ordering deadlock.
+    - ``FOR UPDATE`` makes overlapping checkouts queue; the next one re-counts
+      after the lock, so no oversell — as long as every ticket-creating path
+      calls this first.
+    - Rows are locked in id order so multi-type checkouts can't deadlock.
+    - ``populate_existing=True`` is load-bearing: checkout already loaded these
+      rows unlocked, and without it SQLAlchemy's identity map would hand back
+      the *stale* pre-lock ``price``/``quantity_available``.
 
-    ``execution_options(populate_existing=True)`` is load-bearing, not a
-    stylistic default — the same SQLAlchemy identity-map staleness bug
-    found and fixed in ``app.services.order_payment._lock_order`` and
-    ``app.services.invoicing._allocate_invoice_number`` also applies here,
-    independently found and reproduced by security-reviewer:
-    ``app.services.checkout.perform_checkout`` already reads these same
-    ``TicketType`` rows via a PLAIN (non-locking) query earlier in the SAME
-    session (to resolve Show/Event/EventConfig for sales-timing checks)
-    before calling this function. Without ``populate_existing``, the
-    identity map would return those already-loaded objects as-is once this
-    query's ``WHERE`` clause matches the same primary keys — the
-    ``SELECT ... FOR UPDATE`` still genuinely locks the rows at the DB
-    level, but ``locked[id].price``/``.quantity_available`` would be the
-    STALE pre-lock values, not the fresh, correctly-serialized ones a
-    blocked transaction is entitled to see after acquiring the lock.
-    Reproduced directly: a concurrent admin price/capacity edit committed
-    while a checkout was blocked on this row lock was invisible to the
-    checkout even after it acquired the lock, without this fix.
-    ``sold_counts_for_ticket_types`` below was already safe on its own (a
-    fresh aggregate query, not a cached counter attribute) — this fix
-    covers the two attributes read directly off the locked ORM objects
-    instead (``quantity_available`` here, ``price`` in
-    ``app.services.checkout``).
-
-    Raises :class:`TicketTypeNotFoundError` if any id doesn't exist, or
-    :class:`InsufficientStockError` (naming the first short type found) if
-    any requested quantity exceeds what's actually left.
+    Raises :class:`TicketTypeNotFoundError` or :class:`InsufficientStockError`.
     """
     if not quantities_by_ticket_type_id:
         return {}

@@ -1,16 +1,8 @@
-"""Public, unauthenticated read routes for the landing-page/show/
-ticket-type data `frontend-theming` renders (Milestone 2), the public
-checkout endpoint that creates a ``pending`` Order and initiates its
-payment (Milestone 3), and the Mollie payment-status webhook.
+"""Public, unauthenticated routes: event/homepage reads, checkout, demo
+payments, and the Mollie webhook.
 
-Every route here is intentionally unauthenticated by design (this is the
-public buyer-facing site, and Mollie's webhook caller has no admin session
-or agent API key to present) — the access control that matters is
-draft-vs-published + the unguessable preview token (see
-``app.models.event.Event.preview_token``) for the read/checkout routes, and
-"fetch the authoritative status back from Mollie's own API, never trust the
-webhook body" for the webhook (see ``app.services.mollie`` module
-docstring).
+Access control is draft-vs-published plus the unguessable preview token; the
+webhook never trusts its body and re-fetches status from Mollie.
 """
 
 import uuid
@@ -56,10 +48,7 @@ from app.services.ticket_delivery import send_order_confirmation_email, sign_ord
 
 router = APIRouter(prefix="/api/v1/public", tags=["public"])
 
-# Eagerly load everything a landing-page response needs in one round trip:
-# the Theme, the EventConfig (for sales_live_at/enabled_payment_methods —
-# never the secret fields, those are simply never read here), and every
-# Show with its TicketTypes.
+# One round trip: theme, config (non-secret fields only), shows and ticket types.
 _EVENT_LOAD_OPTIONS = (
     selectinload(Event.theme),
     selectinload(Event.config),
@@ -80,24 +69,11 @@ async def _get_event_by_preview_token(session: AsyncSession, token: str) -> Even
 async def _build_public_event_out(
     session: AsyncSession, event: Event, *, published_only: bool, is_preview: bool
 ) -> PublicEventOut:
-    """Assemble the full nested response for one Event.
+    """The full nested response for one event.
 
-    When ``published_only`` is True, Shows with a non-published ``status``
-    are dropped (the plain published-slug route); the preview-token route
-    passes ``published_only=False`` so every Show is included regardless of
-    its own draft/published state, per PROJECT_BRIEF.md's Draft & Preview
-    section.
-
-    Deliberately does NOT drop a Show with zero TicketType rows here, even
-    though one has nothing a buyer could select on the landing page's
-    ticket picker -- this same nested response also backs the beamer/TV
-    countdown view (``app.web.routes.public_site._render_beamer``), which
-    only needs a Show's date/venue/doors-time and has no ticket picker at
-    all, so a Show awaiting its ticket types is still a completely valid
-    thing to count down to on a lobby screen. The landing page's own
-    ticket-picker filters such shows out itself (see
-    ``app.web.routes.public_site._sellable_shows``) rather than this
-    shared API response doing it for every consumer.
+    ``published_only`` drops draft shows (the preview route keeps them). Shows
+    without ticket types are kept: the beamer countdown still needs them; the
+    landing page's ticket picker filters them itself.
     """
     shows = [s for s in event.shows if not published_only or s.status == PublishStatus.PUBLISHED]
     all_ticket_types = [tt for show in shows for tt in show.ticket_types]
@@ -158,23 +134,8 @@ async def _build_public_event_out(
 
 @router.get("/homepage")
 async def get_public_homepage(session: AsyncSession = Depends(get_session)) -> PublicHomepageOut:
-    """Backs the site root ``/`` (``app.web.routes.homepage``) — per the
-    user's NOTES: "a homepage... event can be set to the default event,
-    which causes that event page to automagically open... or show an
-    overview of the app... which events are currently able to have shows
-    booked on."
-
-    Deliberately lightweight (see :class:`~app.schemas.public.
-    PublicEventSummaryOut`'s docstring) and, like ``/sitemap.xml`` (see
-    ``app.api.routes.seo``), lists every ``published`` Event with no
-    further sales-timing filtering — a draft Event never appears here,
-    same "never expose unpublished content on an unauthenticated,
-    undiscoverable-by-design route" posture as the sitemap.
-
-    ``default_event_slug`` is only populated when the default Event (if
-    any — see ``app.models.event.Event.is_default_event``) is ALSO
-    published; a draft default Event set in advance has no visible effect
-    yet (see that column's docstring).
+    """Homepage data: every published event (never drafts), plus the default
+    event's slug when that event is published.
     """
     result = await session.execute(
         select(Event).where(Event.status == PublishStatus.PUBLISHED).order_by(Event.created_at.desc())
@@ -192,15 +153,8 @@ async def get_public_homepage(session: AsyncSession = Depends(get_session)) -> P
 
 @router.get("/events/{slug}")
 async def get_public_event(slug: str, session: AsyncSession = Depends(get_session)) -> PublicEventOut:
-    """Fetch a published Event by its public slug, with its published
-    Shows/TicketTypes and Theme nested — everything `frontend-theming`
-    needs to render the landing page in one call.
-
-    404s for a draft Event, and for a slug that doesn't exist at all, with
-    the same response either way — so a plain published-URL guess can
-    never distinguish "no such event" from "exists but still draft" (see
-    PROJECT_BRIEF.md's Draft & Preview: a draft is only reachable via its
-    unguessable preview token, never the normal slug URL).
+    """A published event by slug. Drafts and unknown slugs get the same 404, so a
+    guess can't reveal that a draft exists.
     """
     event = await _get_event_by_slug(session, slug)
     if event is None or event.status != PublishStatus.PUBLISHED:
@@ -210,11 +164,7 @@ async def get_public_event(slug: str, session: AsyncSession = Depends(get_sessio
 
 @router.get("/preview/{token}")
 async def get_preview_event(token: str, session: AsyncSession = Depends(get_session)) -> PublicEventOut:
-    """Fetch an Event (draft or published) by its unguessable preview
-    token — includes every Show regardless of its own draft/published
-    status, so a stakeholder reviewing a draft event sees the full picture
-    before anything goes live.
-    """
+    """An event (draft or published) by preview token, with all its shows."""
     event = await _get_event_by_preview_token(session, token)
     if event is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Preview not found.")
@@ -269,48 +219,13 @@ async def checkout(
     body: CheckoutRequest,
     session: AsyncSession = Depends(get_session),
 ) -> OrderOut:
-    """Create a ``pending`` Order (and its Ticket rows) for a public buyer,
-    and (Milestone 3) initiate payment for it.
+    """Create an order and start its payment (see ``perform_checkout``).
+    Rate-limited per IP.
 
-    This endpoint performs the row-locked stock check/reservation (see
-    ``app.services.stock.reserve_stock``), persists the Order, and — for
-    ``payment_method=mollie`` — creates the Mollie payment (or resolves the
-    preview-mode simulated-payment path) via
-    ``app.services.checkout.perform_checkout``; see that function's
-    docstring for the full flow. Rate-limited per client IP (see
-    ``app.core.rate_limit.checkout_rate_limiter``) per the brief's "rate
-    limiting on checkout... endpoints" requirement.
-
-    The response's ``payment_redirect_url`` is set whenever a payment
-    needing an interstitial page was just created — a real Mollie payment,
-    or (post-launch) a ``demo``-method Order's in-app demo-payment page
-    (see ``app.services.checkout._initiate_demo_payment``) — the caller
-    (``app.web.routes.public_site``) must redirect the buyer there instead
-    of straight to order-confirmation.
-
-    On any validation/availability/stock/payment-initiation failure, the
-    transaction is rolled back and a specific 403/404/409/422/502 is
-    returned (see ``app.services.checkout.CheckoutError`` and its
-    subclasses) — never an unhandled 500 for an expected rejection reason.
-
-    Milestone 4: when ``result.simulated_payment`` is set (the preview-mode
-    simulated-checkout path — see ``app.services.checkout.
-    _initiate_mollie_payment``), this Order is already genuinely ``paid`` by
-    the time this transaction commits, with its Tickets' QR tokens already
-    signed and its Invoice already issued (Milestone 5) inside that same
-    transaction. The order-confirmation email (with the invoice PDF
-    attached) is dispatched here, AFTER the commit — a deliberately
-    separate, best-effort step (see ``app.services.ticket_delivery``
-    module docstring for why it must never be allowed to roll back a real
-    payment confirmation, or in this case a real order creation).
-
-    Post-launch fix: a ``payment_method="door"`` Order is genuinely
-    ``pending_door`` here, not paid — but it still gets its own,
-    ticket-free reservation-confirmation email dispatched the same way
-    (after the commit, best-effort), closing a real gap where a door-pay
-    buyer previously got no email at all until they were later paid/
-    scanned in at the venue (see
-    ``app.services.door_reservation_email`` module docstring).
+    Expected rejections roll back and return a specific 4xx/502, never a 500.
+    ``payment_redirect_url`` means "send the buyer there first" (Mollie or the
+    demo page). After commit, best-effort: a sandbox-paid order gets its
+    confirmation email, and a door order gets its reservation email.
     """
     items = [
         CheckoutItemInput(ticket_type_id=_parse_ticket_type_id(item.ticket_type_id), quantity=item.quantity)
@@ -340,13 +255,10 @@ async def checkout(
 
 
 async def _get_pending_demo_order_or_404(session: AsyncSession, order_id: str) -> Order:
-    """Look up an Order eligible for a demo-payment action: it must exist,
-    be ``payment_method=demo``, and still be ``pending`` — a completed/
-    failed order, a foreign order_id, and a nonexistent one all 404
-    identically (same "can't distinguish doesn't-exist from not-eligible"
-    posture ``EventNotAvailableCheckoutError`` already uses for draft
-    events), so this can never be used to probe order state or replay an
-    already-settled demo payment."""
+    """A ``demo`` order that's still ``pending``, else 404 — identical for
+    settled, foreign and nonexistent orders, so this can't probe order state or
+    replay a settled payment.
+    """
     parsed_id = parse_uuid_or_404(order_id, detail="Demo payment not found.")
     result = await session.execute(
         select(Order)
@@ -363,11 +275,7 @@ async def _get_pending_demo_order_or_404(session: AsyncSession, order_id: str) -
 
 
 def _demo_payment_items(order: Order) -> list[DemoPaymentItemOut]:
-    """Group ``order``'s one-row-per-unit Tickets into one line per ticket
-    type, in first-seen order — mirrors
-    ``app.services.email_render._group_tickets_by_type``'s same reasoning
-    (there's no per-unit QR/ticket identity to show yet on an unpaid demo
-    order, just "how many of each type")."""
+    """One line per ticket type, in first-seen order."""
     counts: dict[uuid.UUID, int] = {}
     order_seen: list[uuid.UUID] = []
     for ticket in order.tickets:
@@ -385,9 +293,7 @@ def _demo_payment_items(order: Order) -> list[DemoPaymentItemOut]:
 
 @router.get("/demo-payment/{order_id}")
 async def get_demo_payment(order_id: str, session: AsyncSession = Depends(get_session)) -> DemoPaymentOut:
-    """Read-only summary for the demo-payment page (``app.web.routes.
-    demo_payment``) to render — what the buyer is about to simulate
-    paying for. See :class:`DemoPaymentOut`."""
+    """Summary for the demo-payment page."""
     order = await _get_pending_demo_order_or_404(session, order_id)
     return DemoPaymentOut(
         order_id=str(order.id),
@@ -404,14 +310,9 @@ async def get_demo_payment(order_id: str, session: AsyncSession = Depends(get_se
     dependencies=[Depends(rate_limit_dependency(checkout_rate_limiter))],
 )
 async def complete_demo_payment(order_id: str, session: AsyncSession = Depends(get_session)) -> OrderOut:
-    """The buyer clicked "Simulate successful payment" — settle this
-    ``demo`` Order exactly like a genuine payment confirmation would (see
-    ``app.services.checkout._initiate_demo_payment``'s docstring for why
-    this two-step, interstitial shape exists at all rather than an
-    instant auto-pass): sign its Tickets' QR tokens, issue its Invoice,
-    and — once committed — dispatch the same order-confirmation/ticket
-    email a real Mollie or door payment would eventually trigger. No real
-    charge, no external call of any kind, anywhere in this path."""
+    """"Simulate success": settle like a real payment — sign tickets, issue the
+    invoice, and email after commit. No charge, no external call.
+    """
     order = await _get_pending_demo_order_or_404(session, order_id)
     try:
         mark_paid_result = await mark_order_paid(
@@ -422,11 +323,7 @@ async def complete_demo_payment(order_id: str, session: AsyncSession = Depends(g
             reason="Simulated demo payment: buyer chose 'Simulate successful payment'.",
         )
     except (InsufficientStockError, TicketTypeNotFoundError) as exc:
-        # Not reachable in practice (this Order was just confirmed PENDING
-        # above, never a resurrected CANCELLED/EXPIRED order — see
-        # mark_order_paid's docstring for when that check actually
-        # applies) — handled anyway for the same defensive reason the
-        # Mollie webhook does, rather than ever surfacing an unhandled 500.
+        # Not reachable (the order was just confirmed PENDING); handled so it can't 500.
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Stock is no longer available.") from exc
     if not mark_paid_result.already_paid:
         await sign_order_tickets(session, order=mark_paid_result.order)
@@ -443,11 +340,7 @@ async def complete_demo_payment(order_id: str, session: AsyncSession = Depends(g
     dependencies=[Depends(rate_limit_dependency(checkout_rate_limiter))],
 )
 async def fail_demo_payment(order_id: str, session: AsyncSession = Depends(get_session)) -> Response:
-    """The buyer clicked "Simulate failed payment" — release this ``demo``
-    Order's reserved stock exactly like a genuine Mollie ``failed``/
-    ``canceled`` webhook status would (see ``_MOLLIE_FAILURE_STATUSES``
-    below): ``OrderStatus.CANCELLED``, same as any other buyer/Mollie-side
-    checkout cancellation."""
+    """"Simulate failure": cancel the order and release its stock, like a failed Mollie payment."""
     order = await _get_pending_demo_order_or_404(session, order_id)
     await release_order_stock(
         session,
@@ -465,16 +358,10 @@ _MOLLIE_FAILURE_STATUSES: dict[str, OrderStatus] = {
     "failed": OrderStatus.CANCELLED,
     "canceled": OrderStatus.CANCELLED,
 }
-"""Maps a terminal-failure Mollie payment status to the ``OrderStatus`` it
-transitions a still-``PENDING`` Order to (see
-``app.services.order_payment.release_order_stock``). ``expired`` maps to
-``OrderStatus.EXPIRED`` (name match); Mollie's ``failed``/``canceled`` both
-map to ``OrderStatus.CANCELLED`` — ``OrderStatus`` has no separate "failed"
-value and "the payment failed" and "the buyer/Mollie canceled it" are the
-same outcome for stock-release purposes (see ``app.models.enums.OrderStatus``).
-Every status absent from this dict (``open``, ``pending``, ``authorized``)
-means the payment is still in progress — no Order transition happens for
-those; the webhook will fire again once Mollie reaches a terminal state."""
+"""Terminal Mollie failures → order status (``failed``/``canceled`` →
+CANCELLED, ``expired`` → EXPIRED). Other statuses (``open``, ``pending``,
+``authorized``) are still in progress; Mollie will call again.
+"""
 
 
 @router.post(
@@ -483,40 +370,13 @@ those; the webhook will fire again once Mollie reaches a terminal state."""
     dependencies=[Depends(rate_limit_dependency(mollie_webhook_rate_limiter))],
 )
 async def mollie_webhook(request: Request, session: AsyncSession = Depends(get_session)) -> Response:
-    """Mollie payment status webhook — public and unauthenticated by
-    necessity (Mollie's servers call this directly, with no admin session
-    or agent API key available to present).
+    """Mollie's webhook — unauthenticated by necessity.
 
-    **This does NOT verify an HMAC/signature on the request body** — Mollie
-    doesn't send one. Mollie's webhook body is only ever a form-encoded
-    ``id=tr_xxx``; that id is treated purely as a lookup key, never as a
-    trusted statement of payment status. The actual, authoritative status
-    is fetched fresh from Mollie's own API (``GET /v2/payments/{id}``,
-    using the Order's own Event's configured API key — see
-    ``app.services.mollie`` module docstring for the full reasoning) and
-    THAT response is what gets reconciled. This is the real, secure Mollie
-    integration pattern, not a simplification.
-
-    Idempotent: reconciling the same payment id twice (Mollie retries any
-    delivery that doesn't get a fast 200, and the buyer's browser may also
-    reload the redirect-back page) is always a safe no-op the second time —
-    see ``app.services.order_payment.mark_order_paid`` /
-    ``release_order_stock``, both of which row-lock the Order and only ever
-    transition it once out of ``PENDING``. Once the local Order has already
-    left ``PENDING`` (a prior delivery already reconciled it), this route
-    short-circuits on the local ``Order.status`` alone and does not call
-    Mollie's API again — both for efficiency and so repeated deliveries for
-    an already-settled Order can't be used to run up unbounded outbound
-    calls against the merchant's Mollie account.
-
-    Always responds quickly. An unknown payment id (no matching Order — a
-    stale/foreign webhook) and an in-progress Mollie status (``open``/
-    ``pending``/``authorized`` — nothing to reconcile yet) both return 200
-    so Mollie doesn't keep retrying something that will never change here.
-    A genuine transient failure (Mollie unreachable, or this event's Mollie
-    key can't be resolved) returns a 502 so Mollie's own retry mechanism
-    tries again later, rather than silently swallowing a real payment
-    confirmation.
+    There's no signature to verify: the body is only ``id=tr_...``, used purely
+    as a lookup key, and the real status is fetched from Mollie with the event's
+    own key. Idempotent; an order already out of ``PENDING`` short-circuits
+    without calling Mollie. Unknown ids and in-progress statuses get 200 (no
+    point retrying); transient failures get 502 so Mollie retries.
     """
     form = await request.form()
     raw_payment_id = form.get("id")
@@ -530,33 +390,17 @@ async def mollie_webhook(request: Request, session: AsyncSession = Depends(get_s
         return Response(status_code=status.HTTP_200_OK)
 
     if order.status != OrderStatus.PENDING:
-        # Already reconciled to a terminal state (paid/cancelled/expired) by
-        # an earlier delivery of this same webhook — ``Order.status`` only
-        # ever leaves PENDING once (see
-        # ``app.services.order_payment.mark_order_paid``/
-        # ``release_order_stock``), so there is nothing left to reconcile.
-        # Short-circuit here WITHOUT calling Mollie's API: this keeps
-        # repeated/duplicate deliveries (Mollie's own retries, or anyone who
-        # replays a known-valid ``mollie_payment_id``, e.g. their own past
-        # order) from generating unbounded outbound GET calls against the
-        # merchant's Mollie account — a real (if minor) quota-exhaustion
-        # surface the rate limiter alone doesn't close, since it allows up
-        # to ``mollie_webhook_rate_limit_per_minute`` requests/IP/minute
-        # indefinitely, not just until first reconciliation.
+        # Already settled by an earlier delivery. Skip the Mollie call, so replays
+        # (retries, or someone reusing a known payment id) can't generate unbounded
+        # outbound calls — the rate limiter alone wouldn't stop that.
         return Response(status_code=status.HTTP_200_OK)
 
     event = await session.get(Event, order.event_id, options=[selectinload(Event.config)])
     config = event.config if event is not None else None
-    # Pinned to the mode active when THIS Order's payment was created
-    # (Order.mollie_mode), not EventConfig's current mollie_mode — see
-    # resolve_mollie_api_key's docstring for why re-reading the live
-    # config here would be wrong.
+    # Use the mode pinned at payment creation, not the live config.
     api_key = resolve_mollie_api_key(config, mode=order.mollie_mode)
     if api_key is None:
-        # Should not normally happen (this Order's payment was created with
-        # a key in the first place) — but if the key/mode was cleared out
-        # from under an in-flight payment, fail loudly (502) rather than
-        # silently dropping a payment confirmation.
+        # Key cleared mid-payment: fail loudly (502) rather than drop a confirmation.
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Mollie is not configured for this event.")
 
     try:
@@ -577,18 +421,9 @@ async def mollie_webhook(request: Request, session: AsyncSession = Depends(get_s
                 reason="Confirmed via Mollie webhook reconciliation.",
             )
         except (InsufficientStockError, TicketTypeNotFoundError) as exc:
-            # Extremely rare in practice (Mollie payment statuses are
-            # normally terminal — an already-expired/cancelled payment
-            # doesn't ordinarily flip back to paid), but this Order's
-            # stock may have been released and resold to a different
-            # buyer in the meantime (see
-            # app.services.order_payment._verify_stock_for_resurrected_order).
-            # Mollie genuinely confirmed payment, but we cannot safely
-            # fulfill it — this needs a human (refund/manual resolution),
-            # not a silent overselling bug or an infinite webhook retry
-            # loop. Acknowledge Mollie's delivery (200 — retrying changes
-            # nothing) but leave a clear, findable trail instead of
-            # crashing this request.
+            # Rare: a lapsed order was paid after its stock was resold. This needs a
+            # human (refund), not an oversell or endless retries — acknowledge with 200
+            # and leave a clear audit trail.
             await record_audit_entry(
                 session,
                 SYSTEM_PRINCIPAL,
@@ -601,16 +436,9 @@ async def mollie_webhook(request: Request, session: AsyncSession = Depends(get_s
             return Response(status_code=status.HTTP_200_OK)
         just_paid = not mark_paid_result.already_paid
         if just_paid:
-            # Milestone 4: sign this Order's Tickets' QR tokens inside the
-            # SAME transaction as the payment-status flip, so QR issuance is
-            # atomic with payment confirmation — see
-            # app.services.ticket_delivery module docstring.
+            # Sign tickets in the same transaction as the payment.
             await sign_order_tickets(session, order=mark_paid_result.order)
-            # Milestone 5: issue the Invoice (sequential number allocation)
-            # inside this SAME transaction too — see
-            # app.services.invoicing module docstring for why invoice
-            # issuance, unlike email dispatch, must be atomic with payment
-            # confirmation rather than a best-effort post-commit step.
+            # Issue the invoice in this transaction too (unlike email, it must be atomic).
             await issue_invoice_for_order(session, order=mark_paid_result.order, principal=SYSTEM_PRINCIPAL)
     elif mollie_status in _MOLLIE_FAILURE_STATUSES:
         await release_order_stock(
@@ -625,12 +453,7 @@ async def mollie_webhook(request: Request, session: AsyncSession = Depends(get_s
     await session.commit()
 
     if just_paid:
-        # Deliberately AFTER the commit above and gated on `already_paid is
-        # False` (a genuinely fresh payment confirmation, never a retried/
-        # duplicate webhook delivery) — see MarkOrderPaidResult.already_paid
-        # and app.services.ticket_delivery's module docstring for why email
-        # dispatch is a separate, best-effort step that must never roll
-        # back the payment confirmation itself.
+        # After commit, and only for a fresh payment (not a retried delivery).
         await send_order_confirmation_email(session, order_id=order.id, principal=SYSTEM_PRINCIPAL)
 
     return Response(status_code=status.HTTP_200_OK)

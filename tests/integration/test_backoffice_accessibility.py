@@ -1,57 +1,17 @@
-"""Automated WCAG 2.1 AA checks (axe-core, via Playwright) against real
-rendered backoffice pages — per PROJECT_BRIEF.md's Testing section
-("Accessibility tests: automated AA checks (e.g. axe-core) run against
-public pages ... as part of the test suite"). Originally added for the
-accessibility-auditor pass on Milestone 6's new backoffice markup (the
-"mark as paid" inline form in ``app/templates/backoffice/orders_list.html``)
-and extended for the Milestone 8 Stats & Reporting dashboard
-(``app/templates/backoffice/event_stats.html``) — same file, same
-conventions, rather than a parallel test module per backoffice page.
+"""Automated WCAG 2.1 AA checks (axe-core via Playwright) against rendered
+backoffice pages: orders, stats, login/setup, theme and email-template
+editors, events, event config, shows, agent accounts, audit log and admin
+users.
 
-Mirrors ``test_public_site_accessibility.py``'s fixtures/conventions
-(``axe_page``/``run_axe``/``format_axe_violations`` from ``conftest.py``,
-seeding through the same ``make_event``/``make_show``/... factories) rather
-than introducing a second accessibility-testing approach. This was the FIRST
-axe sweep of any backoffice page — prior milestones only audited the public
-site and outgoing email HTML (see those two files' module docstrings); the
-backoffice's other pages (login, theme editor, email-template editor,
-events list) are still NOT covered here and remain an open gap — see this
-milestone's accessibility-auditor handoff for that flagged item. This file's
-scope is deliberately just the pages an accessibility-auditor pass has
-actually reviewed (Milestones 6 and 8's new/changed markup), not a sweep of
-every backoffice page that happens to exist.
+Uses the same fixtures as ``test_public_site_accessibility.py``. Login goes
+through ``POST /api/v1/auth/login`` and the session cookie is handed to
+``axe_page`` via ``apply_set_cookie_headers``; a form-click login adds nothing
+to auditing the page itself.
 
-Login is performed via a plain ``httpx`` client hitting
-``POST /api/v1/auth/login`` (same pattern ``test_web_orders_routes.py`` and
-``test_mark_order_paid_route.py`` use), with the resulting session cookie
-handed to ``axe_page``'s browser context via ``apply_set_cookie_headers`` —
-identical technique to how ``test_public_site_accessibility.py``'s
-order-confirmation test hands off a checkout-issued cookie, and for the same
-reason (a real form-click login isn't needed to audit THIS page's HTML, and
-driving it through ``axe_page`` would just add an extra CSRF/login-form
-round trip this suite doesn't otherwise need).
+``color-contrast`` stays enabled here: backoffice colors are fixed tokens in
+``app/static/backoffice.css``, not a per-event Theme.
 
-Color-contrast scope note: unlike the public landing page (which disables
-axe's ``color-contrast`` rule because a Theme's fixed colors are audited
-separately by ``app.services.contrast``), the backoffice has no per-event
-Theme at all — every color here comes from ``app/static/backoffice.css``'s
-fixed ``:root`` tokens, so ``color-contrast`` stays fully enabled, same as
-the (also Theme-free) order-confirmation/404 pages.
-
-Manual-only items NOT covered by this automated suite: real screen-reader
-behavior, and real Tab-key traversal order (this page's tab order is
-straightforward top-to-bottom/left-to-right table markup with no CSS
-reordering, so a dedicated keyboard-traversal test — like the public
-checkout form's — wasn't judged necessary; flagged as a manual checklist
-item instead of asserted here).
-
-Milestone 9 hardening pass: extended (per that milestone's
-accessibility-auditor handoff) to close the previously-flagged gap that
-login, the theme editor, the email-template editor, and the events list had
-NO automated axe coverage at all — see the "Login / Theme editor / Email
-template editor / Events list" sections below. Same fixtures/conventions as
-the rest of this file (``_login_and_apply_session_cookie``, ``run_axe``,
-``format_axe_violations``) — no new tooling introduced.
+Not covered (manual checks): screen-reader behavior and Tab order.
 """
 
 import uuid

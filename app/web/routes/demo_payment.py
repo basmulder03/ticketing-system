@@ -1,18 +1,5 @@
-"""HTML pages for the ``demo`` payment provider's interstitial (post-launch
-fix, per the user's NOTES: a real, selectable payment method any event can
-enable for demo/test purposes, without external calls or credentials — see
-``app.services.checkout._initiate_demo_payment`` for the full design
-rationale).
-
-Same proxy-in-process-to-the-JSON-API posture as
-``app.web.routes.public_site`` (via ``app.web.public_api_client``): no
-business logic (order lookup, eligibility gating, settlement) is
-duplicated here, this module only translates between the JSON API
-(``app.api.routes.public``'s ``/demo-payment/{order_id}`` routes) and
-HTML. Deliberately unauthenticated, like the rest of the public site — see
-``app.api.routes.public._get_pending_demo_order_or_404`` for why an
-order's own UUID is sufficient "possession" proof for this demo-only,
-no-real-money feature.
+"""HTML pages for the demo payment provider. Unauthenticated like the rest of
+the public site: the order's UUID is proof enough for a no-real-money demo.
 """
 
 from fastapi import APIRouter, Request
@@ -39,16 +26,10 @@ async def _unavailable_page(request: Request, locale: str) -> Response:
 async def _demo_payment_page_with_error(
     request: Request, client: AsyncClient, order_id: str, locale: str
 ) -> Response:
-    """Re-render the interstitial itself with a generic error notice — for
-    anything that ISN'T a 404 (order gone/already settled). The JSON
-    API's complete/fail actions share ``checkout_rate_limiter`` with the
-    checkout endpoint itself (a deliberate minimal-scope reuse — see
-    ``app.web.routes.demo_payment`` module docstring), so a 429 here is a
-    real, expected outcome, not a sign the order is gone; collapsing it
-    into the "unavailable" page would misleadingly tell a rate-limited
-    buyer their order was lost. Mirrors ``app.web.routes.public_site
-    ._handle_checkout_submission``'s own "re-render the same page with a
-    translated error" precedent for its checkout errors."""
+    """Re-render the demo page with a retry notice, for any error except 404.
+    The actions share the checkout rate limiter, so a 429 is normal and must
+    not be shown as "your order is gone".
+    """
     read_response = await client.get(f"/api/v1/public/demo-payment/{order_id}")
     if read_response.status_code >= 400:
         return await _unavailable_page(request, locale)
@@ -66,10 +47,7 @@ async def _demo_payment_page_with_error(
 
 @router.get("/demo-payment/{order_id}", response_model=None)
 async def demo_payment_page(request: Request, order_id: str) -> Response:
-    """Render the demo-payment interstitial, or a 404 page if this
-    order_id isn't (or is no longer) an eligible ``demo``+``pending``
-    order — same "can't distinguish doesn't-exist from already-settled"
-    posture the read endpoint itself uses."""
+    """Render the demo page, or the "unavailable" page if the order isn't a pending demo order."""
     locale = resolve_locale(request)
     async with public_api_client(request) as client:
         response = await client.get(f"/api/v1/public/demo-payment/{order_id}")
@@ -86,12 +64,9 @@ async def demo_payment_page(request: Request, order_id: str) -> Response:
 
 @router.post("/demo-payment/{order_id}/complete", response_model=None)
 async def complete_demo_payment_page(request: Request, order_id: str) -> Response:
-    """The buyer's "simulate successful payment" form submission — settles
-    the order via the JSON API, then redirects to the same
-    ``/order-confirmation/{id}`` every other payment method lands on (the
-    confirmation cookie was already stashed at checkout time, before this
-    page was even reached — see ``app.web.routes.public_site
-    ._handle_checkout_submission``'s comment on that)."""
+    """"Simulate success": settle via the API, then go to order confirmation
+    (its cookie was set at checkout).
+    """
     locale = resolve_locale(request)
     async with public_api_client(request) as client:
         api_response = await client.post(f"/api/v1/public/demo-payment/{order_id}/complete")
@@ -106,13 +81,9 @@ async def complete_demo_payment_page(request: Request, order_id: str) -> Respons
 
 @router.post("/demo-payment/{order_id}/fail", response_model=None)
 async def fail_demo_payment_page(request: Request, order_id: str) -> Response:
-    """The buyer's "simulate failed payment" form submission — cancels the
-    order via the JSON API, then redirects to the same order-confirmation
-    page a real Mollie cancellation/failure would (it renders whatever
-    status the stashed cookie carries; there is no dedicated "your demo
-    payment failed" page, mirroring how a real declined Mollie payment
-    also just lands the buyer back on their own order-confirmation page,
-    not a special one)."""
+    """"Simulate failure": cancel via the API, then go to order confirmation —
+    like a declined real payment.
+    """
     locale = resolve_locale(request)
     async with public_api_client(request) as client:
         api_response = await client.post(f"/api/v1/public/demo-payment/{order_id}/fail")

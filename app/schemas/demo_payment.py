@@ -1,11 +1,4 @@
-"""Pydantic response model for the demo payment provider's read endpoint.
-
-Post-launch fix, per the user's NOTES: "create a custom [payment method],
-that behaves something like mollie for a test environment/demo purposes
-without having to do stuff with external applications." See
-``app.services.checkout._initiate_demo_payment`` and
-``app.web.routes.demo_payment`` for the full flow this backs.
-"""
+"""Response models for the demo payment provider's summary page."""
 
 from decimal import Decimal
 
@@ -13,9 +6,7 @@ from pydantic import BaseModel
 
 
 class DemoPaymentItemOut(BaseModel):
-    """One line item on the demo-payment summary — grouped by ticket type,
-    not one row per individual Ticket (a buyer reviewing what they're
-    about to "pay" for wants "2x Adult", not two identical rows)."""
+    """One summary line per ticket type ("2x Adult"), not per ticket."""
 
     ticket_type_name: str
     quantity: int
@@ -23,15 +14,9 @@ class DemoPaymentItemOut(BaseModel):
 
 
 class DemoPaymentOut(BaseModel):
-    """Response of ``GET /api/v1/public/demo-payment/{order_id}`` — just
-    enough for the demo-payment page to show the buyer what they're about
-    to simulate paying for. Only ever returned for an Order that is
-    ``payment_method=demo`` AND still ``pending`` (see
-    ``app.api.routes.public._get_pending_demo_order_or_404``) — a
-    completed/failed/foreign/nonexistent order 404s identically, the same
-    "can't distinguish doesn't-exist from not-eligible" posture this app
-    already uses for draft events (``app.services.checkout``'s
-    ``EventNotAvailableCheckoutError``)."""
+    """What the demo-payment page shows. Only returned for a ``demo`` order that's
+    still ``pending``; anything else 404s identically.
+    """
 
     order_id: str
     event_name: str

@@ -1,33 +1,9 @@
-"""Themed PDF invoice generation (Milestone 5) — ``weasyprint`` (HTML →
-PDF), structurally mirroring ``app.services.ticket_pdf`` (read that
-module's docstring first; this one intentionally reuses its escaping/theme
-conventions rather than re-deriving them).
+"""Invoice PDFs via ``weasyprint``, mirroring ``app.services.ticket_pdf``.
 
-Always uses the Event's Theme FIXED fields (colors/logo/font) — NEVER
-``Theme.custom_css`` — per PROJECT_BRIEF.md's Event & Theming section:
-"ticket/invoice PDFs... always use fixed theme fields for guaranteed
-compliance". Reuses ``app.services.ticket_pdf``'s ``logo_data_uri`` helper
-rather than duplicating it (DRY) — logo resolution has nothing invoice-
-specific about it.
-
-Security note, same discipline as ``ticket_pdf``'s: every dynamic string
-interpolated into the HTML here is passed through :func:`_esc`
-(``html.escape``) before insertion — this now covers BOTH buyer-submitted
-free text (``Order.buyer_name``/``buyer_address``) AND admin-entered
-company/VAT details snapshotted on the ``Invoice`` row
-(``company_name``/``company_address``/``company_vat_number``), since both
-are untrusted at this rendering layer regardless of who originally typed
-them.
-
-Field labels ("Invoice", "Bill to", "Qty", etc.) are resolved via
-``app.i18n.translate`` (``pdf.invoice.*`` keys, see ``app/i18n/en.json`` /
-``app/i18n/nl.json``) using the same ``locale`` already driving
-``format_date``/``format_currency`` here — matching
-``app.services.ticket_pdf``'s ``_ticket_page_html`` (``pdf.ticket.*`` keys),
-which now does the same for its own field labels ("Show", "Venue", "Ticket
-type", "Ticket holder"). Deliberately still plain string interpolation, not
-Jinja — see this module's top-level security note on why untrusted content
-in these PDFs is built with ``html.escape`` rather than a templating engine.
+Uses only the theme's fixed fields, never custom CSS. Every interpolated
+string — buyer input *and* admin-entered company/VAT details — goes through
+``html.escape``; the HTML is built by hand rather than with Jinja for the
+same reason as ticket PDFs. Labels come from ``pdf.invoice.*`` translations.
 """
 
 import html
@@ -82,21 +58,10 @@ def _invoice_html(
     theme: Theme | None,
     locale: str,
 ) -> str:
-    """Build the full standalone invoice HTML document string handed to
-    weasyprint by :func:`render_invoice_pdf` — split out (mirroring
-    ``app.services.ticket_pdf._ticket_page_html``) so tests can assert
-    directly on the HTML-before-render step (e.g. that adversarial/
-    admin-entered strings come out escaped, and that snapshot-vs-live
-    fields behave as ``app.models.invoice.Invoice``'s docstring claims)
-    without needing to parse rendered PDF bytes for text content.
+    """The invoice HTML handed to weasyprint (separate so tests can inspect it).
 
-    Every value rendered here — invoice number/date (server-derived,
-    already-safe strings), the company/VAT snapshot, and the buyer name/
-    address read live off ``order`` — is escaped via :func:`_esc`. Reads
-    ``invoice.line_items`` (frozen at issuance) for the line-item table and
-    ``order.total`` for the grand total; never re-reads live ``TicketType``
-    rows, per ``app.models.invoice.Invoice``'s module docstring on why that
-    would be wrong for an already-issued document.
+    Line items come from the frozen ``invoice.line_items``, never live ticket
+    types; every value is escaped.
     """
     primary = theme.primary_color if theme is not None else _DEFAULT_PRIMARY
     secondary = theme.secondary_color if theme is not None else _DEFAULT_SECONDARY
@@ -190,15 +155,7 @@ def render_invoice_pdf(
     theme: Theme | None,
     locale: str,
 ) -> bytes:
-    """Render ``invoice`` (already issued — see
-    ``app.services.invoicing.issue_invoice_for_order``) as a one-page A5
-    print-friendly PDF, themed with ``event``'s Theme fixed fields and
-    localized to ``locale`` (per PROJECT_BRIEF.md: "PDF generation on
-    payment confirmation, localized to buyer's language" — normally
-    ``order.language``, since an Invoice's buyer/date/currency formatting
-    should always match the same language its Order/tickets were issued
-    in). See :func:`_invoice_html` for the HTML-building step this wraps.
-    """
+    """Render an issued invoice as a one-page A5 PDF in ``locale`` (normally the order's language)."""
     document_html = _invoice_html(invoice=invoice, order=order, event=event, theme=theme, locale=locale)
     pdf_bytes: bytes = HTML(string=document_html).write_pdf()
     return pdf_bytes

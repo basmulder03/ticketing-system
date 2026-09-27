@@ -1,18 +1,9 @@
-"""Sends the door-payment reservation-confirmation email (post-launch fix):
-a plain order summary, with no ticket attachment, dispatched once right
-after checkout for a ``payment_method="door"`` Order — see
-``app.services.email_render.render_door_payment_confirmation_email`` for
-the full rationale (a buyer had no record of their order at all until it
-was later paid at the door; found via the user's own manual testing).
+"""Door-payment reservation email: an order summary sent right after checkout,
+with no tickets attached (they don't exist until the order is paid).
 
-Deliberately its own module, not folded into ``app.services.ticket_delivery``
-(that module's whole reason to exist is "what happens once an Order
-genuinely becomes paid" — signing real, scannable QR tickets and attaching
-them — which is exactly the thing that must NOT happen yet for an unpaid
-door reservation). The two modules share the same SMTP-sending shape and
-"never let an email failure break a real checkout/payment" discipline, but
-intentionally do not share code beyond that, to keep it impossible for a
-future edit to one to accidentally start attaching real tickets here.
+Kept separate from ``app.services.ticket_delivery`` on purpose, so an edit
+there can never start attaching real, scannable tickets to an unpaid
+reservation.
 """
 
 import uuid
@@ -42,9 +33,7 @@ _SMTP_TIMEOUT_SECONDS = 20.0
 async def _load_order_context(
     session: AsyncSession, order_id: uuid.UUID
 ) -> tuple[Order, Event, Show, list[Ticket], dict[str, TicketType]] | None:
-    """Same shape as ``app.services.ticket_delivery``'s private helper of
-    the same name (not imported from there — see this module's docstring
-    on why the two stay independent)."""
+    """Deliberately not shared with ``ticket_delivery`` (see module doc)."""
     result = await session.execute(
         select(Order)
         .where(Order.id == order_id)
@@ -76,24 +65,9 @@ async def _load_template(session: AsyncSession, *, event_id: uuid.UUID, language
 async def send_door_payment_confirmation_email(
     session: AsyncSession, *, order_id: uuid.UUID, principal: Principal
 ) -> bool:
-    """Render and send the door-payment reservation-confirmation email for
-    the Order with ``order_id``, using its Event's own SMTP settings/Theme
-    and ``door_payment_confirmation`` EmailTemplate (falling back to a
-    built-in EN/NL default).
-
-    Best-effort, same guarantee as
-    ``app.services.ticket_delivery.send_order_confirmation_email``: NEVER
-    raises. Returns ``True`` on a successful send, ``False`` otherwise
-    (Order not found, SMTP not configured for this event, or the send
-    itself failed) — every ``False`` case except "Order not found" writes
-    a clear audit log entry (action ``order.door_confirmation_email.failed``)
-    so a failure is never silently lost.
-
-    Intentionally does NOT sign tickets, issue an invoice, or attach any
-    PDF — see this module's and
-    ``app.services.email_render.render_door_payment_confirmation_email``'s
-    docstrings for why an unpaid door reservation must never carry a real,
-    scannable ticket.
+    """Send the reservation email using the event's SMTP settings, theme and
+    template. Never raises; returns ``False`` on failure, audit-logging
+    every failure except "order not found". Never signs tickets or attaches PDFs.
     """
     context = await _load_order_context(session, order_id)
     if context is None:
@@ -113,12 +87,8 @@ async def send_door_payment_confirmation_email(
         await session.commit()
         return False
 
-    # Broad `except Exception`, matching send_order_confirmation_email's
-    # own reasoning: a real Order has already been created and committed
-    # before this is called (see the checkout route), so a bug or
-    # transient failure anywhere in rendering/sending must be logged and
-    # swallowed, never allowed to surface as an unhandled 500 to a buyer
-    # whose checkout otherwise succeeded.
+    # Broad on purpose: the order is already committed, so any failure here
+    # must be logged, never turned into a 500 for the buyer.
     try:
         template = await _load_template(session, event_id=event.id, language=order.language)
         rendered = render_door_payment_confirmation_email(

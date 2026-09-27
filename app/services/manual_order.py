@@ -1,32 +1,11 @@
-"""Admin-created Orders that never went through buyer self-checkout at
-all — the "offline" path per the user's NOTES: "For people without a
-computer or phone, allow for an admin to create/do things with tickets,
-like creating them for a show, e.g. without having the payment process
-(of course with the correct audit logging)."
+"""Admin-issued orders for buyers who never checked out (walk-ups, comps).
 
-Distinct from the pre-existing manual mark-as-paid action
-(``app.services.order_payment.mark_order_paid``), which settles an
-ALREADY-EXISTING Order — one a buyer created themselves via self-checkout,
-now ``pending``/``pending_door``, or a lapsed one being recovered. This
-module creates the Order itself from nothing, for a buyer who never
-submitted any checkout request in the first place (e.g. a walk-up buyer at
-a box office with no computer or phone, or a comp ticket for a volunteer).
-
-Deliberately bypasses every buyer-facing gate
-``app.services.checkout.perform_checkout`` enforces (draft/publish status,
-``sales_paused``, ``sales_live_at``, ``enabled_payment_methods``) — an
-admin issuing a ticket by hand is a trusted staff action addressed
-directly to one Show, not a public checkout request subject to sales
-timing. Reuses ``app.services.stock.reserve_stock`` for the same
-race-safe stock accounting every other order-creating path uses, and
-``app.services.order_payment.mark_order_paid`` to settle the freshly
-created Order to ``paid`` immediately — no new settlement logic, just a
-new creation path feeding into the existing one. Two distinct audit
-entries are written: ``order.create_manual`` (this module, documenting
-that the Order didn't come through checkout at all, for which Show, and
-what was requested) and ``order.mark_paid`` (written by
-``mark_order_paid`` itself, documenting the settlement method/reason the
-admin gave — e.g. "cash", "comp").
+Unlike ``mark_order_paid``, which settles an existing order, this creates
+one from scratch. It skips every buyer-facing gate (draft status, paused or
+not-yet-live sales, enabled payment methods) because it's a trusted staff
+action, but still reserves stock with ``reserve_stock``. It then settles the
+order through ``mark_order_paid``. Two audit entries result:
+``order.create_manual`` and ``order.mark_paid``.
 """
 
 import uuid
@@ -46,9 +25,7 @@ from app.services.stock import InsufficientStockError, TicketTypeNotFoundError, 
 
 
 class ManualOrderError(Exception):
-    """Base for every manual-order-creation rejection reason; carries the
-    HTTP status the route should translate it to — same shape as
-    ``app.services.checkout.CheckoutError``."""
+    """Base rejection; carries the HTTP status to return (like ``CheckoutError``)."""
 
     http_status: int = 422
 
@@ -67,8 +44,7 @@ class TicketTypesNotFoundManualOrderError(ManualOrderError):
 
 
 class TicketTypeWrongShowManualOrderError(ManualOrderError):
-    """A requested ``ticket_type_id`` exists but belongs to a different
-    Show than the one this order is being created for."""
+    """A ticket type belongs to a different show."""
 
     http_status = 422
 
@@ -89,21 +65,16 @@ class InsufficientStockManualOrderError(ManualOrderError):
 
 @dataclass(frozen=True)
 class ManualOrderItemInput:
-    """One requested ticket type + quantity line."""
+    """One ticket type + quantity line."""
 
     ticket_type_id: uuid.UUID
     quantity: int
 
 
 _PLACEHOLDER_EMAIL_DOMAIN = "no-email.invalid"
-"""Used only when the admin leaves ``buyer_email`` blank — a syntactically
-valid-shaped but obviously-non-deliverable address, satisfying
-``Order.buyer_email``'s ``nullable=False`` column without inventing a fake
-real-looking address. ``.invalid`` is the IANA-reserved TLD for exactly
-this purpose (RFC 2606) — nothing will ever attempt to deliver here, and
-``app.services.manual_order.create_manual_order``'s caller (the API route)
-skips confirmation-email dispatch entirely whenever the admin left the
-email blank, so this value is never actually used to send anything."""
+"""Used when the admin leaves the email blank: the column is NOT NULL, and
+``.invalid`` is reserved as never deliverable. No email is sent in that case.
+"""
 
 
 def _placeholder_email() -> str:
@@ -124,20 +95,11 @@ async def create_manual_order(
     method_label: str,
     reason: str | None,
 ) -> Order:
-    """Create and immediately settle a ``manual``-method Order for
-    ``show_id``, inside the caller's transaction.
+    """Create and immediately settle a ``manual`` order for ``show_id``.
 
-    ``event_id`` is trusted from the caller (already resolved from
-    ``show_id`` via a real DB lookup — see the route) rather than
-    re-derived here, since :func:`~app.services.stock.reserve_stock`'s
-    locked ``TicketType`` rows are what this function uses to verify every
-    item actually belongs to ``show_id`` (not a second, redundant Show
-    fetch): a mismatch there means at least one requested ticket type
-    belongs to a different Show, never that ``event_id`` itself is wrong.
-
-    Does not commit — the caller (the route) commits after this returns
-    successfully, or rolls back (implicitly, by never committing) if a
-    :class:`ManualOrderError` is raised.
+    ``event_id`` comes from the caller's show lookup. Ticket types are verified
+    to belong to ``show_id`` via the locked rows. Doesn't commit; raising
+    :class:`ManualOrderError` leaves nothing behind.
     """
     quantities: dict[uuid.UUID, int] = {}
     for item in items:
@@ -186,10 +148,8 @@ async def create_manual_order(
         },
     )
 
-    # Settle immediately — this whole feature exists specifically to skip
-    # the online payment process, not to leave a second pending order type
-    # around; `mark_order_paid` records its own `order.mark_paid` audit
-    # entry with the admin-supplied method_label/reason (e.g. "cash").
+    # Settle now: skipping online payment is the point. mark_order_paid
+    # records the order.mark_paid audit entry with the admin's method/reason.
     await mark_order_paid(
         session, order_id=order.id, principal=principal, method_label=method_label, reason=reason
     )

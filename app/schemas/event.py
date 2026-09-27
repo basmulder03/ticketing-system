@@ -20,11 +20,7 @@ class EventCreateRequest(BaseModel):
 
 
 class EventUpdateRequest(BaseModel):
-    """Body of ``PATCH /api/v1/events/{event_id}``.
-
-    All fields optional; only fields explicitly present in the request body
-    are applied (``exclude_unset``), so omitting a field never clobbers it.
-    """
+    """PATCH body; only fields present in the request are changed."""
 
     name: str | None = Field(default=None, min_length=1, max_length=255)
     slug: str | None = Field(default=None, min_length=1, max_length=255, pattern=_SLUG_PATTERN)
@@ -34,15 +30,9 @@ class EventUpdateRequest(BaseModel):
 
 
 class EventOut(BaseModel):
-    """Response shape for a single Event.
-
-    ``preview_token`` is included so the backoffice can actually display/
-    copy the event's unguessable preview link (PROJECT_BRIEF.md's Sharing
-    section requires a "backoffice: share this preview/draft" copy-link
-    button) — it is not a secret in the SMTP-password/Mollie-key sense,
-    it's a capability URL scoped to viewing/exercising checkout on this
-    one event, and both admin and agent principals already have full
-    read/write access to everything else about the event.
+    """One Event. ``preview_token`` is included so the backoffice can show the
+    preview link; it only grants viewing/checkout on this event, not a secret
+    like SMTP or Mollie credentials.
     """
 
     id: str

@@ -1,12 +1,4 @@
-"""Beacon ASGI application factory.
-
-Milestone 0 scope: app instance boots, exposes a health-check route, wires
-up settings/i18n scaffolding, and mounts the auth/agent-account/audit-log
-routes added for the "Foundations" auth & audit work. Milestone 1 adds the
-Event/EventConfig/Show/TicketType backoffice-core routes. Milestone 2 adds
-the public read/checkout routes (``app.api.routes.public``) and the
-``/sitemap.xml``/``/robots.txt`` SEO routes (``app.api.routes.seo``).
-"""
+"""Beacon ASGI application factory: mounts the JSON API, the HTML routers, static files and uploads."""
 
 import asyncio
 from collections.abc import AsyncIterator
@@ -58,19 +50,9 @@ from app.web.routes import themes as web_themes
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Starts/stops the in-process stale-Order-expiry background loop
-    (``app.services.order_expiry.run_order_expiry_background_loop``)
-    alongside the app process itself.
-
-    This is the ONLY background task this app runs today — see that
-    module's docstring for why an in-process loop exists at all (no
-    external scheduler/cron infra is assumed to be set up yet). Started as
-    a plain ``asyncio.create_task`` (no extra job-queue library — KISS, one
-    lightweight periodic task doesn't warrant one) and stopped cleanly on
-    shutdown: the ``stop_event`` is set first so the loop can finish its
-    current sleep/sweep and return on its own, then this awaits the task
-    directly rather than cancelling it, so an in-flight DB sweep is never
-    torn down mid-transaction.
+    """Run the stale-order expiry loop alongside the app. On shutdown, signal it
+    and await it rather than cancelling, so a sweep is never torn down
+    mid-transaction.
     """
     stop_event = asyncio.Event()
     task = asyncio.create_task(run_order_expiry_background_loop(stop_event=stop_event))
@@ -111,11 +93,7 @@ def create_app() -> FastAPI:
     app.include_router(seo.router)
     app.include_router(stats.router)
 
-    # Server-rendered backoffice HTML pages (Jinja2 + HTMX), added in
-    # Milestone 1.5 by `frontend-theming` — see app/web/. Distinct from the
-    # JSON API routers above: these render templates and proxy in-process
-    # to the JSON API (app.web.api_client) rather than duplicating its
-    # business logic.
+    # Backoffice HTML pages (they call the JSON API in-process).
     app.include_router(web_auth.router)
     app.include_router(web_events.router)
     app.include_router(web_event_config.router)
@@ -129,38 +107,22 @@ def create_app() -> FastAPI:
     app.include_router(web_audit_log.router)
     app.include_router(web_shows.router)
 
-    # Public-site HTML pages (Milestone 2, `frontend-theming`): themed
-    # landing/preview pages, checkout form, order confirmation — see
-    # app/web/routes/public_site.py. Registered after the backoffice web
-    # routers so a path clash (there isn't one today) would favor the
-    # backoffice; kept as its own router since these pages are
-    # unauthenticated and use a separate themed Jinja environment
-    # (app.core.public_templating), not the backoffice one.
+    # Public pages: unauthenticated, with their own themed Jinja environment.
+    # Registered after the backoffice so a path clash would favor the backoffice.
     app.include_router(web_public_site.router)
 
-    # The `demo` payment provider's interstitial page — post-launch fix
-    # (see app/web/routes/demo_payment.py's module docstring). Registered
-    # after web_public_site so its routes participate in the same
-    # unauthenticated public-site path space; there is no path clash
-    # today (/demo-payment/... is a namespace of its own).
+    # Demo payment provider pages.
     app.include_router(web_demo_payment.router)
 
-    # The public site root (`/`) — post-launch fix (see app/web/routes/
-    # homepage.py's module docstring). `/` used to belong to
-    # app.web.routes.events (an unconditional redirect into the
-    # backoffice, now removed) — this is its real replacement.
+    # The public homepage at `/`.
     app.include_router(web_homepage.router)
 
     @app.exception_handler(WebAuthRequired)
     async def _redirect_to_login(request: Request, exc: WebAuthRequired) -> RedirectResponse:
-        """Backoffice pages redirect an unauthenticated visitor to the login
-        form instead of returning a JSON 401 (see app.web.deps)."""
+        """Unauthenticated backoffice pages redirect to login instead of a JSON 401."""
         return RedirectResponse(url=f"/login?next={quote(exc.next_path)}", status_code=303)
 
-    # Serves uploaded Theme logo/background images back out (see
-    # app.services.theme_images) — local filesystem storage, mounted as its
-    # own docker volume in docker-compose.yml so it survives rebuilds.
-    # Created eagerly here (not lazily on first upload) since StaticFiles
+    # Uploaded theme images (a docker volume). Created eagerly: StaticFiles
     # requires the directory to exist at mount time.
     uploads_dir = Path(settings.uploads_dir)
     uploads_dir.mkdir(parents=True, exist_ok=True)
@@ -172,11 +134,8 @@ def create_app() -> FastAPI:
 
     @app.get("/healthz", tags=["ops"])
     async def healthz() -> dict[str, str]:
-        """Liveness/readiness probe. Returns 200 once the app has booted.
-
-        Deliberately does not check DB connectivity: compose/orchestrator
-        health checks should be able to distinguish "app process is up"
-        from "DB is reachable" rather than conflating the two.
+        """Liveness probe. Doesn't check the DB, so "app is up" and "DB is reachable"
+        stay distinguishable.
         """
         return {"status": "ok", "env": settings.app_env}
 

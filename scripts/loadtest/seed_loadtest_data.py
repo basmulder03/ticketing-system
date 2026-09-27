@@ -1,24 +1,14 @@
-"""Seed (or inspect) a real Event/Show/TicketType sized for load-testing
-the sales-live moment (Milestone 9 — see ``scripts/loadtest/README.md``).
+"""Seed (or inspect) a published event with a small, fresh ticket type for load
+testing (see ``scripts/loadtest/README.md``).
 
-This is deliberately separate from ``scripts/seed.py``: that script's demo
-data is fixed-size (150 tickets), idempotent-by-slug, and left as DRAFT —
-none of which fits a load test, which needs (a) a PUBLISHED Event/Show so
-checkout doesn't need a preview token, (b) a small, deliberately-configurable
-``quantity_available`` chosen to guarantee contention (e.g. 100, with far
-more than 100 concurrent virtual buyers), and (c) a *fresh*, never-sold-from
-TicketType every time you want to re-run a test — re-running against an
-already-depleted TicketType would just measure "everyone gets a clean 409",
-not real contention.
-
-Run against a real running instance the same way ``scripts/seed.py`` is run
-(needs the ``beacon`` package importable, i.e. inside the app container or
-an activated native venv — see CONTRIBUTING.md):
+Separate from ``scripts/seed.py`` because a load test needs published data,
+a chosen small quantity (to force contention), and a fresh ticket type per
+run (a depleted one only measures 409s).
 
     docker-compose exec app python scripts/loadtest/seed_loadtest_data.py seed --quantity 100
     docker-compose exec app python scripts/loadtest/seed_loadtest_data.py status --ticket-type-id <uuid>
 
-or natively (same env vars ``scripts/seed.py`` needs):
+or natively:
 
     SEED_SMTP_HOST=localhost .venv/bin/python scripts/loadtest/seed_loadtest_data.py seed --quantity 100
 """
@@ -42,16 +32,11 @@ from app.models.ticket_type import TicketType
 from app.services.stock import sold_counts_for_ticket_types
 
 LOADTEST_EVENT_SLUG = "loadtest"
-"""Fixed slug for the reusable load-test Event — unlike its Show/TicketType
-(one fresh pair per ``seed`` invocation), the Event + EventConfig
-themselves are idempotent (looked up by this slug) since there's no reason
-to recreate them every run."""
+"""The reusable load-test event (shows/ticket types are fresh each run)."""
 
 
 async def _get_or_create_event(session: AsyncSession) -> Event:
-    """Return the load-test Event, creating it (PUBLISHED, with an
-    EventConfig enabling ``door`` payments against the local Mailpit sink)
-    if it doesn't exist yet."""
+    """The load-test event, created published with ``door`` payments if missing."""
     result = await session.execute(select(Event).where(Event.slug == LOADTEST_EVENT_SLUG))
     event = result.scalar_one_or_none()
     if event is not None:
@@ -68,14 +53,8 @@ async def _get_or_create_event(session: AsyncSession) -> Event:
     session.add(event)
     await session.flush()
 
-    # `door` only, deliberately: the thing under test is the row-locked
-    # stock reservation (app.services.stock.reserve_stock), which every
-    # payment method goes through identically — using `door` means every
-    # checkout in the load test exercises exactly that contended path
-    # without also depending on network calls to Mollie's (sandbox) API,
-    # which would conflate this app's own capacity with Mollie's latency/
-    # rate limits. See tests/integration/test_checkout_concurrency.py,
-    # which makes the same choice for the same reason.
+    # Door only: every method goes through the same stock lock, and door keeps
+    # Mollie's latency out of the measurement.
     config = EventConfig(
         event_id=event.id,
         smtp_host=settings.seed_smtp_host,
@@ -94,9 +73,7 @@ async def _get_or_create_event(session: AsyncSession) -> Event:
 
 
 async def _create_show_and_ticket_type(session: AsyncSession, event: Event, quantity: int) -> TicketType:
-    """Create a fresh, PUBLISHED Show + single TicketType with
-    ``quantity_available=quantity`` under ``event``, never touched by
-    ``scripts/seed.py``'s demo data or a previous load-test run."""
+    """A fresh published show with one ticket type of ``quantity``."""
     run_label = dt.datetime.now(tz=dt.UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
     show = Show(
         event_id=event.id,
@@ -124,9 +101,7 @@ async def _create_show_and_ticket_type(session: AsyncSession, event: Event, quan
 
 
 async def seed(quantity: int) -> None:
-    """Seed a fresh scarce TicketType (``quantity_available=quantity``)
-    under the (idempotent) load-test Event, and print everything the
-    operator needs to point ``locustfile.py`` at it."""
+    """Seed a fresh scarce ticket type and print what ``locustfile.py`` needs."""
     async with async_session_factory() as session:
         event = await _get_or_create_event(session)
         ticket_type = await _create_show_and_ticket_type(session, event, quantity)
@@ -143,9 +118,7 @@ async def seed(quantity: int) -> None:
 
 
 async def status(ticket_type_id: uuid.UUID) -> None:
-    """Print the current live remaining stock for one TicketType — the
-    ground-truth "did it oversell?" check to run after a load test, without
-    needing to hand-write SQL against the running instance."""
+    """Print live remaining stock — the "did it oversell?" check after a run."""
     async with async_session_factory() as session:
         result = await session.execute(select(TicketType).where(TicketType.id == ticket_type_id))
         ticket_type = result.scalar_one_or_none()

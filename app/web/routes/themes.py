@@ -1,18 +1,9 @@
-"""Backoffice Theme editor page: fixed fields, logo/background upload,
-advanced custom-CSS override, live preview, AA contrast report,
-draft/published status, and "duplicate theme from previous event".
-
-Every mutation (save, image upload/delete, copy-from, preview) is a thin
-proxy to the existing JSON API under ``app.api.routes.themes`` via
-``app.web.api_client`` — hex-color validation, CSS sanitization, AA
-contrast calculation, image format sniffing, and audit logging all
-continue to live exactly once in that module and the services it calls.
-This file only translates between HTML forms and that JSON API, and
-renders templates.
+"""Backoffice theme editor: fixed fields, images, custom CSS, live preview,
+contrast report, status, and copying from another event. All rules live in
+the JSON API (``app.api.routes.themes``).
 """
 
 from typing import Any
-from urllib.parse import quote
 
 import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
@@ -21,15 +12,14 @@ from starlette.responses import Response
 
 from app.api.deps import Principal
 from app.core.templating import templates
-from app.web.api_client import internal_api_client
+from app.web.api_client import api_error_detail, internal_api_client
 from app.web.csrf import attach_csrf_cookie, read_or_generate_csrf_token, verify_csrf
 from app.web.deps import require_web_admin
+from app.web.flash import redirect_with_flash
 
 router = APIRouter(tags=["backoffice-theme"])
 
-# Mirrors app.models.enums.ThemeFont — kept here only as (value, label) pairs
-# for the <select> options; the enum itself remains the single source of
-# truth for which values are valid (enforced server-side by the JSON API).
+# Select options; the API enforces the real enums.
 FONT_CHOICES = [
     ("system-sans", "System Sans-serif"),
     ("system-serif", "System Serif"),
@@ -47,27 +37,16 @@ STATUS_CHOICES = [
     ("published", "Published"),
 ]
 
-# Defaults mirror app.models.theme.Theme's column defaults, used only to
-# pre-fill the form when an event has no Theme row yet (PUT creates one).
+# Form pre-fill for an event with no theme yet (mirrors the column defaults).
 _DEFAULT_PRIMARY = "#1a1a1a"
 _DEFAULT_SECONDARY = "#ffffff"
 _DEFAULT_ACCENT = "#c9a227"
 
 
-def _redirect_with_flash(path: str, message: str, kind: str = "success") -> RedirectResponse:
-    return RedirectResponse(url=f"{path}?flash={quote(message)}&flash_kind={kind}", status_code=303)
-
-
 def _build_preview_doc(preview: dict[str, Any]) -> str:
-    """Wrap a ``ThemePreviewResponse``'s ``preview_css``/``sample_html`` into
-    a tiny standalone HTML document for the preview ``<iframe>``. Embedding
-    this string into the template via ``srcdoc="{{ preview_doc }}"`` relies
-    on Jinja's default HTML auto-escaping to make it a safe attribute value
-    — the browser un-escapes it back into the literal document when
-    rendering the iframe, so no ``|safe`` filter is needed or used here.
-    Safe to embed as raw HTML in the first place because ``sample_html`` is
-    a fixed, non-user-controlled string and ``preview_css`` has already
-    been through ``sanitize_custom_css`` server-side.
+    """Wrap the preview CSS and sample HTML into a document for the preview
+    iframe's ``srcdoc``. Jinja's autoescaping makes it a safe attribute value
+    (no ``|safe``); the content itself is a fixed sample plus sanitized CSS.
     """
     return (
         "<!doctype html><html><head><meta charset='utf-8'>"
@@ -77,10 +56,7 @@ def _build_preview_doc(preview: dict[str, Any]) -> str:
 
 
 async def _fetch_editor_context(request: Request, event_id: str) -> dict[str, Any]:
-    """Gather everything the theme editor page needs in one place: the
-    event, its theme (if any), other events (for "duplicate from"), and an
-    initial live-preview render using the currently saved (or default)
-    values."""
+    """The event, its theme, other events to copy from, and an initial preview."""
     async with internal_api_client(request) as client:
         event_response = await client.get(f"/api/v1/events/{event_id}")
         if event_response.status_code == 404:
@@ -103,7 +79,7 @@ async def _fetch_editor_context(request: Request, event_id: str) -> dict[str, An
         preview_response = await client.post(f"/api/v1/events/{event_id}/theme/preview", json=preview_payload)
 
     preview = preview_response.json() if preview_response.status_code == 200 else None
-    preview_error = None if preview else preview_response.json().get("detail", "Could not build preview.")
+    preview_error = None if preview else api_error_detail(preview_response, "Could not build preview.")
 
     return {
         "event": event,
@@ -155,9 +131,7 @@ async def theme_preview_fragment(
     custom_css: str = Form(""),
     csrf_token: str = Form(...),
 ) -> Response:
-    """HTMX target: re-renders the live-preview pane from the current
-    (unsaved) form values, including whatever the CSS sanitizer strips —
-    called on every debounced field change, never on full form submit."""
+    """HTMX: re-render the preview from unsaved form values on each debounced change."""
     verify_csrf(request, csrf_token)
 
     async with internal_api_client(request) as client:
@@ -173,7 +147,7 @@ async def theme_preview_fragment(
         )
 
     if preview_response.status_code != 200:
-        detail = preview_response.json().get("detail", "Enter valid colors to preview.")
+        detail = api_error_detail(preview_response, "Enter valid colors to preview.")
         return templates.TemplateResponse(
             request, "backoffice/_theme_preview_fragment.html", {"preview": None, "error": detail}
         )
@@ -218,9 +192,9 @@ async def save_theme_fields(
         )
 
     if put_response.status_code >= 400:
-        detail = put_response.json().get("detail", "Could not save theme.")
-        return _redirect_with_flash(f"/events/{event_id}/theme", detail, kind="error")
-    return _redirect_with_flash(f"/events/{event_id}/theme", "Theme saved.", kind="success")
+        detail = api_error_detail(put_response, "Could not save theme.")
+        return redirect_with_flash(f"/events/{event_id}/theme", detail, kind="error")
+    return redirect_with_flash(f"/events/{event_id}/theme", "Theme saved.", kind="success")
 
 
 async def _forward_upload(request: Request, url: str, upload: UploadFile) -> httpx.Response:
@@ -243,10 +217,10 @@ async def upload_logo(
     verify_csrf(request, csrf_token)
     resp = await _forward_upload(request, f"/api/v1/events/{event_id}/theme/logo", file)
     if resp.status_code >= 400:
-        return _redirect_with_flash(
-            f"/events/{event_id}/theme", resp.json().get("detail", "Logo upload failed."), kind="error"
+        return redirect_with_flash(
+            f"/events/{event_id}/theme", api_error_detail(resp, "Logo upload failed."), kind="error"
         )
-    return _redirect_with_flash(f"/events/{event_id}/theme", "Logo uploaded.", kind="success")
+    return redirect_with_flash(f"/events/{event_id}/theme", "Logo uploaded.", kind="success")
 
 
 @router.post("/events/{event_id}/theme/logo/delete")
@@ -257,10 +231,10 @@ async def delete_logo(
     async with internal_api_client(request) as client:
         resp = await client.delete(f"/api/v1/events/{event_id}/theme/logo")
     if resp.status_code >= 400:
-        return _redirect_with_flash(
-            f"/events/{event_id}/theme", resp.json().get("detail", "Could not remove logo."), kind="error"
+        return redirect_with_flash(
+            f"/events/{event_id}/theme", api_error_detail(resp, "Could not remove logo."), kind="error"
         )
-    return _redirect_with_flash(f"/events/{event_id}/theme", "Logo removed.", kind="success")
+    return redirect_with_flash(f"/events/{event_id}/theme", "Logo removed.", kind="success")
 
 
 @router.post("/events/{event_id}/theme/background")
@@ -274,10 +248,10 @@ async def upload_background(
     verify_csrf(request, csrf_token)
     resp = await _forward_upload(request, f"/api/v1/events/{event_id}/theme/background", file)
     if resp.status_code >= 400:
-        return _redirect_with_flash(
-            f"/events/{event_id}/theme", resp.json().get("detail", "Background upload failed."), kind="error"
+        return redirect_with_flash(
+            f"/events/{event_id}/theme", api_error_detail(resp, "Background upload failed."), kind="error"
         )
-    return _redirect_with_flash(f"/events/{event_id}/theme", "Background image uploaded.", kind="success")
+    return redirect_with_flash(f"/events/{event_id}/theme", "Background image uploaded.", kind="success")
 
 
 @router.post("/events/{event_id}/theme/background/delete")
@@ -288,10 +262,10 @@ async def delete_background(
     async with internal_api_client(request) as client:
         resp = await client.delete(f"/api/v1/events/{event_id}/theme/background")
     if resp.status_code >= 400:
-        return _redirect_with_flash(
-            f"/events/{event_id}/theme", resp.json().get("detail", "Could not remove background."), kind="error"
+        return redirect_with_flash(
+            f"/events/{event_id}/theme", api_error_detail(resp, "Could not remove background."), kind="error"
         )
-    return _redirect_with_flash(f"/events/{event_id}/theme", "Background image removed.", kind="success")
+    return redirect_with_flash(f"/events/{event_id}/theme", "Background image removed.", kind="success")
 
 
 @router.post("/events/{event_id}/theme/copy-from")
@@ -306,7 +280,7 @@ async def copy_theme_from(
     async with internal_api_client(request) as client:
         resp = await client.post(f"/api/v1/events/{event_id}/theme/copy-from/{source_event_id}")
     if resp.status_code >= 400:
-        return _redirect_with_flash(
-            f"/events/{event_id}/theme", resp.json().get("detail", "Could not copy theme."), kind="error"
+        return redirect_with_flash(
+            f"/events/{event_id}/theme", api_error_detail(resp, "Could not copy theme."), kind="error"
         )
-    return _redirect_with_flash(f"/events/{event_id}/theme", "Theme copied from the selected event.", kind="success")
+    return redirect_with_flash(f"/events/{event_id}/theme", "Theme copied from the selected event.", kind="success")

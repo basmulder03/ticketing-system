@@ -1,36 +1,10 @@
-"""Themed PDF ticket generation (Milestone 4) — ``weasyprint`` (HTML → PDF)
-plus ``qrcode`` for the embedded QR code, per PROJECT_BRIEF.md's Ticket
-Generation & Delivery section.
+"""Ticket PDFs via ``weasyprint``, with an embedded QR code: one page per
+ticket, A5, print-friendly.
 
-Renders every ``Ticket`` belonging to a paid ``Order`` into ONE multi-page
-PDF (one ticket per page) — attached once to the confirmation email rather
-than as N separate attachments. Sized/margined for reliable print output
-(a real page size with sane margins, a QR code large enough to scan
-reliably off paper) per the brief's "print-friendly view" requirement.
-
-Milestone 9 adds :func:`render_tickets_pdf_batch`, which generalizes the
-exact same "N page-break sections in one HTML string" approach to MANY
-Orders at once, for the backoffice's batch-print action
-(``GET /api/v1/shows/{show_id}/tickets-batch.pdf``, see
-``app.api.routes.shows``) — see that function's docstring for why one
-combined PDF (not N separate downloads, not a PDF-merge dependency) is the
-right shape.
-
-Always uses the Event's Theme FIXED fields (colors/logo/font) — NEVER
-``Theme.custom_css`` — per the brief's Event & Theming section: "ticket/
-invoice PDFs... always use fixed theme fields for guaranteed compliance".
-This module simply never reads ``Theme.custom_css`` at all, the same
-enforcement approach ``app.services.email_render`` uses.
-
-Security note: every dynamic string interpolated into the HTML this module
-hands to ``weasyprint`` — buyer name (buyer-controlled), event/show/venue/
-ticket-type names (agent- or admin-controlled, but still untrusted at this
-layer) — is passed through ``html.escape`` before insertion (see ``_esc``).
-Without this, a buyer name like ``</td><script>`` could break the ticket's
-table layout or, in principle, get evaluated by weasyprint's HTML/CSS
-renderer — the same "buyer-submitted text later rendering into a document"
-risk class flagged in this project's security history, just for a PDF
-instead of an HTML page.
+Uses only the theme's fixed fields, never custom CSS. Every interpolated
+string (buyer name, event/show/venue names) goes through ``html.escape`` —
+without it a name like ``</td><script>`` could break the layout or reach the
+renderer as markup.
 """
 
 import base64
@@ -60,12 +34,7 @@ _DEFAULT_SECONDARY = "#ffffff"
 _DEFAULT_ACCENT = "#c9a227"
 
 _QR_BOX_SIZE = 10
-"""Pixels per QR "module" (the qrcode library's unit). At box_size=10 with
-a border of 4 modules, even a short payload (our tokens are a few dozen
-ASCII characters) renders at several hundred pixels square — comfortably
-enough resolution to stay crisp when printed at the ~45mm on-page size set
-in :func:`_ticket_page_html`'s CSS, satisfying the brief's "QR code sized
-to scan reliably off paper" requirement."""
+"""Pixels per QR module: several hundred px square, crisp at the ~45mm printed size."""
 
 
 def _esc(value: object) -> str:
@@ -73,15 +42,8 @@ def _esc(value: object) -> str:
 
 
 def qr_data_uri(payload: str) -> str:
-    """Render ``payload`` (an HMAC-signed ticket token — see
-    ``app.core.qr_tokens.sign_ticket_token``) as a QR code PNG, returned as
-    a self-contained ``data:image/png;base64,...`` URI.
-
-    A data URI (not a file reference or external URL) so the resulting
-    PDF/HTML email never depends on a follow-up network fetch to display
-    the code — important both for reliability (email clients routinely
-    block remote images by default) and for privacy (no external request
-    that could act as an open/read tracking pixel).
+    """The token as a QR PNG data URI — no follow-up fetch, so it displays in
+    emails that block remote images and can't act as a tracking pixel.
     """
     image = qrcode.make(payload, box_size=_QR_BOX_SIZE, border=4)
     buffer = BytesIO()
@@ -90,16 +52,8 @@ def qr_data_uri(payload: str) -> str:
 
 
 def logo_data_uri(theme: Theme | None) -> str | None:
-    """Read the theme's logo file (if any) straight off local disk and
-    return it as a base64 data URI, for the same "no follow-up fetch"
-    reason as :func:`qr_data_uri`. Returns ``None`` if there is no theme,
-    no logo configured, or the file is unexpectedly missing on disk (never
-    raises — a missing logo degrades to no-logo-image, not a failed PDF).
-
-    Public (not ``ticket``-specific despite living in this module): reused
-    as-is by ``app.services.invoice_pdf`` (Milestone 5) since logo
-    resolution has nothing ticket-specific about it — DRY rather than a
-    second near-identical implementation for the invoice PDF.
+    """The theme logo as a data URI, or ``None`` (no theme/logo, or file missing).
+    Never raises. Also used by ``app.services.invoice_pdf``.
     """
     if theme is None or not theme.logo_path:
         return None
@@ -161,12 +115,8 @@ def _ticket_page_html(
 
 
 def _resolve_theme_fields(theme: Theme | None) -> tuple[str, str, str, str, str | None]:
-    """Shared theme-field resolution (fixed fields only, never
-    ``custom_css`` — see this module's docstring) used by both
-    :func:`render_tickets_pdf` and :func:`render_tickets_pdf_batch`, so the
-    two never drift on how an absent Theme degrades to defaults.
-
-    Returns ``(primary, secondary, accent, font_stack, logo_uri)``.
+    """``(primary, secondary, accent, font_stack, logo_uri)`` from the fixed
+    fields, with defaults when there's no theme.
     """
     primary = theme.primary_color if theme is not None else _DEFAULT_PRIMARY
     secondary = theme.secondary_color if theme is not None else _DEFAULT_SECONDARY
@@ -188,15 +138,7 @@ def _order_pages_html(
     accent: str,
     locale: str,
 ) -> str:
-    """Render one Order's Tickets as concatenated ticket-page HTML
-    fragments (one ``<section class="ticket-page">`` per Ticket, via
-    :func:`_ticket_page_html`), all labeled/date-formatted in ``locale``.
-
-    Extracted so :func:`render_tickets_pdf` (one Order) and
-    :func:`render_tickets_pdf_batch` (many Orders, each keeping its own
-    buyer's ``language``) share the exact same per-ticket rendering rather
-    than duplicating this loop.
-    """
+    """One order's ticket pages, localized to ``locale``."""
     return "\n".join(
         _ticket_page_html(
             ticket=ticket,
@@ -216,15 +158,8 @@ def _order_pages_html(
 def _wrap_document(
     *, pages_html: str, event: Event, primary: str, secondary: str, font_stack: str, locale: str
 ) -> bytes:
-    """Wrap already-rendered ticket-page HTML fragments in one A5,
-    print-margined ``weasyprint`` document and return the PDF bytes.
-
-    Shared by :func:`render_tickets_pdf` and :func:`render_tickets_pdf_batch`
-    — the batch case simply hands this a longer ``pages_html`` string
-    (every Order's pages concatenated), which is all "one combined PDF
-    across many Orders" actually requires: ``weasyprint`` renders however
-    many ``page-break-after`` sections are present in the one HTML string
-    into one PDF, with no per-Order document boundary needed.
+    """Wrap page fragments in one A5 document and render it. Page breaks between
+    sections are all it takes to combine many orders into one PDF.
     """
     document_html = f"""<!DOCTYPE html>
 <html lang="{_esc(locale)}">
@@ -256,14 +191,8 @@ def render_tickets_pdf(
     theme: Theme | None,
     locale: str,
 ) -> bytes:
-    """Render one PDF containing one page per Ticket in ``tickets`` (all
-    assumed to belong to ``order``/``show``), themed with ``event``'s
-    Theme fixed fields.
-
-    Raises ``ValueError`` if any Ticket in ``tickets`` has no signed
-    ``qr_token`` yet — callers must run
-    ``app.services.ticket_delivery.sign_order_tickets`` first; a ticket
-    must never be printed/emailed without a scannable code.
+    """One PDF, one page per ticket. Raises ``ValueError`` for an unsigned ticket —
+    run ``sign_order_tickets`` first; never print a ticket without a valid code.
     """
     primary, secondary, accent, font_stack, logo_uri = _resolve_theme_fields(theme)
     pages = _order_pages_html(
@@ -289,46 +218,14 @@ def render_tickets_pdf_batch(
     event: Event,
     theme: Theme | None,
 ) -> bytes:
-    """Render ONE combined PDF containing every signed Ticket across
-    MULTIPLE Orders for the same Show — backs the backoffice's batch-print
-    action per PROJECT_BRIEF.md's Printing section ("a batch-print action
-    for multiple/all orders of a show ... printing a full run ahead of an
-    event, or reprinting for someone who lost their ticket").
+    """One combined PDF of every signed ticket across many orders for a show
+    (batch printing before an event, via
+    ``app.api.routes.orders.download_show_tickets_batch_pdf``).
 
-    Deliberately a single multi-page PDF, not N separate per-order
-    downloads: a browser print dialog against dozens of separate files is
-    not what "batch print ahead of an event" needs — staff want one
-    document they can send to a printer once. This reuses the exact same
-    mechanism :func:`render_tickets_pdf` already uses to put N tickets from
-    ONE Order on N pages of one PDF (``page-break-after`` CSS across
-    concatenated HTML sections in a single ``weasyprint`` document),
-    generalized here to concatenate pages across MANY Orders instead of
-    just one. No PDF-merge dependency (e.g. ``pypdf``) was added or is
-    needed: ``weasyprint`` renders as many page-break sections as the input
-    HTML string contains into one PDF regardless of which Order each
-    section's data came from, so "combine many orders' tickets" is just
-    "build a longer HTML string", not a binary-PDF-merge problem.
-
-    Each Order's Tickets are rendered using THAT Order's own ``language``
-    (not one shared locale) — an entry in ``orders_with_tickets`` is
-    ``(order, tickets, ticket_types_by_id)`` exactly like the parameters
-    :func:`render_tickets_pdf` takes for a single Order, so buyers who
-    checked out in different languages still get correctly localized
-    labels/date formatting on their own pages within the same combined
-    document.
-
-    Raises ``ValueError`` (via ``_ticket_page_html``) if any Ticket among
-    ``orders_with_tickets`` has no signed ``qr_token`` — callers (see
-    ``app.api.routes.shows.download_batch_tickets_pdf``) are expected to
-    filter ``orders_with_tickets`` down to Orders whose Tickets are already
-    signed (i.e. ``paid`` Orders) themselves, so an unsigned Ticket reaching
-    here means a genuine bug worth surfacing loudly rather than silently
-    producing an incomplete printout.
-
-    Returns a valid (near-empty) PDF if ``orders_with_tickets`` is empty —
-    never raises just for having nothing to render; the caller is expected
-    to show a "nothing to print" message instead of calling this in that
-    case.
+    One document so staff print once; no PDF-merge dependency needed. Each
+    order's pages use that order's own language. Raises ``ValueError`` for an
+    unsigned ticket — callers pass only paid orders, so that means a bug. An
+    empty input gives a near-empty PDF.
     """
     primary, secondary, accent, font_stack, logo_uri = _resolve_theme_fields(theme)
     pages = "\n".join(
@@ -345,11 +242,8 @@ def render_tickets_pdf_batch(
         )
         for order, tickets, ticket_types_by_id in orders_with_tickets
     )
-    # The document-level `<html lang>` is a single attribute that can't
-    # represent a mix of Orders' languages at once (each page's own content
-    # is already correctly localized via `_order_pages_html` above) — best
-    # effort, defaults to the first Order's language, or "en" if there is
-    # nothing to render.
+    # <html lang> can hold only one language; each page is already localized,
+    # so use the first order's language (or "en").
     doc_locale = orders_with_tickets[0][0].language if orders_with_tickets else "en"
     return _wrap_document(
         pages_html=pages, event=event, primary=primary, secondary=secondary, font_stack=font_stack, locale=doc_locale

@@ -1,6 +1,4 @@
-"""``Order``: one buyer's purchase — buyer/invoicing details, payment
-lifecycle status, and the total charged.
-"""
+"""``Order``: one buyer's purchase — buyer details, payment status and total."""
 
 import uuid
 from datetime import datetime
@@ -23,39 +21,14 @@ if TYPE_CHECKING:
 
 
 class Order(UUIDPrimaryKeyMixin, TimestampMixin, Base):
-    """A buyer's purchase, created in ``pending`` status at checkout
-    (Milestone 2) and moved to ``paid``/``cancelled``/``expired`` by later
-    milestones' payment handling (Mollie webhook: Milestone 3; manual
-    mark-as-paid/door reconciliation: Milestone 6).
+    """A buyer's purchase. Created ``pending``/``pending_door`` at checkout and
+    settled or released later (admin-issued manual orders settle immediately).
 
-    ``event_id`` (not ``show_id``): per PROJECT_BRIEF.md's Core entities,
-    "Order... belongs to an Event", because a single order's Tickets can
-    span multiple TicketType rows as long as they all belong to the *same*
-    Show — that "same show" constraint is enforced at checkout time (see
-    ``app.services.checkout``), not by the schema; the specific Show(s) an
-    Order touches are only reachable indirectly via its Tickets'
-    ``TicketType.show`` relationship.
-
-    ``buyer_address`` is free text (not structured fields), matching the
-    brief's "address (for invoicing)" and mirroring how
-    ``EventConfig.invoice_company_address`` is stored — the Milestone 5
-    invoice PDF renders it as a single block.
-
-    ``language`` is the buyer's chosen language code (e.g. ``"en"``/
-    ``"nl"``) per the brief's Internationalization section ("their chosen
-    language is stored on the Order and used for confirmation email,
-    ticket PDF, and invoice PDF"). Validated/normalized to a supported
-    locale at the schema layer (see ``app.schemas.order``), not
-    constrained by a DB-level enum — adding a third supported language
-    later is a schema-layer change only, no migration.
-
-    ``total`` is the sum of its Tickets' TicketType prices at the moment of
-    checkout (``Numeric(10, 2)``, never float — this is money). It does
-    NOT yet include any Mollie service-fee surcharge amount: the concrete
-    fee calculation is Milestone 3 scope (this milestone only has the
-    ``TicketType.service_fee_included`` toggle from Milestone 1, not a fee
-    percentage/amount anywhere yet) — see ``app.services.checkout`` for the
-    current total computation, which is a plain price*quantity sum.
+    Belongs to an Event, not a Show: all its Tickets must be for one Show, but
+    that's enforced at checkout, not in the schema. ``language`` is the buyer's
+    locale for emails and PDFs (validated in the schema, not a DB enum).
+    ``total`` is the price x quantity sum at checkout — no service fee is ever
+    added (see ``TicketType.service_fee_included``).
     """
 
     __tablename__ = "orders"
@@ -80,51 +53,22 @@ class Order(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     total: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     language: Mapped[str] = mapped_column(String(10), nullable=False)
     mollie_payment_id: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True, index=True)
-    """The Mollie payment id (``tr_xxx``) returned by Mollie's Create
-    Payment API (Milestone 3, see ``app.services.mollie.create_mollie_payment``),
-    set only for ``payment_method=mollie`` orders that actually went through
-    a real Mollie call (never set for ``door`` orders, and never set for the
-    preview-mode simulated-checkout path — see
-    ``app.services.checkout._initiate_mollie_payment`` — since neither ever
-    calls Mollie's API at all). This is the lookup key the webhook handler
-    uses to find which ``Order`` a Mollie webhook's payment id refers to
-    (see ``app.api.routes.public.mollie_webhook``). Unique (Mollie payment
-    ids are globally unique) and indexed for that lookup; nullable since
-    most orders (door, or the simulated sandbox path) never get one.
+    """Mollie payment id (``tr_...``); the webhook's lookup key. Only set when a
+    real Mollie payment was created.
     """
     mollie_mode: Mapped[MollieMode | None] = mapped_column(
         SAEnum(MollieMode, name="mollie_mode", native_enum=True, values_callable=lambda e: [m.value for m in e]),
         nullable=True,
     )
-    """A snapshot of ``EventConfig.mollie_mode`` at the moment this Order's
-    Mollie payment was created (only set alongside ``mollie_payment_id`` —
-    same null-for-door/simulated-orders rule). Deliberately NOT re-read
-    from the live ``EventConfig`` at webhook time: security-reviewer's
-    Milestone 3 pass found that reconciling against the CURRENT
-    ``mollie_mode`` meant an admin flipping test/live while an Order was
-    still ``pending`` would make the webhook fetch with the wrong-
-    environment key, Mollie would reject it, and the Order would get stuck
-    (never resolving to paid or released) until the admin reverted the
-    setting or staff manually intervened. Pinning the mode used at payment-
-    creation time makes reconciliation immune to a mid-flight config
-    change, matching how ``total``/``price`` are also snapshotted at
-    checkout rather than re-derived later.
+    """The Mollie mode at payment creation. The webhook reconciles with this, not
+    the live ``EventConfig`` value, so an admin switching test/live mid-payment
+    can't strand the order.
     """
 
     confirmation_email_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    """When the order-confirmation/ticket email last successfully sent
-    (Milestone 4, see ``app.services.ticket_delivery.
-    send_order_confirmation_email``). ``None`` means it has never been sent
-    (or every attempt so far has failed — see the audit log's
-    ``order.confirmation_email.failed`` entries for failure history, since
-    this column only ever records a *successful* send). Updated again on
-    every resend (Milestone 4's admin resend action), so this always
-    reflects the most recent successful delivery, not the first one — used
-    by the backoffice to show "last sent at" and by
-    ``app.services.order_payment.mark_order_paid``'s callers as a purely
-    informational signal, never as the double-send guard itself (that guard
-    is ``MarkOrderPaidResult.already_paid``, checked by the caller before
-    this module is ever invoked at all).
+    """Last *successful* confirmation-email send (failures are only in the
+    audit log). Informational — the double-send guard is
+    ``MarkOrderPaidResult.already_paid``.
     """
 
     event: Mapped["Event"] = relationship()
@@ -132,6 +76,4 @@ class Order(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     invoice: Mapped["Invoice | None"] = relationship(
         back_populates="order", uselist=False, cascade="all, delete-orphan"
     )
-    """The Order's single Invoice (Milestone 5), ``None`` until
-    ``app.services.invoicing.issue_invoice_for_order`` creates one on
-    payment confirmation — see ``app.models.invoice.Invoice`` docstring."""
+    """The Order's Invoice, once issued on payment."""

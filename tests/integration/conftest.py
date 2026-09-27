@@ -110,20 +110,11 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
 
 
 def _make_client(host: str | None = None) -> AsyncClient:
-    """Build an ``AsyncClient`` wired directly to the ASGI app (no real socket).
+    """An ``AsyncClient`` wired straight to the ASGI app, on pytest-asyncio's loop
+    (the routes await real asyncpg sessions, so TestClient's sync bridge won't do).
 
-    Uses ``httpx.AsyncClient`` + ``ASGITransport`` rather than
-    ``starlette.testclient.TestClient`` (used by the Milestone-0 health
-    smoke test): every route exercised here awaits a real asyncpg session
-    on the same event loop pytest-asyncio is already running, and this
-    httpx/starlette pairing prints a deprecation warning when TestClient's
-    sync-over-async bridge is used instead.
-
-    Each client gets its own random pseudo-IP by default (``request.client
-    .host`` doesn't have to be a real routable address, just a stable key)
-    so the per-IP rate limiter (``app.core.rate_limit``) never accidentally
-    shares a bucket across unrelated tests. Pass an explicit ``host`` when a
-    test specifically needs to compare behavior across two IPs or reuse one.
+    Each client gets a random pseudo-IP so tests never share a rate-limit
+    bucket; pass ``host`` to reuse or compare IPs deliberately.
     """
     resolved_host = host or f"test-{uuid.uuid4().hex[:12]}"
     transport = ASGITransport(app=app, client=(resolved_host, 12345))
@@ -643,34 +634,31 @@ def mailpit_api_base_url() -> str:
 
 
 async def fetch_latest_mailpit_message_to(to_email: str, *, timeout: float = 5.0) -> dict[str, Any]:
-    """Poll Mailpit's search API for the most recent message addressed to
-    ``to_email`` and return its FULL content (subject, HTML, plain text,
-    attachment metadata) via a second ``GET .../message/{id}`` call.
+    """Poll Mailpit for the newest message to ``to_email`` and return its full
+    content (subject, bodies, attachment metadata).
 
-    Searching by a test-unique ``to_email`` (rather than "the single most
-    recent message in the whole mailbox") keeps this safe to use even
-    though Mailpit's mailbox is a shared, un-isolated sink across this
-    entire serial test run (see ``docker-compose.yml``'s single ``mailpit``
-    service) — every caller should pass a randomized recipient address so
-    two tests' messages can never be confused for one another. Polls
-    briefly (Mailpit's HTTP API can lag a few milliseconds behind a
-    just-completed SMTP send) rather than assuming the message is visible
-    immediately.
+    Mailpit is one shared mailbox for the whole run, so callers must use a
+    unique recipient. Only ``/api/v1/search`` honors ``query`` —
+    ``/api/v1/messages`` silently ignores it and returns the newest mail of
+    any recipient — and results are re-checked by exact address as a guard.
 
-    Raises ``AssertionError`` if no matching message shows up within
-    ``timeout`` seconds.
+    Raises ``AssertionError`` if no matching message appears within ``timeout``.
     """
     base_url = mailpit_api_base_url()
     loop = asyncio.get_event_loop()
     deadline = loop.time() + timeout
+    wanted = to_email.lower()
     async with AsyncClient(base_url=base_url, timeout=5.0) as api_client:
         while True:
-            response = await api_client.get("/api/v1/messages", params={"query": f"to:{to_email}"})
+            response = await api_client.get("/api/v1/search", params={"query": f'to:"{to_email}"'})
             response.raise_for_status()
-            messages = response.json()["messages"]
-            if messages:
-                message_id = messages[0]["ID"]
-                detail_response = await api_client.get(f"/api/v1/message/{message_id}")
+            matches = [
+                m
+                for m in response.json()["messages"]
+                if any(r["Address"].lower() == wanted for r in m.get("To") or [])
+            ]
+            if matches:
+                detail_response = await api_client.get(f"/api/v1/message/{matches[0]['ID']}")
                 detail_response.raise_for_status()
                 result: dict[str, Any] = detail_response.json()
                 return result

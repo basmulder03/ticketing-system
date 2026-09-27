@@ -1,19 +1,5 @@
-"""Door-scanning route (Milestone 7): validates a scanned QR ticket token
-against one specific Show and, on a genuine pass, completes entry.
-
-Gated by ``require_scanner_or_admin`` (not ``require_admin_or_agent`` —
-scanner-role accounts are never agents, and this route is not
-content-type data) — see that dependency's docstring for the exact
-scoping rationale. Nested under ``/api/v1/shows/{show_id}`` rather than
-also under ``/events/{event_id}``, mirroring
-``app.api.routes.ticket_types``'s URL shape (Show-scoped routes there also
-don't require the parent Event id in the path — a Show id is already a
-unique UUID, so the extra path segment would add nothing but ceremony).
-
-All actual validation/mutation logic lives in ``app.services.scan`` — this
-module is intentionally thin (parse/404 the show, call the service, map
-its result onto the response schema), matching the split every other
-route module in this package uses.
+"""Ticket-scan route. Scanner or admin only (never agents); the logic lives in
+``app.services.scan``.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -41,16 +27,10 @@ async def scan(
     principal: Principal = Depends(require_scanner_or_admin),
     session: AsyncSession = Depends(get_session),
 ) -> ScanResponse:
-    """Validate (and, on a pass, complete entry for) the ticket encoded in
-    ``body.token`` against the Show identified by ``show_id``.
+    """Validate ``body.token`` for ``show_id``, completing entry on a pass.
 
-    404s if ``show_id`` is malformed or names no existing Show, matching
-    every other route in this package (``app.api.routes._utils.
-    parse_uuid_or_404``) — this is a routing-level 404, distinct from and
-    checked before any of ``app.services.scan.scan_ticket``'s own outcome
-    states (which are all HTTP 200s — a failed/unpaid scan is not itself an
-    HTTP error, it's a normal, expected result the frontend renders
-    directly via ``ScanResponse.outcome``; see that schema).
+    404 only for an unknown show; every scan outcome (including failures) is a
+    200 the frontend renders via ``outcome``.
     """
     parsed_show_id = parse_uuid_or_404(show_id, detail="Show not found.")
     show = await session.get(Show, parsed_show_id)

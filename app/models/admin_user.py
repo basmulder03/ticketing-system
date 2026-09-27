@@ -12,16 +12,9 @@ from app.models.enums import AdminRole
 
 
 class AdminUser(UUIDPrimaryKeyMixin, TimestampMixin, Base):
-    """A human backoffice user.
-
-    Passwords are hashed with argon2 (see ``app.core.security``) — the
-    ``hashed_password`` column never holds plaintext, and plaintext
-    passwords must never be logged. ``role`` gates access: ``scanner``
-    accounts are limited to the door-scanning endpoint (added in a later
-    milestone), ``admin`` accounts get full backoffice access, including
-    routes gated by ``app.api.deps.require_admin`` (agent-account
-    management, the audit log, and — in later milestones — payment/SMTP
-    credential configuration).
+    """A human backoffice user. ``scanner`` accounts can only scan tickets;
+    ``admin`` accounts get everything, including ``require_admin`` routes.
+    Passwords are argon2-hashed and must never be logged.
     """
 
     __tablename__ = "admin_users"

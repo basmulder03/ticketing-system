@@ -1,90 +1,20 @@
-"""Door-scanning validation and entry-completion logic (Milestone 7): the
-service layer behind ``POST /api/v1/shows/{show_id}/scan``, callable
-directly (and thus unit-testable) independent of the route/HTTP layer, per
-this codebase's established split between ``app.services.*`` and
-``app.api.routes.*``.
+"""Ticket scanning: validate a QR token for a show and complete entry.
 
-Outcome semantics (see ``app.models.enums.ScanOutcome`` for the exact enum
-and per-value docstrings) — checked in this fixed order, each one a
-terminal result:
+Outcomes, checked in order (each terminal): ``INVALID`` (bad signature or
+unknown ticket — same message for both), ``WRONG_SHOW``, ``ALREADY_SCANNED``,
+``UNPAID`` (any non-paid status), ``PASS`` — the only branch that marks the
+ticket scanned.
 
-1. ``INVALID`` — the token's HMAC signature doesn't verify, or verifies but
-   names a ``Ticket.id`` that doesn't exist. Both cases return the exact
-   same generic message so a caller can never distinguish "tampered
-   signature" from "well-formed but unknown ticket" — see
-   ``app.core.qr_tokens.verify_ticket_token``.
-2. ``WRONG_SHOW`` — the ticket is real but its ``TicketType.show_id``
-   doesn't match the show being scanned for.
-3. ``ALREADY_SCANNED`` — the ticket belongs to the right show but
-   ``scanned_at`` is already set.
-4. ``UNPAID`` — the ticket is real, right show, unscanned, but its Order
-   isn't ``paid``. Any non-``paid`` status hits this branch (not just
-   ``pending_door``) — deliberately not special-cased, mirroring how
-   ``app.services.order_payment.mark_order_paid`` treats "any non-paid
-   status" uniformly.
-5. ``PASS`` — everything checks out. This is the only branch that mutates
-   the Ticket (``scanned_at``/``scanned_by``) — entry is only ever
-   completed here.
+Unpaid flow: an unpaid scan doesn't admit anyone. An admin settles it via the
+normal mark-as-paid route, then the same QR code is rescanned and passes.
+That keeps scanner accounts away from payments and keeps one mutating path.
 
-**Design decision — the unpaid -> resolve -> complete-entry flow (flagged
-for review):** scanning an unpaid ticket does NOT mark it scanned, per the
-brief ("does not silently let someone through... before the entry is
-treated as complete"). This module deliberately does NOT add a second,
-distinct "complete entry now that it's paid" action. Instead, the flow is:
-the frontend shows the ``UNPAID`` result (order id + amount due) to an
-ADMIN-role user standing at the same scan screen; that admin triggers the
-EXISTING, unchanged ``POST /api/v1/orders/{order_id}/mark-paid`` route
-(``app.api.routes.orders.mark_paid``) to settle payment; staff then
-re-scans the SAME QR code, which now naturally falls through to ``PASS``
-and completes entry. This was chosen over adding a new
-"complete-entry-after-payment" endpoint because (a) it needs zero new
-payment-adjacent surface for a scanner-role principal — the scoping
-principle in this milestone's brief is explicit that scanner accounts
-must not gain any ability to touch payments, and a distinct
-"complete entry" action callable right after marking paid would sit
-exactly on that boundary; (b) re-scanning is a real, physical action door
-staff already do for every other ticket, so it doesn't add a new UI
-concept, just a natural repeat of the same action once payment is
-resolved; and (c) it keeps this module's only Ticket-mutating code path
-to one place (the ``PASS`` branch), which is also where the
-"not already scanned" row lock already lives — no second mutating path to
-keep in sync with it.
+Concurrency: the Ticket is read *once*, with ``FOR UPDATE``, so two scans of
+one ticket can't both pass, and there's no earlier read to go stale (add
+``populate_existing=True`` if you ever add one). Only the ticket is locked; a
+racing payment change can at worst need a rescan.
 
-Concurrency discipline (the safety-critical part, this milestone's
-equivalent of ``app.services.stock.reserve_stock``): the Ticket row is
-resolved from the verified token id and then read via a single
-``SELECT ... FOR UPDATE`` query — the FIRST and ONLY read of that row in
-this session. Structuring it this way (rather than a plain lookup followed
-by a second locking query) means the SQLAlchemy identity-map staleness bug
-documented at length in ``app.services.order_payment._lock_order`` and
-``app.services.stock.reserve_stock`` (a locked row silently returning a
-stale, earlier-cached Python object without
-``execution_options(populate_existing=True)``) cannot occur here at all —
-there is no earlier plain read of the same Ticket to go stale. If a future
-change to this module ever needs an earlier plain read of the same Ticket
-row for any reason, ``populate_existing=True`` MUST be added to this
-query, matching that precedent.
-
-The row lock is scoped to the Ticket table only — the related TicketType/
-Show/Event/Order rows loaded alongside it are plain (non-locking) reads.
-That's intentional: the only race this milestone's brief calls out as
-safety-critical is "not already scanned" (two concurrent scans of the same
-physical ticket), which is fully guarded by locking the Ticket row before
-checking/setting ``scanned_at``. A concurrent Order status change (e.g. an
-admin marking the order paid in the same instant as a scan) racing against
-the ``UNPAID``/``PASS`` read is not a correctness bug: at worst a scan
-momentarily sees the pre-transition status, and the next scan (or the same
-one retried) sees the current one — unlike overselling or double-entry,
-there's no way for this race to admit two people on one ticket or lose a
-payment record.
-
-Every outcome is audited (see :func:`_audit`) under one consistent action
-name, ``ticket.scan``, with a ``result`` field in ``detail`` set to the
-``ScanOutcome`` value — chosen over five separate action names so the
-audit log stays greppable by a single action ("every scan attempt, ever")
-while remaining fully segmentable by outcome via that field, matching how
-``app.services.order_payment.mark_order_paid`` uses one action
-(``order.mark_paid``) rather than a name per starting status.
+Every attempt is audited as ``ticket.scan`` with ``detail.result``.
 """
 
 import uuid
@@ -111,9 +41,7 @@ __all__ = ["ScanResult", "scan_ticket"]
 
 @dataclass(frozen=True)
 class ScanResult:
-    """Result of one :func:`scan_ticket` call — see
-    ``app.schemas.scan.ScanResponse`` (the route maps one directly onto the
-    other) for what each field means to an API caller."""
+    """One scan's result; mapped 1:1 onto ``ScanResponse``."""
 
     outcome: ScanOutcome
     message: str
@@ -140,10 +68,7 @@ async def _audit(
     show_id: uuid.UUID,
     detail: dict[str, Any] | None = None,
 ) -> None:
-    """Write one ``ticket.scan`` audit entry — see this module's docstring
-    for the action-naming scheme. Always includes ``result``/``show_id``;
-    callers pass anything outcome-specific (ticket id, order id, the wrong
-    show's id, etc.) via ``detail``."""
+    """Write one ``ticket.scan`` entry with ``result``, ``show_id`` and any extra ``detail``."""
     full_detail: dict[str, Any] = {"result": outcome.value, "show_id": str(show_id)}
     if detail:
         full_detail.update(detail)
@@ -164,16 +89,8 @@ async def scan_ticket(
     show_id: uuid.UUID,
     principal: Principal,
 ) -> ScanResult:
-    """Validate and (on a genuine pass) complete entry for the ticket
-    encoded in ``token``, scoped to ``show_id``.
-
-    See this module's docstring for the full outcome ordering, the
-    unpaid -> resolve -> re-scan flow, and the concurrency discipline. Every
-    branch writes exactly one audit entry before returning. Commits its own
-    transaction on every branch (there is exactly one caller — the scan
-    route — with no further work to combine into the same transaction,
-    unlike e.g. ``app.services.order_payment.mark_order_paid``, which
-    deliberately leaves committing to its multiple callers).
+    """Validate ``token`` for ``show_id`` and complete entry on a pass.
+    Writes one audit entry per call and commits its own transaction.
     """
     ticket_id = verify_ticket_token(token)
     if ticket_id is None:
@@ -181,11 +98,8 @@ async def scan_ticket(
         await session.commit()
         return ScanResult(outcome=ScanOutcome.INVALID, message=_GENERIC_INVALID_MESSAGE)
 
-    # Safety-critical row lock: the FIRST and ONLY read of this Ticket row
-    # in this session — see this module's docstring for why that ordering
-    # is what makes this immune to the identity-map staleness bug class
-    # documented in app.services.stock/order_payment, without needing
-    # `populate_existing=True`.
+    # Safety-critical: the first and only read of this ticket, locked — see
+    # the module docstring.
     result = await session.execute(
         select(Ticket)
         .where(Ticket.id == ticket_id)

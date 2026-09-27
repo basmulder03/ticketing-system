@@ -12,23 +12,11 @@ from app.db.mixins import TimestampMixin, UUIDPrimaryKeyMixin
 
 
 class AgentAccount(UUIDPrimaryKeyMixin, TimestampMixin, Base):
-    """A named AI-agent/skill integration, authenticated via API key.
+    """A named AI-agent integration authenticated by API key.
 
-    The raw API key is generated once at creation time (see
-    ``app.core.security.generate_agent_api_key``) and shown to the caller
-    exactly once — only its SHA-256 hash (``key_hash``) is persisted, so a
-    stolen database dump alone cannot be used to authenticate as the
-    agent. ``key_prefix`` is stored purely for display in the backoffice
-    (so an admin can tell accounts apart without the full secret).
-
-    Keys are individually revocable via ``revoked_at`` without affecting
-    any other agent or human admin. Every AgentAccount is a distinct,
-    named integration — never a shared/anonymous key — per
-    PROJECT_BRIEF.md's AI/Agent Access requirement. Scope enforcement
-    (agents cannot touch payment/SMTP credentials, admin user management,
-    financial data, or the audit log) is implemented in
-    ``app.api.deps.require_admin``, not on this model — this table only
-    records identity and revocation state.
+    Only the key's SHA-256 hash is stored (the raw key is shown once), so a DB
+    dump can't be used to authenticate. ``key_prefix`` is for display only.
+    Scope limits are enforced in ``app.api.deps``, not here.
     """
 
     __tablename__ = "agent_accounts"
