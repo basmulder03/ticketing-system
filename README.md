@@ -69,11 +69,20 @@ demo seed data is added in Milestone 1+.
 
 - **Admin login:** `POST /api/v1/auth/login` with `{"email", "password"}`
   sets a signed, `httponly` session cookie (`beacon_admin_session`),
-  timed out after `SESSION_TIMEOUT_MINUTES` (default 30). A demo admin is
-  seeded from `SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD` (defaults:
-  `admin@beacon.local` / `dev-only-change-me-123` — local dev only).
-  `POST /api/v1/auth/logout` clears it; `GET /api/v1/auth/me` returns the
+  timed out after `SESSION_TIMEOUT_MINUTES` (default 30). `POST
+  /api/v1/auth/logout` clears it; `GET /api/v1/auth/me` returns the
   current principal (admin or agent).
+- **Initial admin account:** a fresh deployment with no `AdminUser` at
+  all yet is set up in the browser — visiting `/login` (or `/setup`
+  directly) redirects to a one-time "create your admin account" form
+  (`POST /api/v1/auth/setup`), which also logs you straight in. Once any
+  admin account exists, that route permanently 409s; every account after
+  that is created from inside the backoffice itself
+  (`POST /api/v1/admin/admin-users`, admin-only). Local dev still also
+  seeds a demo admin from `SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD`
+  (defaults: `admin@beacon.local` / `dev-only-change-me-123`) via
+  `scripts/seed.py` for a faster edit/reload loop — that script is a dev
+  convenience only, not how a real deployment gets its first admin.
 - **Agent (AI) auth:** a separate API-key path — send the raw key on the
   `X-Agent-Api-Key` header. Keys are created via
   `POST /api/v1/admin/agent-accounts` (admin-only; the raw key is shown

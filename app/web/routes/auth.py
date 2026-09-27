@@ -10,11 +10,20 @@ headers from that JSON response onto the browser-facing redirect.
 Milestone 7 adds :func:`_apply_role_default`: a ``scanner``-role session
 landing on this module's own ``"/events"`` default is retargeted to the
 show-picker (``/scan``) instead, since ``/events`` is admin-only.
+
+Post-launch fix adds :func:`setup_page`/:func:`setup_submit`: the initial-
+admin-account creation page, proxying to ``POST /api/v1/auth/setup`` the
+same way ``login_submit`` proxies to ``/login`` — see
+``app.api.routes.auth`` module docstring for why this exists. ``login_page``
+also redirects here automatically while no ``AdminUser`` exists yet, so a
+fresh deployment's very first visitor to ``/login`` lands on account
+creation instead of a login form for an account that doesn't exist.
 """
 
 import re
 from urllib.parse import urlsplit
 
+import httpx
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import RedirectResponse
 from starlette.responses import Response
@@ -81,12 +90,21 @@ def _apply_role_default(safe_next: str, role: str | None) -> str:
 async def login_page(request: Request, next: str = "/events") -> Response:
     """Render the login form. Already-authenticated visitors are bounced
     straight to their destination rather than shown the form again (checked
-    via the existing ``/api/v1/auth/me`` route, not reimplemented here)."""
+    via the existing ``/api/v1/auth/me`` route, not reimplemented here).
+
+    While this deployment has no ``AdminUser`` at all yet, redirects to
+    ``/setup`` instead — there is nothing to log in as, so showing a login
+    form here would just be a dead end (see this module's docstring)."""
     async with internal_api_client(request) as client:
         me_response = await client.get("/api/v1/auth/me")
     if me_response.status_code == 200:
         role = me_response.json().get("role")
         return RedirectResponse(url=_apply_role_default(_safe_next(next), role), status_code=303)
+
+    async with internal_api_client(request) as client:
+        setup_required_response = await client.get("/api/v1/auth/setup-required")
+    if setup_required_response.json().get("setup_required"):
+        return RedirectResponse(url="/setup", status_code=303)
 
     token = read_or_generate_csrf_token(request)
     response = templates.TemplateResponse(
@@ -140,6 +158,89 @@ async def logout(request: Request, csrf_token: str = Form(...)) -> RedirectRespo
         api_response = await client.post("/api/v1/auth/logout")
 
     redirect = RedirectResponse(url="/login", status_code=303)
+    for raw_cookie in api_response.headers.get_list("set-cookie"):
+        redirect.headers.append("set-cookie", raw_cookie)
+    return redirect
+
+
+def _setup_error_detail(response: httpx.Response) -> str:
+    """Same convention as every other web-route module's copy of this
+    helper (``app.web.routes.shows``, ``.events``, ``.orders``): a 422
+    from Pydantic's own request-body validation returns ``detail`` as a
+    list of error objects, not a string — fall back to a generic message
+    rather than rendering a Python list repr on the setup form."""
+    try:
+        detail = response.json().get("detail", "Could not create the admin account.")
+    except Exception:  # noqa: BLE001 - response body may not be JSON at all
+        return "Could not create the admin account."
+    return detail if isinstance(detail, str) else "Could not create the admin account."
+
+
+@router.get("/setup", response_model=None)
+async def setup_page(request: Request) -> Response:
+    """Render the initial-admin-account creation form — post-launch fix,
+    see this module's docstring. Permanently redirects to ``/login``
+    once any ``AdminUser`` exists (this is a one-time page, not a general
+    "create an admin" form — that lives in the authenticated backoffice,
+    ``app.web.routes.admin_users``)."""
+    async with internal_api_client(request) as client:
+        setup_required_response = await client.get("/api/v1/auth/setup-required")
+    if not setup_required_response.json().get("setup_required"):
+        return RedirectResponse(url="/login", status_code=303)
+
+    token = read_or_generate_csrf_token(request)
+    response = templates.TemplateResponse(
+        request, "backoffice/setup.html", {"error": None, "csrf_token": token}
+    )
+    attach_csrf_cookie(response, token)
+    return response
+
+
+@router.post("/setup", response_model=None)
+async def setup_submit(
+    request: Request,
+    email: str = Form(...),
+    password: str = Form(...),
+    confirm_password: str = Form(...),
+    csrf_token: str = Form(...),
+) -> Response:
+    """Validate the CSRF token and that both password fields match, then
+    delegate account creation to the JSON setup route and forward its
+    session cookie onto the browser — same shape as :func:`login_submit`.
+
+    The ``password != confirm_password`` check is purely a web-form UX
+    nicety (catching a typo before it locks the deployer out of the
+    account they just created) — the JSON API itself takes no
+    ``confirm_password`` field at all, since a raw API caller has no
+    "confirm" field to duplicate."""
+    verify_csrf(request, csrf_token)
+
+    if password != confirm_password:
+        token = read_or_generate_csrf_token(request)
+        response = templates.TemplateResponse(
+            request,
+            "backoffice/setup.html",
+            {"error": "Passwords do not match.", "csrf_token": token},
+            status_code=422,
+        )
+        attach_csrf_cookie(response, token)
+        return response
+
+    async with internal_api_client(request) as client:
+        api_response = await client.post("/api/v1/auth/setup", json={"email": email, "password": password})
+
+    if api_response.status_code != 201:
+        token = read_or_generate_csrf_token(request)
+        response = templates.TemplateResponse(
+            request,
+            "backoffice/setup.html",
+            {"error": _setup_error_detail(api_response), "csrf_token": token},
+            status_code=422,
+        )
+        attach_csrf_cookie(response, token)
+        return response
+
+    redirect = RedirectResponse(url="/events", status_code=303)
     for raw_cookie in api_response.headers.get_list("set-cookie"):
         redirect.headers.append("set-cookie", raw_cookie)
     return redirect

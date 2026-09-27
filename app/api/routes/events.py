@@ -156,6 +156,10 @@ async def set_default_event(
         previous_default = previous_default_result.scalar_one_or_none()
         if previous_default is not None:
             previous_default.is_default_event = False
+            # Flush now: SQLAlchemy orders same-table UPDATEs by primary
+            # key, not mutation order, so without this the new default can
+            # hit the unique index before the old one is cleared.
+            await session.flush()
 
         event.is_default_event = True
         await record_audit_entry(
