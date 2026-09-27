@@ -14,23 +14,11 @@ from app.models.enums import ActorType
 
 
 class AuditLogEntry(UUIDPrimaryKeyMixin, Base):
-    """An append-only record of who did what, when.
+    """Append-only record of who did what, when.
 
-    ``actor_id``/``actor_name`` are a denormalized snapshot of the acting
-    principal at the time of the action, not a hard foreign key to
-    ``AdminUser``/``AgentAccount`` — deliberately, so the audit trail
-    remains fully readable even if that account is later deleted (agent
-    accounts are typically only revoked, never deleted, but this keeps the
-    log robust regardless). ``actor_name`` is always populated (an admin's
-    email or an agent's name), so "who did this" never requires a join
-    that could fail.
-
-    Every write performed via an agent API key MUST be recorded with
-    ``actor_type=ActorType.AI_AGENT`` and the agent's name — never merged
-    into a generic "system" actor. Only ``app.services.audit`` should
-    construct/insert rows here, so this invariant is enforced in one place.
-    There is deliberately no ``updated_at``/mutation support: audit entries
-    are write-once.
+    ``actor_id``/``actor_name`` are a snapshot, not foreign keys, so entries
+    stay readable after an account is deleted. Only ``app.services.audit``
+    writes rows; agent actions are always recorded as ``AI_AGENT``.
     """
 
     __tablename__ = "audit_log_entries"

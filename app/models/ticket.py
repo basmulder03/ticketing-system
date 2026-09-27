@@ -1,7 +1,4 @@
-"""``Ticket``: one physical/scannable ticket, created at checkout time and
-reserving stock against its ``TicketType`` until its ``Order`` is
-cancelled/expired.
-"""
+"""``Ticket``: one scannable ticket; its existence reserves stock."""
 
 import uuid
 from datetime import datetime
@@ -20,46 +17,14 @@ if TYPE_CHECKING:
 
 
 class Ticket(UUIDPrimaryKeyMixin, TimestampMixin, Base):
-    """One physical ticket: belongs to an ``Order`` and a ``TicketType``.
+    """One physical ticket, created at checkout inside the stock-locking
+    transaction. The rows *are* the reservation: remaining stock is
+    ``quantity_available`` minus tickets on non-cancelled/expired orders.
 
-    Design decision (Milestone 2, affects Milestones 3-4): PROJECT_BRIEF.md
-    lists Ticket as having a "unique HMAC-signed QR token, scanned_at,
-    scanned_by", but QR signing is explicitly Milestone 4 scope and
-    scanning is Milestone 7 scope. Rather than deferring Ticket row
-    *creation* until Milestone 4 (which would need a separate
-    reservation/line-item concept to track "how many tickets does this
-    pending order hold" in the meantime), Ticket rows are created here, at
-    checkout time (Milestone 2) — one row per physical ticket purchased,
-    created immediately inside the same row-locked transaction that
-    verifies and decrements stock (see ``app.services.stock`` /
-    ``app.services.checkout``). This is what actually reserves stock: a
-    TicketType's live remaining count is simply "quantity_available minus
-    the count of Ticket rows whose Order isn't cancelled/expired" (see
-    ``app.services.stock.sold_counts_for_ticket_types``), with no separate
-    reservation table needed. It also turns:
-      - Milestone 4 into "sign a QR token for each already-existing Ticket
-        row and render/email it" (populating the nullable ``qr_token``
-        below), rather than "create the Ticket rows a second time"; and
-      - Milestone 7 into "populate ``scanned_at``/``scanned_by`` on an
-        existing row" during a scan.
-
-    ``qr_token`` is nullable (populated by Milestone 4) but unique once
-    set — Postgres unique indexes already treat multiple NULLs as distinct
-    from one another, so many not-yet-signed tickets coexisting with a
-    ``NULL`` token is not a constraint violation.
-
-    ``scanned_at``/``scanned_by`` are both nullable (populated by
-    Milestone 7's scanning flow). ``scanned_by`` is a nullable FK to
-    ``AdminUser`` (the Scanner-role account that performed the scan) with
-    ``ON DELETE SET NULL`` so deleting a scanner account later doesn't
-    cascade-delete historical ticket/scan records.
-
-    ``ticket_type_id`` uses ``ON DELETE RESTRICT`` (not CASCADE): once a
-    TicketType has sold tickets, deleting it out from under real Orders
-    would silently orphan/corrupt purchased tickets — the backoffice
-    TicketType-delete route must handle the resulting integrity error as a
-    clear conflict response, not let it surface as an unhandled 500 (see
-    ``app.api.routes._utils.commit_or_conflict``).
+    ``qr_token`` is set when the order is paid (unique; many NULLs are fine).
+    ``scanned_by`` uses ``SET NULL`` so deleting a scanner account keeps scan
+    history. ``ticket_type_id`` uses ``RESTRICT``: a ticket type with sold
+    tickets can't be deleted.
     """
 
     __tablename__ = "tickets"

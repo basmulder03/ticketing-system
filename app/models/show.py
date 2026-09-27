@@ -20,28 +20,11 @@ if TYPE_CHECKING:
 
 
 class Show(UUIDPrimaryKeyMixin, TimestampMixin, Base):
-    """A single performance date/time under an ``Event``.
+    """One performance of an ``Event``.
 
-    ``date``, ``doors_time``, and ``start_time`` are kept as three distinct
-    fields (rather than combined datetimes) to match PROJECT_BRIEF.md's Core
-    entities listing verbatim, and because doors/start are always on the
-    same calendar date for this app's use case (a single show, not an
-    overnight event) — combining them into timezone-aware datetimes would be
-    speculative complexity KISS argues against.
-
-    ``status`` reuses the shared ``PublishStatus`` enum — see
-    ``app.models.enums.PublishStatus`` docstring for why Event/Show/Theme
-    share one status model instead of three near-identical ones.
-
-    Content-type data per the brief's AI/Agent Access section ("events,
-    shows, ticket types" are agent-scoped) — routes here use
-    ``require_admin_or_agent``, not ``require_admin``.
-
-    A draft Show has no preview-token column of its own: preview access is
-    via its parent ``Event.preview_token`` (see that model's docstring for
-    the rationale) — the preview route returns every Show under the Event
-    regardless of the Show's own ``status``, so a stakeholder reviewing a
-    draft event sees every show, published or not.
+    ``date``/``doors_time``/``start_time`` are separate because doors and start
+    are always on the same day. Drafts are previewed via the parent event's
+    ``preview_token``, which shows every show regardless of its own status.
     """
 
     __tablename__ = "shows"
