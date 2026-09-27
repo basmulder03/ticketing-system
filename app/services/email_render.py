@@ -17,6 +17,7 @@ from decimal import Decimal
 from app.i18n import SUPPORTED_LOCALES, translate
 from app.i18n.formatting import format_currency, format_date, format_time
 from app.models.email_template import EmailTemplate
+from app.models.enums import EmailTemplateType
 from app.models.event import Event
 from app.models.order import Order
 from app.models.show import Show
@@ -312,7 +313,7 @@ def render_door_payment_confirmation_email(
 
     Separate from :func:`render_order_confirmation_email` on purpose: it must
     never include real scannable tickets, or a buyer could forward one without
-    paying. The template is editable via the API only (no backoffice editor yet).
+    paying.
     """
     locale = order.language if order.language in DOOR_CONFIRMATION_DEFAULT_SUBJECT else "en"
     shell = _door_confirmation_shell(locale)
@@ -393,10 +394,17 @@ _SAMPLE_SHOW_DATE = date(2026, 12, 18)
 
 
 def render_email_template_preview(
-    *, event: Event, theme: Theme | None, language: str, subject: str, body: str
+    *,
+    event: Event,
+    theme: Theme | None,
+    language: str,
+    subject: str,
+    body: str,
+    template_type: str = EmailTemplateType.ORDER_CONFIRMATION_TICKET.value,
 ) -> RenderedEmail:
     """Render draft subject/body with sample data and the event's real theme,
-    through the exact render path real sends use, so previews can't drift.
+    through the exact render path real sends use (chosen by ``template_type``),
+    so previews can't drift.
     """
     sample_order = Order(
         event_id=event.id,
@@ -421,8 +429,13 @@ def render_email_template_preview(
     sample_ticket.ticket_type = sample_ticket_type
 
     template = EmailTemplate(event_id=event.id, language=language, template_type="preview", subject=subject, body=body)
+    render = (
+        render_door_payment_confirmation_email
+        if template_type == EmailTemplateType.DOOR_PAYMENT_CONFIRMATION.value
+        else render_order_confirmation_email
+    )
 
-    return render_order_confirmation_email(
+    return render(
         template=template,
         order=sample_order,
         event=event,

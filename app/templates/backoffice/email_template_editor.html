@@ -13,15 +13,25 @@
 </nav>
 <h1>Email templates: {{ event.name }}</h1>
 <p class="bo-hint">
-  Editing the <strong>order confirmation / ticket</strong> email — sent automatically once an order is paid, and
-  resendable any time from this event's <a href="/events/{{ event.id }}/orders">Orders</a> page. Colors, logo, and
-  font in the preview below always come from this event's Theme, never from anything typed here.
+  Editing the <strong>{{ template_types|selectattr('0', 'equalto', template_type)|map(attribute=1)|first|lower }}</strong>
+  email — {{ template_type_description }}
+  {%- if template_type == 'order_confirmation_ticket' %} Resendable any time from this event's
+  <a href="/events/{{ event.id }}/orders">Orders</a> page.{% endif %}
+  Colors, logo, and font in the preview below always come from this event's Theme, never from anything typed here.
 </p>
+
+<nav class="bo-tabs" aria-label="Template">
+  {% for value, label in template_types %}
+  <a class="bo-tabs__tab {% if value == template_type %}bo-tabs__tab--active{% endif %}"
+     href="/events/{{ event.id }}/email-templates?template_type={{ value }}&amp;language={{ language }}"
+     {% if value == template_type %}aria-current="page"{% endif %}>{{ label }}</a>
+  {% endfor %}
+</nav>
 
 <nav class="bo-tabs" aria-label="Language">
   {% for code, label in languages %}
   <a class="bo-tabs__tab {% if code == language %}bo-tabs__tab--active{% endif %}"
-     href="/events/{{ event.id }}/email-templates?language={{ code }}"
+     href="/events/{{ event.id }}/email-templates?template_type={{ template_type }}&amp;language={{ code }}"
      {% if code == language %}aria-current="page"{% endif %}>{{ label }}</a>
   {% endfor %}
 </nav>
@@ -63,6 +73,7 @@
           hx-trigger="input delay:500ms, change delay:200ms"
           hx-target="#email-template-preview-pane" hx-swap="innerHTML">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="template_type" value="{{ template_type }}">
       <input type="hidden" name="language" value="{{ language }}">
 
       <section class="bo-panel">
@@ -89,6 +100,7 @@
         shown when the page first loads with none saved.</p>
       <form method="post" action="/events/{{ event.id }}/email-templates/reset" class="bo-inline-form">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="template_type" value="{{ template_type }}">
         <input type="hidden" name="language" value="{{ language }}">
         <button type="submit" class="bo-button bo-button--danger bo-button--small" {% if not template %}disabled{% endif %}>
           Reset to built-in default

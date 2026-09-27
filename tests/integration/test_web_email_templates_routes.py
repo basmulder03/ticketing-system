@@ -25,8 +25,10 @@ async def _api_login(client: AsyncClient, seeded: SeededAdmin) -> None:
     assert response.status_code == 200
 
 
-async def _get_editor_csrf_token(client: AsyncClient, event_id: str, *, language: str = "en") -> str:
-    page = await client.get(f"/events/{event_id}/email-templates?language={language}")
+async def _get_editor_csrf_token(
+    client: AsyncClient, event_id: str, *, template_type: str = "order_confirmation_ticket", language: str = "en"
+) -> str:
+    page = await client.get(f"/events/{event_id}/email-templates?template_type={template_type}&language={language}")
     assert page.status_code == 200
     token = client.cookies.get(CSRF_COOKIE_NAME)
     assert token
@@ -139,6 +141,7 @@ async def test_save_persists_and_redirects_with_success_flash(
     response = await client.post(
         f"/events/{event.id}/email-templates",
         data={
+            "template_type": "order_confirmation_ticket",
             "language": "en",
             "subject": "Saved subject {{event_name}}",
             "body": "<p>Saved body</p>",
@@ -147,7 +150,10 @@ async def test_save_persists_and_redirects_with_success_flash(
     )
 
     assert response.status_code == 303
-    assert response.headers["location"] == f"/events/{event.id}/email-templates?language=en&flash=Email%20template%20saved.&flash_kind=success"
+    assert response.headers["location"] == (
+        f"/events/{event.id}/email-templates?template_type=order_confirmation_ticket&language=en"
+        "&flash=Email%20template%20saved.&flash_kind=success"
+    )
 
     saved = await client.get(f"/api/v1/events/{event.id}/email-templates/order_confirmation_ticket/en")
     assert saved.status_code == 200
@@ -178,7 +184,13 @@ async def test_save_form_with_wrong_csrf_is_rejected_403(
 
     response = await client.post(
         f"/events/{event.id}/email-templates",
-        data={"language": "en", "subject": "x", "body": "<p>x</p>", "csrf_token": "wrong-token"},
+        data={
+            "template_type": "order_confirmation_ticket",
+            "language": "en",
+            "subject": "x",
+            "body": "<p>x</p>",
+            "csrf_token": "wrong-token",
+        },
     )
 
     assert response.status_code == 403
@@ -199,12 +211,14 @@ async def test_reset_deletes_customization_and_redirects_with_success_flash(
     token = await _get_editor_csrf_token(client, str(event.id))
 
     response = await client.post(
-        f"/events/{event.id}/email-templates/reset", data={"language": "en", "csrf_token": token}
+        f"/events/{event.id}/email-templates/reset",
+        data={"template_type": "order_confirmation_ticket", "language": "en", "csrf_token": token},
     )
 
     assert response.status_code == 303
     assert response.headers["location"] == (
-        f"/events/{event.id}/email-templates?language=en&flash=Reverted%20to%20the%20built-in%20default%20template.&flash_kind=success"
+        f"/events/{event.id}/email-templates?template_type=order_confirmation_ticket&language=en"
+        "&flash=Reverted%20to%20the%20built-in%20default%20template.&flash_kind=success"
     )
 
     saved = await client.get(f"/api/v1/events/{event.id}/email-templates/order_confirmation_ticket/en")
@@ -230,7 +244,8 @@ async def test_reset_form_with_wrong_csrf_is_rejected_403(
     await _get_editor_csrf_token(client, str(event.id))
 
     response = await client.post(
-        f"/events/{event.id}/email-templates/reset", data={"language": "en", "csrf_token": "wrong-token"}
+        f"/events/{event.id}/email-templates/reset",
+        data={"template_type": "order_confirmation_ticket", "language": "en", "csrf_token": "wrong-token"},
     )
 
     assert response.status_code == 403
@@ -253,6 +268,7 @@ async def test_preview_fragment_renders_using_the_events_real_theme_colors(
     response = await client.post(
         f"/events/{event.id}/email-templates/preview-fragment",
         data={
+            "template_type": "order_confirmation_ticket",
             "language": "en",
             "subject": "Preview subject",
             "body": "<p>Preview body</p>",
@@ -295,7 +311,13 @@ async def test_preview_fragment_wrong_csrf_is_rejected_403(
 
     response = await client.post(
         f"/events/{event.id}/email-templates/preview-fragment",
-        data={"language": "en", "subject": "x", "body": "<p>x</p>", "csrf_token": "wrong-token"},
+        data={
+            "template_type": "order_confirmation_ticket",
+            "language": "en",
+            "subject": "x",
+            "body": "<p>x</p>",
+            "csrf_token": "wrong-token",
+        },
     )
 
     assert response.status_code == 403
@@ -329,6 +351,7 @@ async def test_save_with_unknown_language_falls_back_to_en_and_saves_under_en(
     response = await client.post(
         f"/events/{event.id}/email-templates",
         data={
+            "template_type": "order_confirmation_ticket",
             "language": "fr",
             "subject": "Saved via fallback",
             "body": "<p>x</p>",
@@ -337,8 +360,85 @@ async def test_save_with_unknown_language_falls_back_to_en_and_saves_under_en(
     )
 
     assert response.status_code == 303
-    assert response.headers["location"].startswith(f"/events/{event.id}/email-templates?language=en&flash=")
+    assert response.headers["location"].startswith(
+        f"/events/{event.id}/email-templates?template_type=order_confirmation_ticket&language=en&flash="
+    )
 
     saved_en = await client.get(f"/api/v1/events/{event.id}/email-templates/order_confirmation_ticket/en")
     assert saved_en.status_code == 200
     assert saved_en.json()["subject"] == "Saved via fallback"
+
+
+# --- The door-payment-confirmation template also has an editor -------------
+
+
+async def test_get_door_payment_confirmation_shows_its_own_built_in_default(
+    client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]], make_event: Callable[..., Awaitable[Event]]
+) -> None:
+    await _api_login(client, await make_admin_user())
+    event = await make_event(name="Door Template Event")
+
+    response = await client.get(f"/events/{event.id}/email-templates?template_type=door_payment_confirmation&language=en")
+
+    assert response.status_code == 200
+    assert "door payment confirmation" in response.text.lower()
+    assert 'value="Your order for {{event_name}} — pay at the door"' in response.text
+    # Never claims resendability from the Orders page -- that's only true of
+    # the order-confirmation email (see app/web/routes/email_templates.py's
+    # _DESCRIPTION_BY_TEMPLATE_TYPE).
+    assert "Resendable any time" not in response.text
+
+
+async def test_save_for_door_payment_confirmation_does_not_touch_order_confirmation(
+    client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]], make_event: Callable[..., Awaitable[Event]]
+) -> None:
+    await _api_login(client, await make_admin_user())
+    event = await make_event(name="Door Save Event")
+    token = await _get_editor_csrf_token(client, str(event.id), template_type="door_payment_confirmation")
+
+    response = await client.post(
+        f"/events/{event.id}/email-templates",
+        data={
+            "template_type": "door_payment_confirmation",
+            "language": "en",
+            "subject": "Door subject",
+            "body": "<p>Door body</p>",
+            "csrf_token": token,
+        },
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == (
+        f"/events/{event.id}/email-templates?template_type=door_payment_confirmation&language=en"
+        "&flash=Email%20template%20saved.&flash_kind=success"
+    )
+
+    door_saved = await client.get(f"/api/v1/events/{event.id}/email-templates/door_payment_confirmation/en")
+    assert door_saved.status_code == 200
+    assert door_saved.json()["subject"] == "Door subject"
+
+    order_saved = await client.get(f"/api/v1/events/{event.id}/email-templates/order_confirmation_ticket/en")
+    assert order_saved.status_code == 404
+
+
+async def test_preview_fragment_for_door_payment_confirmation_never_includes_a_qr_code(
+    client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]], make_event: Callable[..., Awaitable[Event]]
+) -> None:
+    await _api_login(client, await make_admin_user())
+    event = await make_event(name="Door Preview Event")
+    token = await _get_editor_csrf_token(client, str(event.id), template_type="door_payment_confirmation")
+
+    response = await client.post(
+        f"/events/{event.id}/email-templates/preview-fragment",
+        data={
+            "template_type": "door_payment_confirmation",
+            "language": "en",
+            "subject": "Preview subject",
+            "body": "<p>Preview body</p>",
+            "csrf_token": token,
+        },
+    )
+
+    assert response.status_code == 200
+    assert "Preview subject" in response.text
+    assert "<img" not in response.text

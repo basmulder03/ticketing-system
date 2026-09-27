@@ -265,6 +265,31 @@ async def test_preview_renders_sample_data_and_does_not_persist(
     assert list_response.json() == []
 
 
+async def test_preview_of_door_payment_confirmation_uses_its_own_render_path(
+    client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]], make_event: Callable[..., Awaitable[Event]]
+) -> None:
+    """``template_type`` must actually select the door-reservation render path
+    (an order-summary-plus-total email, no QR codes), not silently reuse the
+    order-confirmation-with-tickets one.
+    """
+    await _admin_client(client, make_admin_user)
+    event = await make_event()
+
+    response = await client.post(
+        f"/api/v1/events/{event.id}/email-templates/preview",
+        json={
+            "template_type": EmailTemplateType.DOOR_PAYMENT_CONFIRMATION.value,
+            "language": "en",
+            "subject": "Preview for {{event_name}}",
+            "body": "<p>Hi {{buyer_name}}</p>",
+        },
+    )
+    assert response.status_code == 200
+    html_body = response.json()["html_body"]
+    assert "Jamie Sample" in html_body
+    assert "<img" not in html_body, "the door-reservation email must never include a scannable QR code"
+
+
 async def test_preview_rejects_an_unsupported_language(
     client: AsyncClient, make_admin_user: Callable[..., Awaitable[SeededAdmin]], make_event: Callable[..., Awaitable[Event]]
 ) -> None:
