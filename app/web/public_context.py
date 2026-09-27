@@ -1,11 +1,5 @@
-"""Pure helper functions building the render context for public-site pages
-(``app.web.routes.public_site``): locale resolution, per-Theme CSS,
-``schema.org/Event`` JSON-LD, and social share URLs.
-
-Kept separate from the route module so the route functions stay thin
-(fetch data, call these builders, render a template) and so these pieces
-can be reasoned about (and eventually unit-tested by `test-writer`) without
-any FastAPI request/response machinery involved.
+"""Pure builders for public-page context: locale, theme CSS, JSON-LD and share
+links. Kept out of the routes so they're easy to test.
 """
 
 import json
@@ -24,15 +18,7 @@ LOCALE_COOKIE_NAME = "beacon_locale"
 
 
 def resolve_locale(request: Request) -> str:
-    """Resolve the buyer's display locale, per PROJECT_BRIEF.md's
-    Internationalization section: "Buyer selects language on the public
-    site or it's inferred from browser locale with a visible override".
-
-    Precedence: an explicit ``?lang=`` query param (the visible override,
-    e.g. a language-switcher link) > a previously-set locale cookie (so the
-    override persists across navigation) > the browser's ``Accept-Language``
-    header > :data:`app.i18n.DEFAULT_LOCALE`.
-    """
+    """``?lang=`` > locale cookie > ``Accept-Language`` > default."""
     query_lang = request.query_params.get("lang")
     if query_lang in SUPPORTED_LOCALES:
         return query_lang
@@ -51,32 +37,13 @@ def resolve_locale(request: Request) -> str:
 
 
 def build_public_theme_css(theme: dict[str, Any] | None) -> str:
-    """Build the ``<style>`` body for one Event's public pages: CSS custom
-    properties + font-family for the Theme's fixed fields (mirrors
-    ``app.services.theme_preview.build_theme_preview``'s base-CSS shape, so
-    the backoffice live-preview pane and the real public page render the
-    fixed fields identically), a hero background-image rule if set, and the
-    Theme's already-sanitized ``custom_css`` appended verbatim.
+    """The ``<style>`` body for an event's public pages: custom properties for the
+    fixed colors and font (same as the backoffice preview), the hero image,
+    a computed dark-mode palette, then the sanitized custom CSS last (so it
+    can override everything).
 
-    Never invents a default palette of its own if ``theme`` is ``None`` —
-    per PROJECT_BRIEF.md's Event & Theming section, every themeable surface
-    must pull its colors from the active Event's Theme, never a hardcoded
-    default that can't be overridden; an Event with no Theme row yet simply
-    renders with no theme CSS at all (plain, unstyled content), not a
-    silently-baked-in poster palette.
-
-    Also emits a ``@media (prefers-color-scheme: dark)`` block, scoped to
-    ``.event-content``, that redefines the three ``--beacon-color-*``
-    custom properties to a dark-mode variant computed by
-    ``app.services.color.derive_dark_palette`` — since every rule below
-    already reads color from those custom properties rather than hardcoded
-    hex values, redefining just the three variables is enough to flip the
-    whole themed surface to dark mode with no separate dark-mode copy of
-    each rule. Computed at render time from the Theme's current colors, not
-    stored — there is no separate "dark mode colors" field for an admin to
-    keep in sync. The site-wide chrome (header/footer/nav/notices/buttons)
-    has its own, completely separate hand-picked dark palette in
-    app/static/public.css, since the chrome must stay theme-agnostic.
+    Without a theme there's no theme CSS at all — never a baked-in default
+    palette. Site chrome has its own separate dark palette in ``public.css``.
     """
     if theme is None:
         return ""
@@ -91,14 +58,8 @@ def build_public_theme_css(theme: dict[str, Any] | None) -> str:
         f"  color: var(--beacon-color-primary);\n"
         f"  background-color: var(--beacon-color-secondary);\n"
         f"}}\n"
-        # Scoped to --primary only (the actual call-to-action, e.g. the
-        # checkout submit button) -- NOT plain .pub-button, which would also
-        # catch .pub-button--ghost/--small utility buttons (the share-link
-        # and copy-ticket-link buttons) and force them solid-accent-filled
-        # too, fighting their own "look like a plain link/outline, not a
-        # CTA" styling in app/static/public.css at equal specificity. Found
-        # visually while redesigning the public landing page: a ghost
-        # button rendered as an unwanted solid red block.
+        # Only the primary button, not every .pub-button: ghost/small buttons
+        # (share, copy link) must keep their outline look.
         f".{EVENT_CONTENT_CLASS} .pub-button--primary {{\n"
         f"  background: var(--beacon-color-accent);\n"
         f"  color: var(--beacon-color-secondary);\n"
@@ -106,12 +67,8 @@ def build_public_theme_css(theme: dict[str, Any] | None) -> str:
         f"}}\n"
     )
     if theme.get("background_image_url"):
-        # A dark scrim under the uploaded image, not the raw image alone,
-        # so arbitrary buyer-uploaded photography doesn't wash out the
-        # hero text on top of it — mitigates but can't guarantee AA
-        # contrast for an arbitrary image (flagged for accessibility-
-        # auditor as a manual-check item; automated contrast checking only
-        # covers the fixed color fields, see app.services.contrast).
+        # A dark scrim keeps hero text legible over arbitrary photos (it can't
+        # guarantee AA; automated checks only cover the fixed colors).
         base_css += (
             f".{EVENT_CONTENT_CLASS} .pub-hero {{\n"
             f"  background-image: linear-gradient(rgba(0,0,0,.45), rgba(0,0,0,.45)),"
@@ -138,48 +95,17 @@ def build_public_theme_css(theme: dict[str, Any] | None) -> str:
     )
 
     custom_css = theme.get("custom_css") or ""
-    # custom_css already went through app.core.css_sanitizer.sanitize_custom_css
-    # at save time (see app.schemas.public.PublicThemeOut docstring) and is
-    # guaranteed scoped to EVENT_CONTENT_CLASS and safe for <style> embedding
-    # (angle brackets pre-escaped) — never re-sanitized or re-escaped here.
-    # Appended after the dark-mode block so an admin's custom CSS can still
-    # override the computed dark palette too, if they wrote a dark-mode
-    # rule of their own — same "custom CSS wins" precedence as the fixed
-    # fields already have via source order.
+    # Already sanitized on save; appended last so it can override the dark
+    # palette too.
     return base_css if not custom_css else f"{base_css}\n{custom_css}\n"
 
 
 def build_beamer_theme_css(theme: dict[str, Any] | None) -> str:
-    """Build the ``<style>`` body for the large-display "beamer" view
-    (``app/templates/beamer/show.html``): the Theme's font-family plus its
-    ``accent_color`` exposed as a CSS custom property, nothing else.
+    """Minimal theme CSS for the beamer/TV view: font and accent only.
 
-    Deliberately narrower than :func:`build_public_theme_css`: it never
-    sets ``color``/``background-color`` from the Theme's
-    ``primary_color``/``secondary_color``, and never touches
-    ``custom_css`` at all (this view is themed-but-security-sensitive the
-    same way ticket/invoice PDFs are — see ``app/static/beamer.css``'s
-    module comment and PROJECT_BRIEF.md's Event & Theming section: custom
-    CSS overrides apply ONLY to the public landing page).
-
-    Tradeoff, made deliberately per this milestone's brief ("keep the
-    emphasis on legibility/contrast over strict theme fidelity if the two
-    ever conflict"): a beamer screen is read from across a room,
-    unattended, with no way for a viewer to intervene if an organizer's
-    chosen primary/secondary pairing happens to be low-contrast against
-    each other (Theme colors are only contrast-checked against each other
-    for the public site's own body-text usage — see
-    ``app.services.contrast`` — not against the specific near-black
-    background this view hardcodes). So ``beamer.css`` hardcodes its own
-    guaranteed-high-contrast background/text colors, and only surfaces
-    ``accent_color`` as `--beacon-color-accent` for a purely decorative
-    element (a thin bar under the event name) that carries no legibility
-    requirement of its own — never as a text or background color on a
-    legibility-critical element. Flagged for `accessibility-auditor` to
-    confirm this reasoning holds rather than self-certified here.
-
-    Never invents a default of its own when ``theme`` is ``None``, same
-    rationale as :func:`build_public_theme_css`.
+    The screen is read from across a room with nobody to intervene, so
+    ``beamer.css`` uses its own high-contrast text and background, and the
+    accent is used only for a decorative bar. Custom CSS is never applied here.
     """
     if theme is None:
         return ""
@@ -194,32 +120,15 @@ def build_beamer_theme_css(theme: dict[str, Any] | None) -> str:
 
 
 def _escape_for_script_embedding(json_text: str) -> str:
-    """Prevent a value inside the JSON payload (e.g. an event/venue name)
-    from prematurely closing the ``<script>`` tag it's embedded in.
-    ``json.dumps`` does not escape ``<`` by default; a literal ``</script``
-    substring in any string value would otherwise end the script block
-    early and let the remainder run as page HTML — same reasoning as
-    ``app.core.css_sanitizer``'s angle-bracket escaping for ``<style>``
-    embedding."""
+    """Escape ``<`` so a value containing ``</script`` can't end the JSON-LD
+    ``<script>`` block early.
+    """
     return json_text.replace("<", "\\u003c")
 
 
 def build_event_json_ld(event: dict[str, Any], page_url: str) -> str:
-    """Build one ``schema.org/Event`` JSON-LD object per Show under
-    ``event`` (each performance date is its own bookable Event instance),
-    serialized as a JSON array ready to embed in a single
-    ``<script type="application/ld+json">`` block.
-
-    Per PROJECT_BRIEF.md's SEO & Discoverability section: name, startDate,
-    location, offers/pricing, and availability (derived from each
-    TicketType's live ``remaining``) — the same fields also serve as the
-    "machine-readable content for LLM-based search" the brief calls for,
-    since it's the same structured-data discipline, not a separate format.
-
-    Currency is hardcoded to EUR: no currency field exists anywhere in the
-    data model yet (flagged in this milestone's handoff — every Event this
-    platform currently supports is single-currency/EUR-only by omission,
-    not by an explicit stated requirement).
+    """``schema.org/Event`` JSON-LD, one object per show, with availability from
+    live stock. Currency is EUR (there's no currency field yet).
     """
     entries = []
     for show in event["shows"]:
@@ -257,12 +166,8 @@ def build_event_json_ld(event: dict[str, Any], page_url: str) -> str:
 
 
 def build_share_urls(*, page_url: str, share_text: str) -> dict[str, str]:
-    """Build WhatsApp/Facebook/email share links for the public share
-    buttons (per PROJECT_BRIEF.md's Sharing section: "Social share buttons
-    ... WhatsApp/Facebook/email at minimum"). ``share_text`` (already
-    translated/composed by the caller) is included in the WhatsApp/email
-    share content; Facebook's sharer ignores any text param and only reads
-    Open Graph tags from ``page_url`` itself, which the page already sets.
+    """WhatsApp/Facebook/email share links. Facebook ignores text and reads the
+    page's Open Graph tags instead.
     """
     return {
         "whatsapp": f"https://wa.me/?text={quote(f'{share_text} {page_url}')}",

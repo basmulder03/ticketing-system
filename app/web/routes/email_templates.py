@@ -1,21 +1,8 @@
-"""Backoffice EmailTemplate editor: subject/body per language for the
-``order_confirmation_ticket`` type, an "available placeholders" reference
-list, and a debounced HTMX live preview rendered against sample data and
-the event's REAL theme (mirrors ``app.web.routes.themes``'s live-preview
-pattern) before saving — PROJECT_BRIEF.md's Ticket Generation & Delivery
-section: "a preview using real theme colors/logo before saving".
+"""Backoffice email-template editor: subject/body per language, a placeholder
+reference, and a debounced HTMX live preview using the event's real theme.
 
-Only ``order_confirmation_ticket`` gets an editor: it is the only
-``EmailTemplateType`` wired to an actual send path in Milestone 4 (see
-``app.services.ticket_delivery``) — other types the enum could one day grow
-(invoice, door-payment reminder) are deliberately not exposed here, per
-KISS ("don't build UI for types nothing sends yet").
-
-Every mutation is a thin proxy to the existing JSON API under
-``app.api.routes.email_templates`` via ``app.web.api_client`` — placeholder
-substitution, HTML sanitization/escaping, and audit logging all continue to
-live exactly once in that module and the services it calls. This file only
-translates between HTML forms and that JSON API, and renders templates.
+Only the order-confirmation template has an editor. The door-reservation
+email is sent too, but its template is currently editable only via the API.
 """
 
 from typing import Any
@@ -34,29 +21,15 @@ from app.web.flash import redirect_with_flash
 
 router = APIRouter(tags=["backoffice-email-templates"])
 
-# Mirrors app.models.enums.EmailTemplateType.ORDER_CONFIRMATION_TICKET.value
-# — the only type with a real send path today, see this module's docstring.
+# The only type with an editor (see the module docstring).
 _TEMPLATE_TYPE = "order_confirmation_ticket"
 
-# Mirrors app.i18n.SUPPORTED_LOCALES — kept here only as (value, label)
-# pairs for the language-switcher tabs; the JSON API remains the single
-# source of truth for which language codes are actually valid.
+# Language tabs; the API validates the codes.
 _LANGUAGES = [("en", "English"), ("nl", "Nederlands")]
 _LANGUAGE_CODES = {code for code, _ in _LANGUAGES}
 
-# Pre-fill values for a language/event combination that has no saved
-# customization yet, so the editor and its initial preview never start on
-# an empty/invalid template. Resolved through the same app.i18n.translate()
-# lookup app.services.email_render.DEFAULT_SUBJECT/DEFAULT_BODY use (both
-# read the same app/i18n/{locale}.json ``email.order_confirmation.*`` keys)
-# — a direct import of translate() here, NOT a second literal copy of the
-# copy itself, since app.i18n is a shared content-lookup module already
-# imported directly by both the web and API layers elsewhere (e.g.
-# app.web.routes.public_site), unlike app.services/app.models which this
-# file deliberately never imports (see this module's docstring: everything
-# else stays a thin proxy to the JSON API). This was previously a literal
-# copy that could silently drift from the real default; content-i18n's
-# Milestone 4 review folded both call sites onto one source.
+# Pre-fill for uncustomized languages, from the same i18n keys the sender
+# uses as its default (one source, so they can't drift).
 def _default_subject(language: str) -> str:
     return translate("email.order_confirmation.subject", language)
 
@@ -65,10 +38,7 @@ def _default_body(language: str) -> str:
     return translate("email.order_confirmation.body", language)
 
 
-# The real, fixed set of placeholder keys the send-time renderer actually
-# substitutes — copied from app.services.email_render.build_placeholder_values
-# (not guessed), shown to the admin/agent so they know exactly what's
-# available. Keep this list in sync if that function's keys ever change.
+# Must match app.services.email_render.build_placeholder_values' keys.
 PLACEHOLDERS: list[tuple[str, str]] = [
     ("buyer_name", "The buyer's full name, e.g. \"Jamie Smith\"."),
     ("event_name", "The event's name, e.g. \"Christmas Passion\"."),
@@ -102,10 +72,7 @@ def _normalize_language(language: str | None) -> str:
 
 
 async def _fetch_editor_context(request: Request, event_id: str, language: str) -> dict[str, Any]:
-    """Gather everything the editor page needs in one place: the event,
-    its saved template for this type/language (if any), and an initial
-    live-preview render using the saved (or built-in default) subject/body
-    against the event's real theme."""
+    """The event, its saved template (if any), and an initial preview."""
     async with internal_api_client(request) as client:
         event_response = await client.get(f"/api/v1/events/{event_id}")
         if event_response.status_code == 404:
@@ -192,9 +159,7 @@ async def email_template_preview_fragment(
     body: str = Form(""),
     csrf_token: str = Form(...),
 ) -> Response:
-    """HTMX target: re-renders the live-preview pane from the current
-    (unsaved) subject/body values against sample data and the event's real
-    theme — called on every debounced field change, never on full submit."""
+    """HTMX: re-render the preview from unsaved values on each debounced change."""
     verify_csrf(request, csrf_token)
     language = _normalize_language(language)
 
@@ -261,8 +226,7 @@ async def reset_email_template(
     language: str = Form(...),
     csrf_token: str = Form(...),
 ) -> RedirectResponse:
-    """Delete this event's customization for the language, reverting future
-    sends (and this editor's own pre-fill) back to the built-in default."""
+    """Delete the customization so sends (and this editor) revert to the default."""
     verify_csrf(request, csrf_token)
     language = _normalize_language(language)
     async with internal_api_client(request) as client:

@@ -1,23 +1,9 @@
-"""Public-site HTML pages (Milestone 2): the themed event landing page
-(published-slug and unguessable-preview-token variants), the checkout form
-submission, and the order confirmation page. Milestone 3 adds: redirecting
-the buyer to Mollie's hosted checkout when the JSON checkout API just
-created a real Mollie payment for their order (see
-``_handle_checkout_submission`` below). Milestone 9 adds: the large-display
-"beamer/TV" countdown view (``public_beamer_page``/``preview_beamer_page``),
-a dedicated chrome-free page for one Show, reusing the same slug/token
-resolution as the landing page.
+"""Public HTML pages: event landing page (published and preview), checkout,
+order confirmation, privacy policy, and the beamer countdown view.
 
-Every route here proxies in-process to the existing public JSON API
-(``app.api.routes.public``) via ``app.web.public_api_client`` — no
-business logic (draft/publish gating, stock checks, sales-timing rules)
-is duplicated here; this module only translates between HTML
-forms/templates and that JSON API. Deliberately unauthenticated
-throughout (this is the public buyer-facing site) and deliberately
-CSRF-free on the checkout form: there is no session cookie here for a
-cross-site request to ride on (see ``app.web.csrf`` for the backoffice's
-double-submit-cookie pattern, which exists specifically because *that*
-surface has an authenticated session to protect).
+Everything is proxied to the public JSON API; no business rules here. No
+CSRF on checkout: there's no session cookie on the public site for a
+cross-site request to ride on.
 """
 
 from datetime import UTC, datetime
@@ -58,9 +44,7 @@ def _set_locale_cookie(response: Response, locale: str) -> None:
 
 
 async def _fetch_event(request: Request, *, slug: str | None, token: str | None) -> tuple[dict[str, Any] | None, int]:
-    """Fetch an Event via the published-slug or preview-token public API
-    route (exactly one of ``slug``/``token`` should be given). Returns
-    ``(event_or_none, http_status)``."""
+    """The event by slug or preview token (exactly one), with the HTTP status."""
     path = f"/api/v1/public/events/{slug}" if slug is not None else f"/api/v1/public/preview/{token}"
     async with public_api_client(request) as client:
         response = await client.get(path)
@@ -83,11 +67,9 @@ def _find_show(event: dict[str, Any], show_id: str | None) -> dict[str, Any] | N
 
 
 def _default_selected_show_id(request: Request, event: dict[str, Any]) -> str | None:
-    """Which Show's ticket-type panel should be open by default: an
-    explicit ``?show=`` query param, else the Show containing a deep-linked
-    ``?ticket_type=`` (per PROJECT_BRIEF.md's Sharing section: "a specific
-    ticket type (deep link that pre-selects it in the picker)"), else the
-    first upcoming Show, else nothing (no shows at all)."""
+    """Which show's panel opens first: ``?show=``, else the show of a deep-linked
+    ``?ticket_type=``, else the first upcoming show.
+    """
     requested_show = request.query_params.get("show")
     if requested_show and _find_show(event, requested_show):
         return requested_show
@@ -102,30 +84,12 @@ def _default_selected_show_id(request: Request, event: dict[str, Any]) -> str | 
 
 
 def _default_beamer_show_id(event: dict[str, Any]) -> str | None:
-    """Which Show the large-display "beamer" view (``_render_beamer``)
-    defaults to when its caller gives no explicit ``?show=`` query param:
-    the soonest Show whose doors time hasn't passed yet, or — once every
-    Show under this Event has already opened its doors — the most
-    recently-started one, so an unattended screen still has something
-    sensible to display instead of the page erroring out the moment the
-    last performance's doors open. Returns ``None`` only when the Event
-    has no Shows at all.
+    """Which show the beamer counts down to without ``?show=``: the soonest whose
+    doors haven't opened, else the most recent one, so an unattended screen
+    always shows something. ``None`` only if there are no shows.
 
-    Deliberately time-based ("next upcoming"), unlike
-    ``_default_selected_show_id``'s "first Show in the list" fallback for
-    the landing page's ticket picker — the landing page always shows every
-    Show as an explicit choice for the buyer to pick from, so its default
-    only decides which panel opens first; the beamer view shows exactly
-    one Show with no picker at all, so its default has to pick the Show a
-    lobby screen would actually want counting down to *right now*.
-
-    Compares against naive local time to match ``Show.date``/
-    ``doors_time``'s own naive-local-time storage (see
-    ``app.models.show.Show``'s docstring: this app assumes every venue is
-    in the same timezone, so there is no tz-aware datetime to compare
-    against here) — the same assumption every other reader of these two
-    fields already makes, e.g. ``app/templates/public/landing.html``'s
-    ``format_time``/``format_date`` filters.
+    Uses naive local time, like ``Show.date``/``doors_time`` (the app assumes
+    venue and server share a timezone).
     """
     if not event["shows"]:
         return None
@@ -133,10 +97,7 @@ def _default_beamer_show_id(event: dict[str, Any]) -> str | None:
     def doors_at(show: dict[str, Any]) -> datetime:
         return datetime.fromisoformat(f"{show['date']}T{show['doors_time']}")
 
-    # Deliberately naive/local (see docstring above) -- Show.date/doors_time
-    # have no tz of their own to compare against, unlike every other
-    # datetime in this codebase (which is why this needs a noqa here and
-    # nowhere else).
+    # Naive local time: show dates/times carry no timezone.
     now = datetime.now()  # noqa: DTZ005
     upcoming = sorted((s for s in event["shows"] if doors_at(s) >= now), key=doors_at)
     if upcoming:
@@ -145,17 +106,10 @@ def _default_beamer_show_id(event: dict[str, Any]) -> str | None:
 
 
 def _sellable_shows(event: dict[str, Any]) -> list[dict[str, Any]]:
-    """Shows a buyer could actually select on the landing page's ticket
-    picker -- a Show with zero TicketType rows has nothing to sell yet, so
-    listing it as a choosable date leads to a dead end (its panel would
-    just be an empty ticket-type table with no way to buy anything; found
-    via the user's own manual testing).
-
-    Deliberately a presentation-layer filter here, not something
-    ``app.api.routes.public``'s shared nested-event response does itself —
-    that same response also backs the beamer/TV countdown view, which has
-    no ticket picker and is a completely valid thing to point at a Show
-    still awaiting its ticket types (see that module's own docstring)."""
+    """Shows with at least one ticket type — the rest would be a dead end in the
+    picker. Filtered here, not in the API, because the beamer view still wants
+    them.
+    """
     return [show for show in event["shows"] if show["ticket_types"]]
 
 
@@ -170,13 +124,8 @@ def _render_landing(
     checkout_error: str | None = None,
     status_code: int = 200,
 ) -> Response:
-    # The real, buyer-facing landing page only ever offers a sellable Show
-    # as a choice; preview mode deliberately keeps every Show (including
-    # one still missing its ticket types) so an organizer reviewing a
-    # draft sees that gap instead of it silently vanishing from what
-    # they're checking. Every use of `event["shows"]` below (the picker,
-    # the default-show-selection helpers, JSON-LD) sees this same filtered
-    # list once it's swapped in here.
+    # The public page offers only sellable shows; preview keeps them all so the
+    # organizer sees shows still missing ticket types.
     if not is_preview:
         event = {**event, "shows": _sellable_shows(event)}
 
@@ -241,9 +190,7 @@ def _render_landing(
 
 @router.get("/e/{slug}", response_model=None)
 async def public_landing_page(request: Request, slug: str) -> Response:
-    """The published Event landing page — 404s (with the same response
-    shape the underlying API gives) for a draft Event or a slug that
-    doesn't exist, so a URL guess can't distinguish the two."""
+    """A published event's page; drafts and unknown slugs 404 identically."""
     locale = resolve_locale(request)
     event, _fetch_status = await _fetch_event(request, slug=slug, token=None)
     response = _not_found_response(request, locale) if event is None else _render_landing(
@@ -255,11 +202,7 @@ async def public_landing_page(request: Request, slug: str) -> Response:
 
 @router.get("/preview/{token}", response_model=None)
 async def preview_landing_page(request: Request, token: str) -> Response:
-    """The unguessable-preview-token landing page for a draft (or already-
-    published) Event — identical rendering to the real page (per
-    PROJECT_BRIEF.md's Draft & Preview section: "should look identical to
-    the real page otherwise"), plus a noindex meta tag (see
-    ``app/templates/public/base.html``)."""
+    """The preview-token version: identical, plus ``noindex``."""
     locale = resolve_locale(request)
     event, _fetch_status = await _fetch_event(request, slug=None, token=token)
     response = _not_found_response(request, locale) if event is None else _render_landing(
@@ -270,21 +213,8 @@ async def preview_landing_page(request: Request, token: str) -> Response:
 
 
 def _render_beamer(request: Request, event: dict[str, Any], show: dict[str, Any], *, locale: str) -> Response:
-    """Render the large-display "beamer" view (Milestone 9 — see
-    PROJECT_BRIEF.md's Responsive & Multi-Device section) for one
-    already-resolved ``show`` under ``event``.
-
-    Deliberately minimal compared to ``_render_landing``: this page has no
-    checkout/share/SEO/JSON-LD context at all, so only the handful of
-    values ``app/templates/beamer/show.html`` actually renders are built
-    here — the Event's name, this Show's venue name, an ISO
-    ``date``+``doors_time`` string for the client-side countdown script to
-    parse, whether that deadline has already passed (so the initial
-    server-rendered state is correct even with JS disabled, same
-    progressive-enhancement principle as ``_render_landing``'s
-    ``sales_live_now``), and the Theme's beamer-safe CSS (see
-    ``build_beamer_theme_css`` for why this is NOT the same ``theme_css``
-    ``_render_landing`` builds).
+    """Render the beamer view for one show: name, venue, doors time for the
+    countdown (and whether it's passed, for no-JS), and beamer-safe theme CSS.
     """
     theme = event.get("theme")
     doors_at_raw = f"{show['date']}T{show['doors_time']}"
@@ -305,15 +235,8 @@ def _render_beamer(request: Request, event: dict[str, Any], show: dict[str, Any]
 
 
 async def _handle_beamer_page(request: Request, *, slug: str | None, token: str | None) -> Response:
-    """Shared implementation behind ``public_beamer_page``/
-    ``preview_beamer_page`` (exactly one of ``slug``/``token`` is given) —
-    mirrors ``_handle_checkout_submission``'s same slug-vs-token sharing
-    pattern in this module. Resolves the Event, then the Show to display
-    (an explicit ``?show=`` query param if it names a real Show under this
-    Event, else ``_default_beamer_show_id``'s "next upcoming" choice), and
-    404s (same shape/response as the landing page's own 404) if either
-    lookup comes up empty — including an Event with zero Shows at all,
-    since there is nothing for this view to count down to.
+    """Shared beamer handler (slug or token): resolve the event and show
+    (``?show=`` or the default), 404 if either is missing.
     """
     locale = resolve_locale(request)
     event, _fetch_status = await _fetch_event(request, slug=slug, token=token)
@@ -335,56 +258,26 @@ async def _handle_beamer_page(request: Request, *, slug: str | None, token: str 
 
 @router.get("/e/{slug}/beamer", response_model=None)
 async def public_beamer_page(request: Request, slug: str) -> Response:
-    """The large-display ("beamer/TV") countdown view for a published
-    Event — a dedicated, chrome-free, full-screen page meant to be
-    projected in a venue lobby (or left open unattended on a TV), showing
-    a live countdown to one Show's doors time, the Event name, and that
-    Show's venue name (see ``app/templates/beamer/show.html``). Per
-    PROJECT_BRIEF.md's Responsive & Multi-Device section: "reachable via
-    its own URL so it can be left open on a screen unattended".
+    """Full-screen countdown to one show's doors time, for a lobby screen or TV.
 
-    Which Show it counts down to: an explicit ``?show=<id>`` query param
-    naming a Show under this Event, else the soonest upcoming Show (see
-    ``_default_beamer_show_id``). There is deliberately no separate
-    show-picker page for this view (unlike ``/scan/pick`` in
-    ``app.web.routes.scan``): the intended usage is one screen, left open,
-    pointed at one specific performance — an operator wanting a different
-    Show for the same Event just appends ``?show=`` to this same URL.
-
-    404s (same response shape as ``public_landing_page``) for a draft
-    Event, an unknown slug, an Event with no Shows, or a ``?show=`` id
-    that isn't a (published) Show under this Event — so a URL/query guess
-    can't distinguish those reasons, same rationale as the landing page.
+    Pick a show with ``?show=<id>``; otherwise the soonest upcoming one. 404s
+    (like the landing page) for drafts, unknown slugs, no shows, or an unknown
+    show id.
     """
     return await _handle_beamer_page(request, slug=slug, token=None)
 
 
 @router.get("/preview/{token}/beamer", response_model=None)
 async def preview_beamer_page(request: Request, token: str) -> Response:
-    """The unguessable-preview-token variant of ``public_beamer_page`` —
-    reachable via an Event's ``preview_token`` (see
-    ``app.models.event.Event.preview_token``) the same way
-    ``preview_landing_page`` is, so a stakeholder testing a draft (or
-    already-published) Event before launch can also test-drive its beamer
-    view ahead of time. Every Show under the Event is eligible here
-    (draft or published — matching ``preview_landing_page``'s own
-    ``published_only=False`` behavior), not just published ones.
-    """
+    """Preview-token beamer view; draft shows are eligible too."""
     return await _handle_beamer_page(request, slug=None, token=token)
 
 
 def _translate_checkout_error(status_code: int, detail: str, locale: str) -> str:
-    """Map a ``CheckoutError`` HTTP response to a specific, translated
-    buyer-facing message — per this milestone's brief: "sold out vs. sales
-    paused vs. sales not live yet are different situations, don't collapse
-    them into one generic error". The JSON API (``app.services.checkout``)
-    doesn't expose a stable machine-readable error code today, only an
-    HTTP status plus a fixed English ``detail`` string, so this matches on
-    that status/text combination rather than duplicating the check's logic
-    — flagged for `backend-builder` in this handoff as a good candidate for
-    a proper ``error_code`` field in a later milestone, since text-matching
-    a message that was never contracted to stay stable is inherently
-    brittle.
+    """Turn a checkout error into a specific translated message (sold out, paused
+    and not-yet-live must stay distinct). Matches on status and English
+    ``detail`` text because the API has no error codes — brittle; an
+    ``error_code`` field would be better.
     """
     if status_code == 404:
         return translate("public.checkout.error_unavailable", locale)
@@ -402,12 +295,9 @@ def _translate_checkout_error(status_code: int, detail: str, locale: str) -> str
 def _parse_checkout_items(
     event: dict[str, Any], form: dict[str, str], selected_show_id: str | None
 ) -> list[dict[str, Any]]:
-    """Read ``qty_<ticket_type_id>`` fields for the Show the buyer selected
-    only — any quantities submitted for a Show the buyer did NOT select are
-    ignored (see ``app/templates/public/landing.html``'s per-show panel
-    markup: only one panel is meant to be active at a time, but a
-    JS-disabled browser would still submit every panel's fields, so this is
-    enforced here rather than trusted from the client)."""
+    """Quantities for the selected show only. Without JS every panel's fields are
+    submitted, so others are ignored here.
+    """
     show = _find_show(event, selected_show_id)
     if show is None:
         return []
@@ -468,15 +358,8 @@ async def _handle_checkout_submission(
             raw_detail = checkout_response.json().get("detail", "")
         except ValueError:
             raw_detail = ""
-        # A CheckoutError's detail is always a string, but a 422 from
-        # Pydantic's OWN request-body validation (e.g. a required field
-        # missing entirely — reachable by a JS-disabled/non-browser client
-        # bypassing HTML5 `required`, not just a CheckoutError) instead
-        # returns a list of error-object dicts. _translate_checkout_error
-        # assumes a string (it calls .lower() on it), so without this
-        # normalization that shape crashes the request with a 500 instead
-        # of showing an accessible error message — found by the
-        # accessibility test suite exercising exactly this path.
+        # A Pydantic 422 has a list ``detail``, not a string; normalize it so
+        # _translate_checkout_error doesn't crash.
         detail = raw_detail if isinstance(raw_detail, str) else ""
         return _render_landing(
             request,
@@ -492,25 +375,11 @@ async def _handle_checkout_submission(
     order = checkout_response.json()
     payment_redirect_url = order.get("payment_redirect_url")
     if payment_redirect_url:
-        # Milestone 3 / post-launch fix: a real Mollie payment, or a `demo`
-        # order's in-app demo-payment page, was just created for this order
-        # — send the buyer there instead of straight to order-confirmation.
-        # Mollie redirects back to the `redirectUrl` this app itself
-        # supplied when creating the payment (see
-        # `app.services.checkout._initiate_mollie_payment`), and the
-        # demo-payment page's own "simulate success/failure" actions
-        # redirect onward themselves (see
-        # `app.web.routes.demo_payment`) — both eventually land back at
-        # `/order-confirmation/{id}` (with `?preview=1` when relevant), so
-        # the stashed cookie below (set now, on THIS response, before any
-        # of that redirect chain even starts) is still what renders that
-        # page once the buyer gets there, same as every other payment
-        # method.
+        # Send the buyer to the payment page (Mollie or demo). Both end at
+        # /order-confirmation/<id>, which reads the cookie set on this response.
         response = RedirectResponse(url=payment_redirect_url, status_code=303)
     else:
-        # `door` orders, and the preview-mode simulated-payment path (order
-        # already `paid` with no real Mollie payment involved — see
-        # `app.services.checkout`), both go straight to order-confirmation.
+        # Door orders and sandbox-paid orders go straight to confirmation.
         redirect_url = f"/order-confirmation/{order['id']}"
         if token is not None:
             redirect_url += "?" + urlencode({"preview": "1"})
@@ -548,18 +417,7 @@ async def submit_preview_checkout(request: Request, token: str) -> Response:
 
 @router.get("/privacy", response_model=None)
 async def privacy_policy(request: Request) -> Response:
-    """The public privacy policy page (Milestone 9's GDPR-conscious
-    requirement — see PROJECT_BRIEF.md's Security & Ops section).
-
-    Deliberately NOT Event-scoped/themed (unlike ``public_landing_page``):
-    a privacy policy describes this whole deployment's data handling, not
-    any one Event, so it renders through the same shared public template
-    environment (``app.core.public_templating``) with no ``theme_css``/
-    per-Event context — the same "plain page" shape as
-    ``public/not_found.html``. Its actual content is placeholder text (see
-    ``app/templates/public/privacy_policy.html``); this route only wires
-    it up, it makes no claim about the content's legal accuracy.
-    """
+    """The privacy policy page (placeholder content, not themed)."""
     locale = resolve_locale(request)
     return public_templates.TemplateResponse(
         request,
@@ -570,10 +428,8 @@ async def privacy_policy(request: Request) -> Response:
 
 @router.get("/order-confirmation/{order_id}", response_model=None)
 async def order_confirmation(request: Request, order_id: str) -> Response:
-    """The post-checkout confirmation page. Only ever renders real order
-    data in the buyer's own browser, immediately after their own checkout
-    — see ``app.web.order_confirmation`` for why (and why this page is
-    structurally not shareable, per PROJECT_BRIEF.md's Sharing section).
+    """The confirmation page; renders only in the buyer's own browser (see
+    ``app.web.order_confirmation``).
     """
     locale = resolve_locale(request)
     order = read_order_confirmation(request, order_id)

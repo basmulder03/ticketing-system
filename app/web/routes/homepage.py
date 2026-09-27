@@ -1,26 +1,7 @@
-"""The public site root (``GET /``) — post-launch fix, per the user's
-NOTES: "There should be a homepage on the route, where different things
-can happen, and event can be set to the default event, which causes that
-event page to automagically open to the correct page, or show an overview
-of the app, what it can do, which events are currently able to have shows
-booked on... From there make it possible to go to the sign-in screen."
+"""The public site root (``/``).
 
-Before this, ``/`` unconditionally redirected straight into the
-backoffice (``app.web.routes.events.index``, now removed) — every visitor,
-buyer or admin, landed on an admin-only page and, if unauthenticated, was
-immediately bounced to ``/login``. There was no public-facing entry point
-at all. This module replaces that with a real one:
-
-- If an Event is both marked ``is_default_event`` AND ``published`` (see
-  ``app.models.event.Event.is_default_event``), a visitor to ``/`` is
-  redirected straight to that Event's own page — the "automagically
-  open" behavior the NOTES describe.
-- Otherwise, renders a plain directory of every published Event plus a
-  link to the admin sign-in page (``/login``) — same proxy-to-the-
-  existing-JSON-API shape as every other public-site page (see
-  ``app.web.routes.public_site``'s own module docstring), backed by
-  ``GET /api/v1/public/homepage`` (``app.api.routes.public.
-  get_public_homepage``).
+Redirects to the default event while it's set and published; otherwise shows
+a directory of published events with a link to the admin sign-in.
 """
 
 from fastapi import APIRouter, Request

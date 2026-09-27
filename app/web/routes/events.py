@@ -1,16 +1,5 @@
-"""Backoffice Events pages: the index list, and full Event CRUD (create,
-edit, delete).
-
-Every mutation here is a thin proxy to the existing JSON API under
-``app.api.routes.events`` via ``app.web.api_client`` — slug-uniqueness
-checking, cascade-delete-vs-FK-restrict handling, and audit logging all
-continue to live exactly once in that module. This file only translates
-between HTML forms and that JSON API, and renders templates. Per-event
-sub-pages (Theme, EventConfig, Email templates, Orders, Stats) each live in
-their own ``app.web.routes.*`` module — this one owns only the Event entity
-itself: the index list, the create form, the edit form (name/slug/
-description/status/sales_paused, plus the preview-link copy affordance),
-and delete.
+"""Backoffice event pages: list, create, edit (incl. preview link), delete, and
+default-event toggles. Other per-event pages live in their own modules.
 """
 
 from typing import Any
@@ -29,10 +18,7 @@ from app.web.flash import redirect_with_flash
 
 router = APIRouter(tags=["backoffice-events"])
 
-# Mirrors app.models.enums.PublishStatus — kept here only as (value, label)
-# pairs for the <select> options, same convention as
-# app.web.routes.themes.STATUS_CHOICES/FONT_CHOICES; the JSON API's
-# EventCreateRequest/EventUpdateRequest enforce the real enum.
+# Select options; the API enforces the real enum.
 STATUS_CHOICES = [
     ("draft", "Draft"),
     ("published", "Published"),
@@ -41,7 +27,7 @@ STATUS_CHOICES = [
 
 @router.get("/events", response_model=None)
 async def events_list(request: Request, principal: Principal = Depends(require_web_admin)) -> Response:
-    """List all events, with links into each one's edit/theme/config pages."""
+    """All events, with links to each one's pages."""
     async with internal_api_client(request) as client:
         events_response = await client.get("/api/v1/events")
     events = events_response.json()
@@ -65,7 +51,7 @@ async def events_list(request: Request, principal: Principal = Depends(require_w
 
 @router.get("/events/new", response_model=None)
 async def new_event_form(request: Request, principal: Principal = Depends(require_web_admin)) -> Response:
-    """Render the blank "create event" form."""
+    """The blank create form."""
     token = read_or_generate_csrf_token(request)
     response = templates.TemplateResponse(
         request,
@@ -93,13 +79,7 @@ async def create_event(
     sales_paused: bool = Form(False),
     csrf_token: str = Form(...),
 ) -> RedirectResponse:
-    """Proxy to ``POST /api/v1/events`` (``app.api.routes.events.create_event``).
-
-    On success, redirects straight into the new event's edit page rather
-    than back to the events list — the edit page is also where its preview
-    link lives, and is the natural next stop for an admin who just created
-    an event with nothing else configured on it yet.
-    """
+    """Create, then go to the new event's edit page (where its preview link is)."""
     verify_csrf(request, csrf_token)
     body: dict[str, Any] = {
         "name": name.strip(),
@@ -123,9 +103,7 @@ async def create_event(
 async def edit_event_form(
     request: Request, event_id: str, principal: Principal = Depends(require_web_admin)
 ) -> Response:
-    """Render the "edit event" form, including the event's preview-link
-    copy affordance (per PROJECT_BRIEF.md's Sharing section) and the
-    delete-event danger zone."""
+    """The edit form, with the preview link and delete option."""
     async with internal_api_client(request) as client:
         event_response = await client.get(f"/api/v1/events/{event_id}")
     if event_response.status_code == 404:
@@ -162,21 +140,8 @@ async def update_event(
     sales_paused: bool = Form(False),
     csrf_token: str = Form(...),
 ) -> RedirectResponse:
-    """Proxy to ``PATCH /api/v1/events/{event_id}``
-    (``app.api.routes.events.update_event``).
-
-    The API's ``EventUpdateRequest`` uses Pydantic ``exclude_unset``
-    semantics — a field omitted from the JSON body is left completely
-    untouched, distinct from being explicitly reset to its own current
-    value. This form always submits every field (a full edit form, not a
-    partial-diff UI), so this route diffs the submitted values against the
-    event's own current state itself and sends only the fields that
-    actually changed. This matters for two real reasons, not just tidiness:
-    it keeps the PATCH route's audit-log ``detail`` payload limited to what
-    genuinely changed, and it avoids re-triggering that route's
-    slug-uniqueness check against a slug that's merely being resubmitted
-    unchanged (a real event re-saving its own current slug should never be
-    rejected as "already in use" by itself).
+    """Send only changed fields. Keeps the audit entry accurate and avoids
+    re-checking an unchanged slug against itself.
     """
     verify_csrf(request, csrf_token)
     redirect_path = f"/events/{event_id}/edit"
@@ -217,21 +182,8 @@ async def delete_event(
     principal: Principal = Depends(require_web_admin),
     csrf_token: str = Form(...),
 ) -> RedirectResponse:
-    """Proxy to ``DELETE /api/v1/events/{event_id}``
-    (``app.api.routes.events.delete_event``).
-
-    Irreversible: cascade-deletes the event's EventConfig, Theme, Shows, and
-    TicketTypes — but ``Ticket.ticket_type_id`` uses ``ON DELETE RESTRICT``
-    (see that model's docstring), so a TicketType with real purchased
-    Tickets under it blocks the whole deletion at the database level. The
-    API route translates that DB integrity error into a clean 409 via
-    ``app.api.routes._utils.commit_or_conflict`` rather than a raw 500;
-    this route surfaces that 409's message as a flash on the edit page
-    rather than silently failing or crashing. Gated client-side by the
-    shared ``data-confirm`` submit-guard already established by the GDPR
-    buyer-PII-erasure UI (see ``backoffice/base.html`` and
-    ``backoffice/orders_list.html``) — the template's delete form names the
-    event explicitly in its confirmation text.
+    """Delete the event and everything under it; a 409 (sold tickets) is shown as
+    a flash. Guarded by a confirm dialog naming the event.
     """
     verify_csrf(request, csrf_token)
     async with internal_api_client(request) as client:
@@ -259,10 +211,7 @@ async def set_default_event(
     principal: Principal = Depends(require_web_admin),
     csrf_token: str = Form(...),
 ) -> RedirectResponse:
-    """Mark this Event as the default (see ``app.web.routes.homepage`` and
-    ``app.api.routes.events.set_default_event``'s docstring) — proxies to
-    ``POST /api/v1/events/{event_id}/set-default``, which also clears any
-    previously-default Event in the same transaction."""
+    """Make this the default event (clears any previous default)."""
     verify_csrf(request, csrf_token)
     async with internal_api_client(request) as client:
         resp = await client.post(f"/api/v1/events/{event_id}/set-default")
@@ -281,8 +230,7 @@ async def unset_default_event(
     principal: Principal = Depends(require_web_admin),
     csrf_token: str = Form(...),
 ) -> RedirectResponse:
-    """Clear this Event's default-Event status. Proxies to ``POST /api/v1/
-    events/{event_id}/unset-default`` — idempotent, same as that route."""
+    """Clear default status. Idempotent."""
     verify_csrf(request, csrf_token)
     async with internal_api_client(request) as client:
         resp = await client.post(f"/api/v1/events/{event_id}/unset-default")

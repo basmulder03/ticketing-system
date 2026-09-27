@@ -1,23 +1,9 @@
-"""Backoffice login/logout pages.
+"""Backoffice login/logout and first-run setup pages.
 
-Proxies credential checking to the existing JSON ``/api/v1/auth/login`` /
-``/api/v1/auth/logout`` routes via ``app.web.api_client`` — password
-verification, session-cookie issuance, and audit logging (``admin_user.login``)
-all stay defined exactly once in ``app.api.routes.auth``. This module only
-renders the HTML form and forwards the ``Set-Cookie``/``Set-Cookie``-clearing
-headers from that JSON response onto the browser-facing redirect.
-
-Milestone 7 adds :func:`_apply_role_default`: a ``scanner``-role session
-landing on this module's own ``"/events"`` default is retargeted to the
-show-picker (``/scan``) instead, since ``/events`` is admin-only.
-
-Post-launch fix adds :func:`setup_page`/:func:`setup_submit`: the initial-
-admin-account creation page, proxying to ``POST /api/v1/auth/setup`` the
-same way ``login_submit`` proxies to ``/login`` — see
-``app.api.routes.auth`` module docstring for why this exists. ``login_page``
-also redirects here automatically while no ``AdminUser`` exists yet, so a
-fresh deployment's very first visitor to ``/login`` lands on account
-creation instead of a login form for an account that doesn't exist.
+Credential checks, cookie issuance and auditing happen in the JSON API
+(``app.api.routes.auth``); these routes render the forms and forward the
+``Set-Cookie`` headers. ``/login`` redirects to ``/setup`` while no admin
+exists, and a scanner's default landing page is ``/scan``.
 """
 
 import re
@@ -34,24 +20,14 @@ from app.web.csrf import attach_csrf_cookie, read_or_generate_csrf_token, verify
 router = APIRouter(tags=["backoffice-auth"])
 
 _CONTROL_OR_BACKSLASH = re.compile(r"[\\\t\r\n]")
-"""Matches a backslash or an embedded TAB/CR/LF. Browsers normalize
-backslashes to forward slashes and strip embedded TAB/CR/LF while parsing a
-URL (per the WHATWG URL spec) BEFORE evaluating its scheme/authority — so
-``/\\evil.com`` or ``/\\t/evil.com`` become ``//evil.com`` (a protocol-
-relative absolute URL) by the time a browser follows the redirect, even
-though a same-site-looking prefix check on the raw string would not catch
-either. Reject outright rather than trying to "fix up" the value."""
+"""Backslashes and TAB/CR/LF. Browsers normalize these before parsing, so
+``/\\evil.com`` becomes ``//evil.com`` — reject rather than try to fix up.
+"""
 
 
 def _safe_next(candidate: str) -> str:
-    """Only allow same-site relative redirect targets — never an
-    attacker-supplied absolute/protocol-relative URL, and never a value a
-    browser could reinterpret into one after its own normalization (see
-    :data:`_CONTROL_OR_BACKSLASH`) — open-redirect guard.
-
-    Belt-and-suspenders: a plain prefix check catches the obvious
-    ``http://`` / ``//`` cases, and :func:`urlsplit` independently confirms
-    the parsed result carries no scheme or network location of its own.
+    """Open-redirect guard: allow only same-site relative paths, falling back to
+    ``/events``. A prefix check plus ``urlsplit`` both have to agree.
     """
     if _CONTROL_OR_BACKSLASH.search(candidate):
         return "/events"
@@ -64,36 +40,19 @@ def _safe_next(candidate: str) -> str:
 
 
 def _apply_role_default(safe_next: str, role: str | None) -> str:
-    """``/events`` is unreachable for a ``scanner``-role session
-    (``require_web_admin`` excludes that role — see ``app.web.deps``), so a
-    scanner landing there via this module's default would immediately
-    bounce straight back through the login redirect. Retarget the
-    show-picker page (``/scan``, Milestone 7) instead, but ONLY when
-    ``safe_next`` is still the unmodified ``"/events"`` default.
+    """Send scanners to ``/scan`` instead of the admin-only ``/events`` default.
 
-    This reuses ``"/events"`` itself as the "no explicit ``next`` was
-    requested" sentinel, matching this module's existing (pre-Milestone 7)
-    behavior: ``login_page`` already seeds the login form's hidden ``next``
-    field with the literal string ``"/events"`` whenever no ``?next=``
-    query param was present, so by the time a value reaches here there is
-    no way to distinguish "no next was given" from "next=/events was
-    explicitly given" anyway — treating both the same is safe (and
-    correct) here specifically because ``/events`` is never a *useful*
-    explicit destination for a scanner account regardless of intent, unlike
-    an arbitrary same-site path a caller might genuinely want preserved.
+    ``"/events"`` doubles as the "no ``next`` given" sentinel; treating an
+    explicit ``next=/events`` the same is fine, since it's useless for scanners.
     """
     return "/scan" if safe_next == "/events" and role == "scanner" else safe_next
 
 
 @router.get("/login", response_model=None)
 async def login_page(request: Request, next: str = "/events") -> Response:
-    """Render the login form. Already-authenticated visitors are bounced
-    straight to their destination rather than shown the form again (checked
-    via the existing ``/api/v1/auth/me`` route, not reimplemented here).
-
-    While this deployment has no ``AdminUser`` at all yet, redirects to
-    ``/setup`` instead — there is nothing to log in as, so showing a login
-    form here would just be a dead end (see this module's docstring)."""
+    """Render the login form. Already logged in → redirect onward; no admin yet →
+    redirect to ``/setup``.
+    """
     async with internal_api_client(request) as client:
         me_response = await client.get("/api/v1/auth/me")
     if me_response.status_code == 200:
@@ -123,8 +82,7 @@ async def login_submit(
     csrf_token: str = Form(...),
     next: str = Form("/events"),
 ) -> Response:
-    """Validate the CSRF token, then delegate credential checking to the
-    JSON login route and forward its session cookie onto the browser."""
+    """Check CSRF, log in via the JSON API, forward its session cookie."""
     verify_csrf(request, csrf_token)
     safe_next = _safe_next(next)
 
@@ -151,7 +109,7 @@ async def login_submit(
 
 @router.post("/logout")
 async def logout(request: Request, csrf_token: str = Form(...)) -> RedirectResponse:
-    """Clear the admin session via the JSON logout route, then redirect to login."""
+    """Log out via the JSON API, then redirect to ``/login``."""
     verify_csrf(request, csrf_token)
     async with internal_api_client(request) as client:
         api_response = await client.post("/api/v1/auth/logout")
@@ -164,11 +122,7 @@ async def logout(request: Request, csrf_token: str = Form(...)) -> RedirectRespo
 
 @router.get("/setup", response_model=None)
 async def setup_page(request: Request) -> Response:
-    """Render the initial-admin-account creation form — post-launch fix,
-    see this module's docstring. Permanently redirects to ``/login``
-    once any ``AdminUser`` exists (this is a one-time page, not a general
-    "create an admin" form — that lives in the authenticated backoffice,
-    ``app.web.routes.admin_users``)."""
+    """First-run admin form; redirects to ``/login`` once any admin exists."""
     async with internal_api_client(request) as client:
         setup_required_response = await client.get("/api/v1/auth/setup-required")
     if not setup_required_response.json().get("setup_required"):
@@ -190,15 +144,9 @@ async def setup_submit(
     confirm_password: str = Form(...),
     csrf_token: str = Form(...),
 ) -> Response:
-    """Validate the CSRF token and that both password fields match, then
-    delegate account creation to the JSON setup route and forward its
-    session cookie onto the browser — same shape as :func:`login_submit`.
-
-    The ``password != confirm_password`` check is purely a web-form UX
-    nicety (catching a typo before it locks the deployer out of the
-    account they just created) — the JSON API itself takes no
-    ``confirm_password`` field at all, since a raw API caller has no
-    "confirm" field to duplicate."""
+    """Check CSRF and that the passwords match (a typo here would lock out the
+    deployer), create the admin via the JSON API, forward its session cookie.
+    """
     verify_csrf(request, csrf_token)
 
     if password != confirm_password:

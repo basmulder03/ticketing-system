@@ -1,24 +1,6 @@
-"""Backoffice Stats & Reporting dashboard (Milestone 8): a per-Event sales/
-revenue/scan-in view rendered on top of the JSON API backend-builder
-already shipped (``app.api.routes.stats``, ``app.services.stats``). This
-module has no aggregation logic of its own — it fetches the Event (for the
-breadcrumb/nav) and the stats payload, then hands both to a template,
-exactly the same "thin web route, real logic stays in the JSON API" shape
-as ``app.web.routes.orders.orders_list``.
-
-Gated by ``require_web_admin`` (never ``require_web_scanner_or_admin``):
-revenue/sold/scan figures are financial/business data, same admin-only
-scoping as the Orders list page and the underlying JSON API route itself
-(``app.api.routes.stats.get_stats`` uses ``require_admin``, not
-``require_admin_or_agent``) — a scanner-role session has no business
-seeing an event's revenue.
-
-The template's "Download CSV" link points straight at
-``GET /api/v1/events/{event_id}/orders/export.csv`` — no web-layer proxy
-route for it, same reasoning as the Orders list page's existing "Download
-invoice" links (``app.templates.backoffice.orders_list``): a plain GET
-with no CSRF-relevant side effect, already authenticated by the admin
-session cookie the browser sends directly to the JSON API.
+"""Backoffice stats dashboard for one event (logic lives in the JSON API).
+Admin-only: revenue isn't for scanners. The CSV link goes straight to the
+JSON API export (a plain GET, authenticated by the session cookie).
 """
 
 
@@ -38,20 +20,8 @@ router = APIRouter(tags=["backoffice-stats"])
 async def event_stats(
     request: Request, event_id: str, principal: Principal = Depends(require_web_admin)
 ) -> Response:
-    """Render the sales/revenue/scan-in dashboard for one Event.
-
-    Fetches the Event and the aggregated stats payload
-    (``GET /api/v1/events/{event_id}/stats``) in the same request, mirroring
-    ``app.web.routes.orders.orders_list``'s two-call shape. A stats-fetch
-    failure degrades to a visible error banner (empty dashboard) rather
-    than crashing the whole page — defensive against a future regression
-    in that route, not an expected outcome for an admin session that just
-    resolved the Event successfully.
-
-    A CSRF token is issued/attached here even though this page's own
-    content has no form of its own: ``backoffice/base.html``'s header
-    always renders a "Log out" form, which needs one, same as every other
-    backoffice page.
+    """Render the dashboard. A stats-fetch failure shows an error banner instead
+    of crashing. A CSRF token is issued for the header's logout form.
     """
     async with internal_api_client(request) as client:
         event_response = await client.get(f"/api/v1/events/{event_id}")
